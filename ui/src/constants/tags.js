@@ -1,14 +1,14 @@
 export const TAG_OPTIONS = [
-  { value: "war", label: "战争" },
-  { value: "politics", label: "政治" },
-  { value: "culture", label: "文化" },
-  { value: "science", label: "科技" },
-  { value: "explore", label: "探索" },
-  { value: "disaster", label: "灾难" },
-  { value: "reform", label: "改革" },
-  { value: "diplomacy", label: "外交" },
-  { value: "economy", label: "经济" },
-  { value: "summary", label: "Summary" },
+  { value: "war", label: "战争", color: "var(--t-war)" },
+  { value: "politics", label: "政治", color: "var(--t-politics)" },
+  { value: "culture", label: "文化", color: "var(--t-culture)" },
+  { value: "science", label: "科技", color: "var(--t-science)" },
+  { value: "explore", label: "探索", color: "var(--t-science)" },
+  { value: "disaster", label: "灾难", color: "var(--t-war)" },
+  { value: "reform", label: "改革", color: "var(--t-reform)" },
+  { value: "diplomacy", label: "外交", color: "var(--t-diplomacy)" },
+  { value: "economy", label: "经济", color: "var(--t-economy)" },
+  { value: "summary", label: "Summary", color: "var(--accent)" },
 ];
 
 const TAG_LABEL_MAP = Object.fromEntries(
@@ -17,4 +17,12 @@ const TAG_LABEL_MAP = Object.fromEntries(
 
 export function getTagLabel(tag) {
   return TAG_LABEL_MAP[tag] || tag;
+}
+
+const TAG_COLOR_MAP = Object.fromEntries(
+  TAG_OPTIONS.map((option) => [option.value, option.color || "var(--accent)"])
+);
+
+export function getTagColor(tag) {
+  return TAG_COLOR_MAP[tag] || "var(--accent)";
 }

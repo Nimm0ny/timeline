@@ -1,52 +1,74 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
-import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
+import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
+import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
-import { compareTimelineEvents, groupTimelineEvents, matchesEventSearch } from "@/utils/timelineNotes";
+import {
+  compareTimelineEvents,
+  groupTimelineEvents,
+  matchesEventSearch,
+  normalizeBuiltinColumns,
+  normalizeTopicColumns,
+} from "@/utils/timelineNotes";
 
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
-const stageStyle = reactive({
-  "--tn-sidebar-width": "293px",
-  "--tn-detail-width": "552px",
-  "--tn-detail-content-width": "508px",
-  "--tn-feed-left": "32px",
-  "--tn-year-label-width": "92px",
-  "--tn-rail-width": "56px",
-  "--tn-card-width": "531px",
-  "--tn-card-text-width": "480px",
-  "--tn-card-title-width": "390px",
-  "--tn-composer-left": "61px",
-  "--tn-composer-width": "662px",
-});
 
 const DETAIL_MODES = new Set(["view", "edit", "create"]);
 const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
-const STAGE_WIDTH = 1920;
+const LEFT_WIDTH_KEY = "chronicle-left-width";
+const RIGHT_WIDTH_KEY = "chronicle-right-width";
+const PREVIEW_KEY = "chronicle-show-preview";
 
-function clampNumber(value, min, max) {
+function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function clampToAvailable(value, min, max) {
-  const safeMax = Math.max(1, max);
-  if (safeMax < min) return safeMax;
-  return clampNumber(value, min, safeMax);
+function readStorage(key, fallback) {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  return raw == null ? fallback : raw;
+}
+
+function writeStorage(key, value) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, String(value));
+}
+
+function parseRouteNumber(name) {
+  const raw = route?.query?.[name];
+  const value = Number.parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
+  return Number.isNaN(value) ? null : value;
+}
+
+function parseRouteString(name) {
+  const raw = route?.query?.[name];
+  return String(Array.isArray(raw) ? raw[0] : raw || "");
+}
+
+function parseRouteMode() {
+  const raw = parseRouteString("mode") || "view";
+  return DETAIL_MODES.has(raw) ? raw : "view";
+}
+
+function parseRouteFilter() {
+  const raw = parseRouteString("filter") || "all";
+  return FILTERS.has(raw) ? raw : "all";
 }
 
 const state = reactive({
   loading: true,
   saving: false,
+  columnSaving: false,
   error: "",
-  detailLoading: true,
+  detailLoading: false,
   detailError: "",
   config: {
-    brandName: "时间线笔记",
+    brandName: "编年",
   },
   topics: [],
   activeTopicId: null,
@@ -60,6 +82,7 @@ const state = reactive({
   detailMode: "view",
   sidebarFilter: "all",
   activeTag: "",
+  activeEra: "",
   locateDate: "",
   detailDirty: false,
   confirmUnsaved: false,
@@ -67,80 +90,27 @@ const state = reactive({
   afterSaveAction: null,
   menuEvent: null,
   settingsOpen: false,
+  rightOpen: false,
+  leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
+  rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
+  showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
+  builtinColumns: { type: true, tags: true },
+  searchRequestKey: 0,
 });
 
-function parseRouteNumber(name) {
-  const raw = route?.query?.[name];
-  const value = Number.parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
-  return Number.isNaN(value) ? null : value;
-}
+let resizeCleanup = null;
 
-function updateStageScale() {
-  if (typeof window === "undefined") return;
-  const viewportWidth = Math.max(window.innerWidth || STAGE_WIDTH, 1);
-  const widthRatio = viewportWidth / STAGE_WIDTH;
-  const sidebarWidth = clampNumber(293 * widthRatio, 220, 320);
-  const detailWidth = clampNumber(552 * widthRatio, 360, 620);
-  const detailContentWidth = Math.max(280, detailWidth - 44);
-  const middleWidth = Math.max(0, viewportWidth - sidebarWidth - detailWidth);
-  const feedLeft = clampNumber((middleWidth * 32) / 1075, 22, 40);
-  const yearLabelWidth = clampNumber((middleWidth * 92) / 1075, 70, 104);
-  const railWidth = clampNumber((middleWidth * 56) / 1075, 38, 64);
-  const cardAvailableWidth = middleWidth - feedLeft - yearLabelWidth - railWidth - 44;
-  const cardWidth = clampToAvailable((middleWidth * 531) / 1075, 360, Math.min(780, cardAvailableWidth));
-  const textWidth = Math.max(260, cardWidth - 51);
-  const titleWidth = Math.max(240, cardWidth - 141);
-  const composerLeft = clampNumber((middleWidth * 61) / 1075, 28, 76);
-  const composerAvailableWidth = middleWidth - composerLeft - 32;
-  const composerWidth = clampToAvailable((middleWidth * 662) / 1075, 420, Math.min(920, composerAvailableWidth));
+const workspaceStyle = computed(() => ({
+  "--left-w": `${state.leftWidth}px`,
+  "--right-w": `${state.rightWidth}px`,
+}));
 
-  stageStyle["--tn-sidebar-width"] = `${sidebarWidth}px`;
-  stageStyle["--tn-detail-width"] = `${detailWidth}px`;
-  stageStyle["--tn-detail-content-width"] = `${detailContentWidth}px`;
-  stageStyle["--tn-feed-left"] = `${feedLeft}px`;
-  stageStyle["--tn-year-label-width"] = `${yearLabelWidth}px`;
-  stageStyle["--tn-rail-width"] = `${railWidth}px`;
-  stageStyle["--tn-card-width"] = `${cardWidth}px`;
-  stageStyle["--tn-card-text-width"] = `${textWidth}px`;
-  stageStyle["--tn-card-title-width"] = `${titleWidth}px`;
-  stageStyle["--tn-composer-left"] = `${composerLeft}px`;
-  stageStyle["--tn-composer-width"] = `${composerWidth}px`;
-}
+const activeTopicTitle = computed(
+  () => state.activeTopicMeta?.title || state.topics.find((topic) => topic.id === state.activeTopicId)?.title || "编年"
+);
 
-function parseRouteMode() {
-  const raw = String(Array.isArray(route?.query?.mode) ? route.query.mode[0] : route?.query?.mode || "view");
-  return DETAIL_MODES.has(raw) ? raw : "view";
-}
-
-function parseRouteFilter() {
-  const raw = String(Array.isArray(route?.query?.filter) ? route.query.filter[0] : route?.query?.filter || "all");
-  return FILTERS.has(raw) ? raw : "all";
-}
-
-function parseRouteString(name) {
-  const raw = route?.query?.[name];
-  return String(Array.isArray(raw) ? raw[0] : raw || "");
-}
-
-async function syncRouteState(next = {}) {
-  const nextQuery = {
-    ...route.query,
-    topic: next.topicId ? String(next.topicId) : undefined,
-    event: next.eventId ? String(next.eventId) : undefined,
-    mode: next.mode && next.mode !== "view" ? next.mode : undefined,
-    filter: next.filter && next.filter !== "all" ? next.filter : undefined,
-    tag: next.tag || undefined,
-    date: next.date || undefined,
-  };
-  await router.replace({ query: nextQuery });
-}
-
-function resolveTopicId(topics, preferredTopicId = null) {
-  if (preferredTopicId && topics.some((topic) => topic.id === preferredTopicId)) return preferredTopicId;
-  const fromRoute = parseRouteNumber("topic");
-  if (fromRoute && topics.some((topic) => topic.id === fromRoute)) return fromRoute;
-  return topics[0]?.id ?? null;
-}
+const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
+const selectedEvent = computed(() => state.events.find((event) => event.id === state.selectedEventId) || null);
 
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
@@ -177,45 +147,89 @@ function matchesMainFilter(event, filter) {
   return true;
 }
 
-function matchesTag(event, tag) {
-  if (!tag) return true;
-  return (event.tags || []).includes(tag) || (event.items || []).some((item) => item.tag === tag);
-}
-
-function filterEvents({ filter = state.sidebarFilter, tag = state.activeTag, search = state.searchQuery } = {}) {
+function filterEvents({ filter = state.sidebarFilter, tag = state.activeTag, era = state.activeEra, search = state.searchQuery } = {}) {
   return [...state.events]
     .filter((event) => matchesMainFilter(event, filter))
-    .filter((event) => matchesTag(event, tag))
+    .filter((event) => !tag || (event.tags || []).includes(tag))
+    .filter((event) => !era || event.era === era)
     .filter((event) => matchesEventSearch(event, search))
     .sort(compareTimelineEvents);
 }
 
-function selectFirstVisible(filter = state.sidebarFilter, tag = state.activeTag) {
-  const items = filterEvents({ filter, tag, search: state.searchQuery });
-  state.selectedEventId = items[0]?.id ?? null;
-  return state.selectedEventId;
+const visibleEvents = computed(() => filterEvents());
+const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "era", ""));
+
+const feedEmptyReason = computed(() => {
+  if (state.error) return "";
+  if (!state.activeTopicId) return "先创建或选择一个笔记本。";
+  if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
+  if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
+  if (state.activeEra) return "当前分期下没有记录。";
+  if (state.activeTag) return "当前标签下没有记录。";
+  return "当前筛选下没有记录。";
+});
+
+function builtinsStorageKey(topicId) {
+  return `chronicle-builtins:${topicId}`;
 }
 
-function setSelectedEvent(items, preferredEventId = null, preserveCurrent = true) {
+function loadBuiltinColumns(topicId) {
+  try {
+    const raw = readStorage(builtinsStorageKey(topicId), "");
+    return raw ? normalizeBuiltinColumns(JSON.parse(raw)) : normalizeBuiltinColumns({});
+  } catch {
+    return normalizeBuiltinColumns({});
+  }
+}
+
+function persistBuiltinColumns() {
+  if (!state.activeTopicId) return;
+  writeStorage(builtinsStorageKey(state.activeTopicId), JSON.stringify(state.builtinColumns));
+}
+
+async function syncRouteState(overrides = {}) {
+  const topicId = overrides.topicId !== undefined ? overrides.topicId : state.activeTopicId;
+  const eventId =
+    overrides.eventId !== undefined
+      ? overrides.eventId
+      : state.rightOpen && state.selectedEventId
+        ? state.selectedEventId
+        : null;
+  const mode = overrides.mode ?? state.detailMode;
+  const filter = overrides.filter ?? state.sidebarFilter;
+  const tag = overrides.tag ?? state.activeTag;
+  const era = overrides.era ?? state.activeEra;
+  const date = overrides.date ?? state.locateDate;
+  await router.replace({
+    query: {
+      ...route.query,
+      topic: topicId ? String(topicId) : undefined,
+      event: eventId ? String(eventId) : undefined,
+      mode: mode !== "view" ? mode : undefined,
+      filter: filter !== "all" ? filter : undefined,
+      tag: tag || undefined,
+      era: era || undefined,
+      date: date || undefined,
+    },
+  });
+}
+
+function setDefaultSelection(preferredEventId = null) {
+  const items = filterEvents();
   if (preferredEventId && items.some((event) => event.id === preferredEventId)) {
     state.selectedEventId = preferredEventId;
     return;
   }
-  if (preserveCurrent && items.some((event) => event.id === state.selectedEventId)) return;
+  if (items.some((event) => event.id === state.selectedEventId)) return;
   state.selectedEventId = items[0]?.id ?? null;
-}
-
-function canEditEvent(event) {
-  return Boolean(event && !event.deletedAt);
 }
 
 async function loadWorkspace(options = {}) {
   const {
     preferredTopicId = null,
     preferredEventId = parseRouteNumber("event"),
-    preserveSelection = true,
     preferredMode = parseRouteMode(),
-    clearBeforeLoad = false,
+    openDetail = preferredMode !== "view" || preferredEventId !== null,
   } = options;
 
   state.loading = true;
@@ -223,134 +237,54 @@ async function loadWorkspace(options = {}) {
   state.detailError = "";
   state.sidebarFilter = parseRouteFilter();
   state.activeTag = parseRouteString("tag");
+  state.activeEra = parseRouteString("era");
   state.locateDate = parseRouteString("date");
-
-  if (clearBeforeLoad || preferredEventId !== null || preferredMode !== "view") {
-    state.detailLoading = true;
-  }
-
-  if (clearBeforeLoad) {
-    state.activeTopicMeta = null;
-    state.events = [];
-    state.eventBounds = null;
-    state.hasMore = false;
-    state.nextCursor = null;
-    state.selectedEventId = null;
-    state.detailLoading = false;
-  }
 
   try {
     const [config, topics] = await Promise.all([api.getConfig(), api.listTopics()]);
-    state.config = {
-      brandName: String(config?.brandName || "").trim() || "时间线笔记",
-    };
+    state.config.brandName = "编年";
     state.topics = topics;
 
-    const routeTopicId = parseRouteNumber("topic");
-    if (routeTopicId !== null && !topics.some((topic) => topic.id === routeTopicId)) {
-      state.activeTopicId = null;
-      state.activeTopicMeta = null;
-      state.events = [];
-      state.eventBounds = null;
-      state.selectedEventId = null;
-      state.error = "指定笔记本不存在";
-      state.detailLoading = false;
-      document.title = "时间线笔记";
-      return;
-    }
+    const resolvedTopicId =
+      preferredTopicId && topics.some((topic) => topic.id === preferredTopicId)
+        ? preferredTopicId
+        : parseRouteNumber("topic") && topics.some((topic) => topic.id === parseRouteNumber("topic"))
+          ? parseRouteNumber("topic")
+          : topics[0]?.id ?? null;
 
-    const nextTopicId = resolveTopicId(topics, preferredTopicId);
-    state.activeTopicId = nextTopicId;
-
-    if (nextTopicId && parseRouteNumber("topic") !== nextTopicId) {
-      await router.replace({ query: { ...route.query, topic: String(nextTopicId) } });
-    }
-
-    if (!nextTopicId) {
+    state.activeTopicId = resolvedTopicId;
+    if (!resolvedTopicId) {
       state.activeTopicMeta = null;
       state.events = [];
       state.selectedEventId = null;
-      document.title = "时间线笔记";
+      state.rightOpen = false;
       return;
     }
 
-    const [meta, rawEvents] = await Promise.all([
-      api.getTopicMeta(nextTopicId),
-      api.getTimelineEvents(nextTopicId),
-    ]);
-
+    const [meta, response] = await Promise.all([api.getTopicMeta(resolvedTopicId), api.getTimelineEvents(resolvedTopicId)]);
     state.activeTopicMeta = meta;
-    state.eventBounds = rawEvents.bounds || null;
-    state.hasMore = Boolean(rawEvents.hasMore);
-    state.nextCursor = rawEvents.nextCursor || null;
-    state.events = [...(rawEvents.items || [])].sort(compareTimelineEvents);
+    state.builtinColumns = loadBuiltinColumns(resolvedTopicId);
+    state.eventBounds = response.bounds || null;
+    state.hasMore = Boolean(response.hasMore);
+    state.nextCursor = response.nextCursor || null;
+    state.events = [...(response.items || [])].sort(compareTimelineEvents);
 
-    const filtered = filterEvents({ filter: state.sidebarFilter, tag: state.activeTag, search: state.searchQuery });
-    if (preferredEventId !== null) {
-      if (state.events.some((event) => event.id === preferredEventId)) {
-        state.selectedEventId = preferredEventId;
-        state.detailError = "";
-      } else {
-        state.selectedEventId = null;
-        state.detailError = "指定事件不存在";
-      }
-    } else {
-      setSelectedEvent(filtered, null, preserveSelection);
-      state.detailError = "";
-    }
-
+    setDefaultSelection(preferredEventId);
     state.detailMode =
       preferredMode === "create"
         ? "create"
-        : preferredMode === "edit" && canEditEvent(state.events.find((event) => event.id === state.selectedEventId))
+        : preferredMode === "edit" && state.selectedEventId
           ? "edit"
           : "view";
-
-    if (preferredMode === "edit" && state.detailMode === "view") {
-      await syncRouteState({
-        topicId: state.activeTopicId,
-        eventId: state.selectedEventId,
-        mode: "view",
-        filter: state.sidebarFilter,
-        tag: state.activeTag,
-        date: state.locateDate,
-      });
-    }
-    document.title = `${meta.title || meta.name || "时间线笔记"} - 时间线笔记`;
+    state.rightOpen = Boolean(openDetail && (state.selectedEventId || state.detailMode === "create"));
+    document.title = `${state.config.brandName} Chronicle`;
   } catch (error) {
     state.error = error.message || "加载失败";
-    pushToast(`加载时间线失败：${error.message}`, "error");
+    pushToast(`加载失败：${error.message}`, "error");
   } finally {
     state.loading = false;
-    state.detailLoading = false;
   }
 }
-
-const activeTopic = computed(() => state.topics.find((topic) => topic.id === state.activeTopicId) || null);
-const activeTopicTitle = computed(
-  () => state.activeTopicMeta?.title || activeTopic.value?.title || activeTopic.value?.name || "未选择笔记本"
-);
-
-const sidebarFilteredEvents = computed(() =>
-  [...state.events]
-    .filter((event) => matchesMainFilter(event, state.sidebarFilter))
-    .filter((event) => matchesTag(event, state.activeTag))
-    .sort(compareTimelineEvents)
-);
-
-const visibleEvents = computed(() => sidebarFilteredEvents.value.filter((event) => matchesEventSearch(event, state.searchQuery)));
-const groupedEvents = computed(() => groupTimelineEvents(sidebarFilteredEvents.value, "year", state.searchQuery));
-
-const selectedEvent = computed(() => state.events.find((event) => event.id === state.selectedEventId) || null);
-
-const feedEmptyReason = computed(() => {
-  if (state.error) return "";
-  if (!state.activeTopicId) return "先创建或选择一个笔记本。";
-  if (state.sidebarFilter === "trash" && sidebarFilteredEvents.value.length === 0) return "回收站为空。";
-  if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
-  if (state.activeTag) return "当前标签下没有记录。";
-  return "当前筛选下没有记录。";
-});
 
 function runOrConfirm(action) {
   if ((state.detailMode === "edit" || state.detailMode === "create") && state.detailDirty) {
@@ -388,18 +322,12 @@ function saveAndContinue() {
 }
 
 function selectEvent(eventId) {
-  runOrConfirm(() => {
+  runOrConfirm(async () => {
     state.selectedEventId = eventId;
-    state.detailError = "";
     state.detailMode = "view";
-    syncRouteState({
-      topicId: state.activeTopicId,
-      eventId,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.detailError = "";
+    state.rightOpen = true;
+    await syncRouteState({ eventId, mode: "view" });
   });
 }
 
@@ -408,66 +336,49 @@ function openRelatedEvent(eventId) {
   selectEvent(eventId);
 }
 
+function closeDetailPane() {
+  runOrConfirm(async () => {
+    state.rightOpen = false;
+    state.detailMode = "view";
+    await syncRouteState({ eventId: null, mode: "view" });
+  });
+}
+
 function startCreateEvent() {
-  runOrConfirm(() => {
+  runOrConfirm(async () => {
     if (!state.activeTopicId) {
-      pushToast("请先创建或选择一个笔记本", "error");
+      pushToast("请先选择一个笔记本", "error");
       return;
     }
     state.detailMode = "create";
-    syncRouteState({
-      topicId: state.activeTopicId,
-      eventId: state.selectedEventId,
-      mode: "create",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.rightOpen = true;
+    await syncRouteState({ eventId: state.selectedEventId, mode: "create" });
   });
 }
 
 function startEditSelectedEvent() {
-  if (!canEditEvent(selectedEvent.value)) return;
+  if (!selectedEvent.value || selectedEvent.value.deletedAt) return;
   state.detailMode = "edit";
-  syncRouteState({
-    topicId: state.activeTopicId,
-    eventId: state.selectedEventId,
-    mode: "edit",
-    filter: state.sidebarFilter,
-    tag: state.activeTag,
-    date: state.locateDate,
-  });
+  state.rightOpen = true;
+  syncRouteState({ eventId: state.selectedEventId, mode: "edit" });
 }
 
 function cancelDetailEdit() {
-  runOrConfirm(() => {
+  runOrConfirm(async () => {
     state.detailMode = "view";
-    if (!state.selectedEventId && visibleEvents.value.length > 0) {
-      state.selectedEventId = visibleEvents.value[0].id;
-    }
-    syncRouteState({
-      topicId: state.activeTopicId,
-      eventId: state.selectedEventId,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.rightOpen = Boolean(state.selectedEventId);
+    await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null, mode: "view" });
   });
 }
 
 async function cleanupDeletedImages(imageOps, currentImage) {
   const pending = [...new Set((imageOps?.deleteImages || []).filter((filename) => filename && filename !== currentImage))];
-  if (pending.length === 0) return;
+  if (!pending.length) return;
   await Promise.allSettled(pending.map((filename) => api.deleteImage(filename)));
 }
 
 async function saveEvent(payload) {
-  if (!state.activeTopicId) {
-    pushToast("请先选择一个笔记本", "error");
-    return;
-  }
-
+  if (!state.activeTopicId) return;
   state.saving = true;
   try {
     const result = payload.id
@@ -480,25 +391,19 @@ async function saveEvent(payload) {
     await loadWorkspace({
       preferredTopicId: state.activeTopicId,
       preferredEventId: result.id,
-      preserveSelection: false,
       preferredMode: "view",
-      clearBeforeLoad: false,
+      openDetail: true,
     });
-    await syncRouteState({
-      topicId: state.activeTopicId,
-      eventId: result.id,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.selectedEventId = result.id;
+    state.rightOpen = true;
+    await syncRouteState({ eventId: result.id, mode: "view" });
     pushToast(payload.id ? "事件已更新" : "事件已创建");
 
-    const afterSaveAction = state.afterSaveAction;
+    const nextAction = state.afterSaveAction;
     state.afterSaveAction = null;
-    if (afterSaveAction) {
+    if (nextAction) {
       await nextTick();
-      afterSaveAction();
+      nextAction();
     }
   } catch (error) {
     state.afterSaveAction = null;
@@ -511,20 +416,17 @@ async function saveEvent(payload) {
 async function selectTopic(topicId) {
   if (topicId === state.activeTopicId) return;
   runOrConfirm(async () => {
+    state.activeTag = "";
+    state.activeEra = "";
+    state.searchQuery = "";
     await loadWorkspace({
       preferredTopicId: topicId,
-      preserveSelection: false,
-      clearBeforeLoad: true,
+      preferredEventId: null,
+      preferredMode: "view",
+      openDetail: false,
     });
-    selectFirstVisible();
-    await syncRouteState({
-      topicId,
-      eventId: state.selectedEventId,
-      mode: state.detailMode,
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.rightOpen = false;
+    await syncRouteState({ topicId, eventId: null, tag: "", era: "", mode: "view" });
   });
 }
 
@@ -534,81 +436,69 @@ async function createTopic(name) {
     pushToast(`已创建笔记本：${name}`);
     await loadWorkspace({
       preferredTopicId: created.id,
-      preserveSelection: false,
-      clearBeforeLoad: true,
+      preferredEventId: null,
+      preferredMode: "view",
+      openDetail: false,
     });
-    await syncRouteState({
-      topicId: created.id,
-      eventId: state.selectedEventId,
-      mode: state.detailMode,
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    state.rightOpen = false;
+    await syncRouteState({ topicId: created.id, eventId: null });
   } catch (error) {
     pushToast(`创建笔记本失败：${error.message}`, "error");
   }
 }
 
-function updateSidebarFilter(filter) {
-  runOrConfirm(() => {
-    state.sidebarFilter = filter;
-    if (state.activeTag && !filterEvents({ filter, tag: state.activeTag, search: "" }).length) {
-      state.activeTag = "";
-    }
-    const eventId = selectFirstVisible(state.sidebarFilter, state.activeTag);
+function applyFilterState({ filter = state.sidebarFilter, tag = state.activeTag, era = state.activeEra, date = state.locateDate } = {}) {
+  state.sidebarFilter = filter;
+  state.activeTag = tag;
+  state.activeEra = era;
+  state.locateDate = date;
+  setDefaultSelection();
+  if (!visibleEvents.value.length) {
+    state.rightOpen = false;
     state.detailMode = "view";
-    syncRouteState({
-      topicId: state.activeTopicId,
-      eventId,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+  } else if (state.rightOpen && !visibleEvents.value.some((event) => event.id === state.selectedEventId)) {
+    state.selectedEventId = visibleEvents.value[0].id;
+  }
+}
+
+function updateSidebarFilter(filter) {
+  runOrConfirm(async () => {
+    applyFilterState({ filter });
+    await syncRouteState({ filter, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
 
 function updateActiveTag(tag) {
-  runOrConfirm(() => {
-    state.activeTag = tag;
-    const eventId = selectFirstVisible(state.sidebarFilter, state.activeTag);
-    state.detailMode = "view";
-    syncRouteState({
-      topicId: state.activeTopicId,
-      eventId,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+  runOrConfirm(async () => {
+    applyFilterState({ tag });
+    await syncRouteState({ tag, eventId: state.rightOpen ? state.selectedEventId : null });
+  });
+}
+
+function updateActiveEra(era) {
+  runOrConfirm(async () => {
+    applyFilterState({ era });
+    await syncRouteState({ era, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
 
 function updateSearchQuery(value) {
   state.searchQuery = value;
-  if (state.detailMode === "view" && !visibleEvents.value.some((event) => event.id === state.selectedEventId)) {
-    state.selectedEventId = visibleEvents.value[0]?.id ?? null;
+  setDefaultSelection();
+  if (!visibleEvents.value.length) {
+    state.rightOpen = false;
   }
 }
 
 function locateDate(value) {
   state.locateDate = value;
-  syncRouteState({
-    topicId: state.activeTopicId,
-    eventId: state.selectedEventId,
-    mode: state.detailMode,
-    filter: state.sidebarFilter,
-    tag: state.activeTag,
-    date: value,
-  });
+  syncRouteState({ date: value });
 }
 
 async function toggleFavorite(event) {
   if (!event || event.deletedAt) return;
   try {
-    const nextFavorite = !event.favorite;
-    const result = await api.updateEventFavorite(event.id, nextFavorite);
+    const result = await api.updateEventFavorite(event.id, !event.favorite);
     const target = state.events.find((item) => item.id === event.id);
     if (target) {
       target.favorite = result.favorite;
@@ -635,18 +525,8 @@ async function moveEventToTrash(event) {
     const target = state.events.find((item) => item.id === event.id);
     if (target) target.deletedAt = result.deletedAt || new Date().toISOString();
     closeEventMenu();
-    if (state.sidebarFilter !== "trash") {
-      const nextId = selectFirstVisible();
-      state.detailMode = "view";
-      await syncRouteState({
-        topicId: state.activeTopicId,
-        eventId: nextId,
-        mode: "view",
-        filter: state.sidebarFilter,
-        tag: state.activeTag,
-        date: state.locateDate,
-      });
-    }
+    applyFilterState();
+    await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已移入回收站");
   } catch (error) {
     pushToast(`删除失败：${error.message}`, "error");
@@ -663,18 +543,8 @@ async function restoreEvent(event) {
       target.updatedAt = result.updatedAt;
     }
     closeEventMenu();
-    if (state.sidebarFilter === "trash") {
-      const nextId = selectFirstVisible();
-      state.detailMode = "view";
-      await syncRouteState({
-        topicId: state.activeTopicId,
-        eventId: nextId,
-        mode: "view",
-        filter: state.sidebarFilter,
-        tag: state.activeTag,
-        date: state.locateDate,
-      });
-    }
+    applyFilterState();
+    await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已恢复");
   } catch (error) {
     pushToast(`恢复失败：${error.message}`, "error");
@@ -686,47 +556,49 @@ async function permanentlyDeleteEvent(event) {
   try {
     await api.permanentlyDeleteEvent(event.id);
     state.events = state.events.filter((item) => item.id !== event.id);
-    let nextId = state.selectedEventId;
-    if (state.selectedEventId === event.id) {
-      nextId = selectFirstVisible();
-    }
     closeEventMenu();
-    await syncRouteState({
-      topicId: state.activeTopicId,
-      eventId: nextId,
-      mode: "view",
-      filter: state.sidebarFilter,
-      tag: state.activeTag,
-      date: state.locateDate,
-    });
+    applyFilterState();
+    await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已永久删除");
   } catch (error) {
     pushToast(`永久删除失败：${error.message}`, "error");
   }
 }
 
-async function copyMarkdown(event) {
-  const text = `# ${event.headline || event.displayLabel}\n\n${event.bodyMarkdown || ""}`.trim();
-  try {
-    await navigator.clipboard.writeText(text);
-    pushToast("Markdown 已复制");
-  } catch {
-    pushToast("当前浏览器不允许写入剪贴板", "error");
-  } finally {
-    closeEventMenu();
-  }
+function togglePreview() {
+  state.showPreview = !state.showPreview;
+  writeStorage(PREVIEW_KEY, state.showPreview ? "on" : "off");
 }
 
-function exportEvent(event) {
-  const text = `# ${event.headline || event.displayLabel}\n\n${event.bodyMarkdown || ""}`.trim();
-  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${event.headline || "timeline-event"}.md`;
-  link.click();
-  URL.revokeObjectURL(url);
-  closeEventMenu();
+function focusFeedSearch() {
+  state.searchRequestKey += 1;
+}
+
+function toggleBuiltinColumn(key) {
+  state.builtinColumns = normalizeBuiltinColumns({
+    ...state.builtinColumns,
+    [key]: !(state.builtinColumns?.[key] !== false),
+  });
+  persistBuiltinColumns();
+}
+
+async function saveTopicColumns(columns) {
+  if (!state.activeTopicId) return;
+  const normalized = normalizeTopicColumns(columns);
+  state.columnSaving = true;
+  try {
+    const meta = await api.updateTopicMeta(state.activeTopicId, {
+      title: state.activeTopicMeta?.title || "",
+      subtitle: state.activeTopicMeta?.subtitle || "",
+      columns: normalized,
+    });
+    state.activeTopicMeta = meta;
+    pushToast("列定义已保存");
+  } catch (error) {
+    pushToast(`列定义保存失败：${error.message}`, "error");
+  } finally {
+    state.columnSaving = false;
+  }
 }
 
 function exportCurrentTopic() {
@@ -734,53 +606,51 @@ function exportCurrentTopic() {
   api.exportCurrentDataRange(state.activeTopicId);
 }
 
-watch(
-  () => [route.query.event, route.query.mode, route.query.filter, route.query.tag, route.query.date],
-  () => {
-    state.sidebarFilter = parseRouteFilter();
-    state.activeTag = parseRouteString("tag");
-    state.locateDate = parseRouteString("date");
-    const nextEventId = parseRouteNumber("event");
-    const nextMode = parseRouteMode();
-
-    if (nextEventId && state.events.some((event) => event.id === nextEventId)) {
-      state.selectedEventId = nextEventId;
-      state.detailError = "";
+function startResize(side, event) {
+  const onMove = (moveEvent) => {
+    if (side === "left") {
+      state.leftWidth = clamp(moveEvent.clientX, 220, 360);
+      writeStorage(LEFT_WIDTH_KEY, state.leftWidth);
+    } else {
+      state.rightWidth = clamp(window.innerWidth - moveEvent.clientX, 360, 560);
+      writeStorage(RIGHT_WIDTH_KEY, state.rightWidth);
     }
+  };
 
-    if (nextMode === "create") {
-      state.detailMode = "create";
-    } else if (nextMode === "edit" && canEditEvent(selectedEvent.value)) {
-      state.detailMode = "edit";
-    } else if (nextMode === "edit") {
-      state.detailMode = "view";
-      syncRouteState({
-        topicId: state.activeTopicId,
-        eventId: state.selectedEventId,
-        mode: "view",
-        filter: state.sidebarFilter,
-        tag: state.activeTag,
-        date: state.locateDate,
-      });
-    } else if (!state.detailDirty) {
-      state.detailMode = "view";
-    }
-  }
-);
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    resizeCleanup = null;
+  };
+
+  resizeCleanup?.();
+  resizeCleanup = onUp;
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  event.preventDefault();
+}
 
 onMounted(() => {
-  updateStageScale();
-  window.addEventListener("resize", updateStageScale, { passive: true });
-  loadWorkspace({ clearBeforeLoad: true });
+  loadWorkspace();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", updateStageScale);
+  resizeCleanup?.();
 });
+
+watch(
+  () => [route.query.topic, route.query.event, route.query.mode, route.query.filter, route.query.tag, route.query.era, route.query.date],
+  () => {
+    state.sidebarFilter = parseRouteFilter();
+    state.activeTag = parseRouteString("tag");
+    state.activeEra = parseRouteString("era");
+    state.locateDate = parseRouteString("date");
+  }
+);
 </script>
 
 <template>
-  <div class="timeline-workspace" :style="stageStyle">
+  <div class="app timeline-workspace" :class="{ 'right-closed': !state.rightOpen }" :style="workspaceStyle">
     <TopicSidebar
       :brand="state.config.brandName"
       :topics="state.topics"
@@ -788,14 +658,17 @@ onBeforeUnmount(() => {
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
       :active-tag="state.activeTag"
+      :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
       @create-event="startCreateEvent"
       @create-topic="createTopic"
+      @focus-search="focusFeedSearch"
+      @open-settings="state.settingsOpen = true"
+      @select-era="updateActiveEra"
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
       @update:tag="updateActiveTag"
-      @open-settings="state.settingsOpen = true"
     />
 
     <TimelineFeed
@@ -808,12 +681,21 @@ onBeforeUnmount(() => {
       :groups="groupedEvents"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
+      :active-filter="state.sidebarFilter"
+      :builtin-columns="state.builtinColumns"
+      :columns="topicColumns"
+      :column-saving="state.columnSaving"
+      :show-preview="state.showPreview"
+      :search-request-key="state.searchRequestKey"
       @create-event="startCreateEvent"
-      @select-event="selectEvent"
-      @update:searchQuery="updateSearchQuery"
       @locate-date="locateDate"
+      @save-columns="saveTopicColumns"
+      @select-event="selectEvent"
+      @toggle-builtin="toggleBuiltinColumn"
       @toggle-favorite="toggleFavorite"
-      @open-menu="openEventMenu"
+      @toggle-preview="togglePreview"
+      @update:filter="updateSidebarFilter"
+      @update:searchQuery="updateSearchQuery"
     />
 
     <EventDetailPane
@@ -821,19 +703,23 @@ onBeforeUnmount(() => {
       :event="selectedEvent"
       :candidate-events="state.events"
       :topic-title="activeTopicTitle"
+      :topic-columns="topicColumns"
       :loading="state.detailLoading"
       :error="state.detailError"
       :mode="state.detailMode"
       :saving="state.saving"
       @cancel="cancelDetailEdit"
-      @create="startCreateEvent"
+      @close="closeDetailPane"
       @edit="startEditSelectedEvent"
+      @open-menu="openEventMenu"
       @open-related="openRelatedEvent"
       @save="saveEvent"
       @toggle-favorite="toggleFavorite"
-      @open-menu="openEventMenu"
       @dirty-change="state.detailDirty = $event"
     />
+
+    <div id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
+    <div v-if="state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
 
     <div v-if="state.menuEvent" class="timeline-menu-backdrop" @click="closeEventMenu">
       <div class="timeline-action-menu" @click.stop>
@@ -843,8 +729,6 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
           <button type="button" @click="moveEventToTrash(state.menuEvent)">移入回收站</button>
-          <button type="button" @click="copyMarkdown(state.menuEvent)">复制 Markdown</button>
-          <button type="button" @click="exportEvent(state.menuEvent)">导出当前事件</button>
         </template>
       </div>
     </div>
@@ -870,12 +754,12 @@ onBeforeUnmount(() => {
         <div class="timeline-settings-body">
           <button type="button" class="timeline-settings-action" @click="exportCurrentTopic">导出当前笔记本</button>
           <div class="timeline-settings-meta">
-            <span>版本</span>
-            <strong>timeline notes / 1920 one-view</strong>
+            <span>品牌</span>
+            <strong>{{ state.config.brandName }}</strong>
           </div>
           <div class="timeline-settings-meta">
-            <span>视觉基准</span>
-            <strong>timeline_notes_pixel_perfect_1920x1080_one_view.html</strong>
+            <span>当前专题</span>
+            <strong>{{ activeTopicTitle }}</strong>
           </div>
         </div>
       </section>

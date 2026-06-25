@@ -1,13 +1,15 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import TimelineEventCard from "@/components/timeline-notes/TimelineEventCard.vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import ColumnConfigPopover from "@/components/timeline-notes/ColumnConfigPopover.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
-  buildTimelineCardLayouts,
-  buildTimelineOffsetIndex,
-  waitForTimelineFonts,
-} from "@/services/pretextLayout";
-import { dateKeyFromLocator } from "@/utils/timelineNotes";
+  buildEventPreview,
+  buildTimelineGridTemplate,
+  buildVisibleTimelineColumns,
+  collectEventTags,
+  dateKeyFromLocator,
+  eventColumnValue,
+} from "@/utils/timelineNotes";
 
 const props = defineProps({
   loading: {
@@ -46,6 +48,30 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  activeFilter: {
+    type: String,
+    default: "all",
+  },
+  builtinColumns: {
+    type: Object,
+    default: () => ({ type: true, tags: true }),
+  },
+  columns: {
+    type: Array,
+    default: () => [],
+  },
+  columnSaving: {
+    type: Boolean,
+    default: false,
+  },
+  showPreview: {
+    type: Boolean,
+    default: true,
+  },
+  searchRequestKey: {
+    type: Number,
+    default: 0,
+  },
 });
 
 const emit = defineEmits([
@@ -54,136 +80,114 @@ const emit = defineEmits([
   "update:searchQuery",
   "locate-date",
   "toggle-favorite",
-  "open-menu",
+  "update:filter",
+  "toggle-preview",
+  "save-columns",
+  "toggle-builtin",
 ]);
 
 const locatorOpen = ref(false);
 const locatorValue = ref("");
 const searchOpen = ref(false);
+const filterOpen = ref(false);
+const columnOpen = ref(false);
 const searchInputRef = ref(null);
-const localSearchQuery = ref("");
-const focusedEventId = ref(null);
-const panelRef = ref(null);
-const scrollRef = ref(null);
-const layoutMap = shallowRef(new Map());
-const cardRefs = new Map();
-let layoutRequestId = 0;
-let resizeObserver = null;
+const feedRef = ref(null);
+const rowRefs = new Map();
 
-const flatEvents = computed(() => props.groups.flatMap((group) => group.items));
-const searchExpanded = computed(() => searchOpen.value || String(localSearchQuery.value || "").trim().length > 0);
-const offsetIndex = computed(() => buildTimelineOffsetIndex(props.groups, layoutMap.value));
+const FILTER_OPTIONS = [
+  { id: "all", label: "全部笔记" },
+  { id: "today", label: "今天" },
+  { id: "week", label: "本周" },
+  { id: "favorite", label: "收藏" },
+  { id: "trash", label: "回收站" },
+];
 
-function readTimelineNumberVar(name, fallback) {
-  if (typeof window === "undefined") return fallback;
-  const source = panelRef.value?.closest(".timeline-workspace") || panelRef.value || document.documentElement;
-  const value = Number.parseFloat(window.getComputedStyle(source).getPropertyValue(name));
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function visibleColumns() {
+  return buildVisibleTimelineColumns(props.columns, props.builtinColumns);
 }
 
-function currentCardLayoutOptions() {
-  return {
-    cardWidth: readTimelineNumberVar("--tn-card-width", 531),
-    textWidth: readTimelineNumberVar("--tn-card-text-width", 480),
-    titleWidth: readTimelineNumberVar("--tn-card-title-width", 390),
-  };
+function rowGrid() {
+  return buildTimelineGridTemplate(props.columns, props.builtinColumns);
 }
 
-async function refreshCardLayouts() {
-  const requestId = ++layoutRequestId;
-  await waitForTimelineFonts();
-  if (requestId !== layoutRequestId) return;
-  layoutMap.value = buildTimelineCardLayouts(flatEvents.value, currentCardLayoutOptions());
-}
-
-function setCardRef(id, element) {
+function setRowRef(id, element) {
   if (element) {
-    cardRefs.set(id, element);
+    rowRefs.set(id, element);
   } else {
-    cardRefs.delete(id);
+    rowRefs.delete(id);
   }
 }
 
-function onSearchInput(event) {
-  localSearchQuery.value = event.target.value;
-  emit("update:searchQuery", localSearchQuery.value);
-  if (!localSearchQuery.value.trim()) {
-    searchOpen.value = false;
-  }
-}
-
-async function openSearch() {
+function openSearch() {
   searchOpen.value = true;
-  await nextTick();
-  searchInputRef.value?.focus();
+  nextTick(() => searchInputRef.value?.focus());
 }
 
-function closeSearchIfEmpty(event) {
-  const nextValue = event?.currentTarget?.value ?? localSearchQuery.value;
-  if (!String(nextValue || "").trim()) {
+function closeSearchIfEmpty() {
+  if (!String(props.searchQuery || "").trim()) {
     searchOpen.value = false;
   }
 }
 
-function onSearchKeydown(event) {
-  if (event.key === "Escape" && !String(event.currentTarget.value || "").trim()) {
-    searchOpen.value = false;
-    event.currentTarget.blur();
-  }
-}
-
-function findEventForDate(value) {
+function focusDate(value) {
   const targetKey = dateKeyFromLocator(value);
-  if (targetKey === null || flatEvents.value.length === 0) return null;
-  return flatEvents.value.find((event) => event.dateKey >= targetKey) || flatEvents.value[flatEvents.value.length - 1];
-}
-
-function scrollToEstimatedEvent(eventId) {
-  const container = scrollRef.value;
-  const entry = offsetIndex.value.find((item) => item.eventId === eventId);
-  if (!container || !entry) return;
-  const viewportHeight = container.clientHeight || 0;
-  container.scrollTop = Math.max(0, entry.estimatedTop - viewportHeight / 2 + entry.estimatedHeight / 2);
-}
-
-async function focusDate(value) {
-  const target = findEventForDate(value);
+  if (targetKey === null) return;
+  const events = props.groups.flatMap((group) => group.items);
+  const target = events.find((event) => event.dateKey >= targetKey) || events.at(-1);
   if (!target) return;
-  focusedEventId.value = target.id;
   emit("select-event", target.id);
-  scrollToEstimatedEvent(target.id);
-  await nextTick();
-  const element = cardRefs.get(target.id);
-  if (element) {
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
+  nextTick(() => rowRefs.get(target.id)?.scrollIntoView({ behavior: "smooth", block: "center" }));
 }
 
 function submitLocator() {
-  const value = locatorValue.value.trim();
-  if (!value || dateKeyFromLocator(value) === null) return;
+  const value = String(locatorValue.value || "").trim();
+  if (!value) return;
   locatorOpen.value = false;
   emit("locate-date", value);
   focusDate(value);
 }
 
-watch(
-  () => props.searchQuery,
-  (value) => {
-    localSearchQuery.value = value || "";
-  },
-  { immediate: true }
-);
+function closePopovers(event) {
+  if (!(event.target instanceof Element)) return;
+  if (!event.target.closest(".tl-toolbar-group")) {
+    filterOpen.value = false;
+    columnOpen.value = false;
+    locatorOpen.value = false;
+  }
+}
 
-watch(flatEvents, refreshCardLayouts, { immediate: true });
+watch(
+  () => props.searchRequestKey,
+  () => openSearch()
+);
 
 watch(
   () => props.locateDate,
   (value) => {
+    locatorValue.value = value || "";
     if (value) {
-      locatorValue.value = value;
       focusDate(value);
     }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.searchQuery,
+  (value) => {
+    if (String(value || "").trim()) {
+      searchOpen.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.selectedEventId,
+  (eventId) => {
+    if (!eventId) return;
+    nextTick(() => rowRefs.get(eventId)?.scrollIntoView({ block: "nearest" }));
   }
 );
 
@@ -198,161 +202,170 @@ watch(
 );
 
 onMounted(() => {
-  window.addEventListener("resize", refreshCardLayouts, { passive: true });
-  if (typeof ResizeObserver !== "undefined" && panelRef.value) {
-    resizeObserver = new ResizeObserver(refreshCardLayouts);
-    resizeObserver.observe(panelRef.value);
-  }
-  refreshCardLayouts();
+  document.addEventListener("click", closePopovers);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", refreshCardLayouts);
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-  layoutRequestId += 1;
+  document.removeEventListener("click", closePopovers);
 });
 </script>
 
 <template>
-  <section ref="panelRef" class="timeline-main-panel">
-    <header class="timeline-main-head">
-      <button
-        v-if="!searchExpanded"
-        type="button"
-        class="timeline-search-trigger"
-        aria-label="展开搜索"
-        @click="openSearch"
-      >
-        <TimelineLucideIcon name="search" :stroke-width="1.8" />
-      </button>
-      <label v-else class="timeline-search">
+  <section class="col timeline" :class="{ 'preview-off': !props.showPreview }">
+    <div class="tl-bar">
+      <div>
+        <h2>历史事件</h2>
+        <span class="tl-count">时间线 · 共 {{ props.eventCount }} 条</span>
+      </div>
+      <span class="spacer"></span>
+
+      <label v-if="searchOpen" class="searchbox open" id="searchbox">
         <TimelineLucideIcon name="search" :stroke-width="1.8" />
         <input
           ref="searchInputRef"
-          :value="localSearchQuery"
+          :value="props.searchQuery"
           type="search"
-          placeholder="搜索笔记"
-          @input="onSearchInput"
+          placeholder="搜索当前时间线"
+          @input="emit('update:searchQuery', $event.target.value)"
           @blur="closeSearchIfEmpty"
-          @keydown="onSearchKeydown"
         />
       </label>
-      <div class="timeline-date-locator">
-        <button type="button" class="timeline-date-button" aria-label="时间筛选" @click="locatorOpen = !locatorOpen">
-          <TimelineLucideIcon name="calendar" :stroke-width="1.7" />
-          <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+      <button v-else id="searchBtn" type="button" class="iconbtn lg" title="搜索" @click="openSearch">
+        <TimelineLucideIcon name="search" :stroke-width="1.8" />
+      </button>
+
+      <div class="tl-toolbar-group">
+        <button type="button" class="iconbtn lg" title="时间定位" @click.stop="locatorOpen = !locatorOpen">
+          <TimelineLucideIcon name="calendarSearch" :stroke-width="1.8" />
         </button>
-        <form v-if="locatorOpen" class="timeline-date-popover" @submit.prevent="submitLocator">
-          <label>
-            <span>定位到</span>
+        <form v-if="locatorOpen" class="popover filter-pop" @submit.prevent="submitLocator">
+          <div class="pop-title">时间定位</div>
+          <label class="pop-field">
+            <span>输入日期</span>
             <input v-model="locatorValue" type="text" placeholder="1840 / 1840-06 / 1840-06-01" />
           </label>
-          <button type="submit" class="timeline-primary-btn">定位</button>
+          <button type="submit" class="pop-submit">
+            <TimelineLucideIcon name="check" :stroke-width="1.8" />
+          </button>
         </form>
       </div>
-    </header>
 
-    <div v-if="props.loading" class="timeline-empty-state">正在加载时间线...</div>
+      <div class="tl-toolbar-group">
+        <button type="button" class="iconbtn lg" title="筛选" @click.stop="filterOpen = !filterOpen">
+          <TimelineLucideIcon name="filter" :stroke-width="1.8" />
+        </button>
+        <div v-if="filterOpen" class="popover filter-pop">
+          <div class="pop-title">主筛选</div>
+          <button
+            v-for="option in FILTER_OPTIONS"
+            :key="option.id"
+            type="button"
+            class="pop-item"
+            :class="{ on: option.id === props.activeFilter }"
+            @click="emit('update:filter', option.id)"
+          >
+            <span class="pop-check">
+              <TimelineLucideIcon name="check" :stroke-width="1.8" />
+            </span>
+            <span class="lbl">{{ option.label }}</span>
+          </button>
+        </div>
+      </div>
 
-    <div v-else-if="props.error" class="timeline-error-state">
-      <h3>加载失败</h3>
-      <p>{{ props.error }}</p>
+      <div class="tl-toolbar-group">
+        <button id="colBtn" type="button" class="iconbtn lg" title="列设置" @click.stop="columnOpen = !columnOpen">
+          <TimelineLucideIcon name="columns" :stroke-width="1.8" />
+        </button>
+        <div v-if="columnOpen" class="popover col-pop-wrap">
+          <ColumnConfigPopover
+            :builtin-state="props.builtinColumns"
+            :columns="props.columns"
+            :saving="props.columnSaving"
+            @save-columns="emit('save-columns', $event)"
+            @toggle-builtin="emit('toggle-builtin', $event)"
+          />
+        </div>
+      </div>
+
+      <button
+        id="previewBtn"
+        type="button"
+        class="iconbtn lg"
+        :class="{ on: props.showPreview }"
+        title="显示预览"
+        @click="emit('toggle-preview')"
+      >
+        <TimelineLucideIcon name="alignLeft" :stroke-width="1.8" />
+      </button>
+
+      <button type="button" class="iconbtn lg primary" title="新建时间点" @click="emit('create-event')">
+        <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
+      </button>
     </div>
 
-    <div v-else-if="props.groups.length === 0" class="timeline-empty-state">
-      {{ props.emptyReason }}
-    </div>
+    <div v-if="props.loading" class="feed-empty">正在加载时间线...</div>
+    <div v-else-if="props.error" class="feed-empty">{{ props.error }}</div>
+    <div v-else-if="!props.groups.length" class="feed-empty">{{ props.emptyReason }}</div>
+    <div v-else ref="feedRef" class="feed scroll">
+      <div class="feed-inner" :style="{ '--rowgrid': rowGrid() }">
+        <div class="tl-cols" id="tlCols">
+          <span></span>
+          <span v-for="column in visibleColumns()" :key="column.key">{{ column.label }}</span>
+          <span></span>
+        </div>
 
-    <div v-else ref="scrollRef" class="timeline-feed-scroll">
-      <div class="timeline-feed-shell">
-        <section
-          v-for="group in props.groups"
-          :key="group.key"
-          class="timeline-year-group"
-        >
-          <div class="timeline-year-label">
-            <strong>{{ group.title }}</strong>
-            <span v-if="group.subtitle">{{ group.subtitle }}</span>
+        <section v-for="group in props.groups" :key="group.key" class="era">
+          <div class="era-head">
+            <span class="rdot"></span>
+            <div class="era-main">
+              <b>{{ group.title }}</b>
+              <span>{{ group.subtitle }}</span>
+            </div>
           </div>
 
-          <div class="timeline-year-rail" aria-hidden="true">
-            <span class="timeline-year-dot"></span>
-          </div>
-
-          <div class="timeline-card-stack">
-            <TimelineEventCard
-              v-for="event in group.items"
-              :key="event.id"
-              :ref="(element) => setCardRef(event.id, element?.$el || element)"
-              :event="event"
-              :layout="layoutMap.get(event.id)"
-              :active="event.id === props.selectedEventId || event.id === focusedEventId"
-              @select="emit('select-event', event.id)"
-              @toggle-favorite="emit('toggle-favorite', $event)"
-              @open-menu="emit('open-menu', $event)"
-            />
-          </div>
+          <button
+            v-for="event in group.items"
+            :key="event.id"
+            :ref="(element) => setRowRef(event.id, element)"
+            type="button"
+            class="row"
+            :class="{ active: event.id === props.selectedEventId }"
+            @click="emit('select-event', event.id)"
+          >
+            <span class="rdot"></span>
+            <template v-for="column in visibleColumns()" :key="column.key">
+              <span v-if="column.key === 'time'" class="c-time">{{ eventColumnValue(event, column) }}</span>
+              <span v-else-if="column.key === 'title'" class="c-title">
+                <b class="ev-name">{{ eventColumnValue(event, column) }}</b>
+                <span v-if="event.attachments?.length" class="clip">
+                  <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+                </span>
+                <span class="ev-sum">{{ buildEventPreview(event, 90) }}</span>
+              </span>
+              <span v-else-if="column.key === 'type'" class="c-type">{{ eventColumnValue(event, column) }}</span>
+              <span v-else-if="column.key === 'tags'" class="c-tags">
+                <span v-for="tag in collectEventTags(event).slice(0, 2)" :key="tag.value" class="td" :style="{ '--dot': tag.color }">
+                  <i></i>{{ tag.label }}
+                </span>
+              </span>
+              <span
+                v-else
+                class="c-source"
+                :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
+              >
+                {{ eventColumnValue(event, column) }}
+              </span>
+            </template>
+            <span
+              class="c-star"
+              :class="{ on: event.favorite }"
+              @click.stop="emit('toggle-favorite', event)"
+            >
+              <TimelineLucideIcon name="star" :stroke-width="1.8" />
+            </span>
+          </button>
         </section>
       </div>
-    </div>
-
-    <div class="timeline-quick-composer" :class="{ disabled: !props.hasTopic }">
-      <button
-        type="button"
-        class="timeline-composer-add"
-        :disabled="!props.hasTopic"
-        aria-label="快速记录"
-        @click="emit('create-event')"
-      >
-        <TimelineLucideIcon name="plus" :stroke-width="1.8" />
-      </button>
-      <button
-        type="button"
-        class="timeline-composer-input"
-        :disabled="!props.hasTopic"
-        @click="emit('create-event')"
-      >
-        记录一个想法、事件或里程碑...
-      </button>
-      <div class="timeline-composer-tools" aria-label="快速记录工具">
-        <button
-          type="button"
-          class="timeline-composer-tool"
-          :disabled="!props.hasTopic"
-          aria-label="选择时间"
-          @click="emit('create-event')"
-        >
-          <TimelineLucideIcon name="calendar" :stroke-width="1.7" />
-        </button>
-        <button
-          type="button"
-          class="timeline-composer-tool"
-          :disabled="!props.hasTopic"
-          aria-label="添加图片"
-          @click="emit('create-event')"
-        >
-          <TimelineLucideIcon name="image" :stroke-width="1.7" />
-        </button>
-        <button
-          type="button"
-          class="timeline-composer-tool"
-          :disabled="!props.hasTopic"
-          aria-label="标记里程碑"
-          @click="emit('create-event')"
-        >
-          <TimelineLucideIcon name="flag" :stroke-width="1.7" />
-        </button>
-      </div>
-      <button
-        type="button"
-        class="timeline-composer-send"
-        :disabled="!props.hasTopic"
-        aria-label="创建"
-        @click="emit('create-event')"
-      >
-        <TimelineLucideIcon name="send" :stroke-width="1.8" />
-      </button>
     </div>
   </section>
 </template>

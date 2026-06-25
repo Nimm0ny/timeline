@@ -28,6 +28,7 @@ class Topic(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     subtitle: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    columns_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -72,6 +73,7 @@ class TimelineEvent(Base):
     era: Mapped[str] = mapped_column(String(255), nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
     tags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     related_event_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"), nullable=True)

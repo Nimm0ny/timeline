@@ -24,6 +24,9 @@ from backend.app.services.date_utils import (
 
 SUPPORTED_ZOOM_LEVELS = ["year", "month", "day"]
 EVENT_STATE_KEYS = {"favorite", "deletedAt"}
+COLUMN_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+RESERVED_COLUMN_KEYS = {"title", "time", "type", "tags"}
+COLUMN_TYPES = {"text", "number", "date", "select"}
 
 
 def sanitize_topic_name(name: str) -> str:
@@ -36,6 +39,7 @@ def topic_to_dict(topic: Topic) -> dict:
         "name": topic.name,
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
+        "columns": deserialize_json_list(topic.columns_json),
         "updatedAt": topic.updated_at.isoformat() if topic.updated_at else None,
     }
 
@@ -125,6 +129,16 @@ def deserialize_json_list(value: str | None, *, fallback: list | None = None) ->
     return parsed if isinstance(parsed, list) else (fallback[:] if fallback is not None else [])
 
 
+def deserialize_json_dict(value: str | None, *, fallback: dict | None = None) -> dict:
+    if value is None:
+        return dict(fallback or {})
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return dict(fallback or {})
+    return parsed if isinstance(parsed, dict) else dict(fallback or {})
+
+
 def default_body_markdown(items: list[dict]) -> str:
     lines = []
     for item in items:
@@ -165,6 +179,82 @@ def normalize_attachments(payload: dict) -> list[dict]:
             }
         )
     return attachments
+
+
+def normalize_topic_columns(raw_columns) -> list[dict]:
+    if raw_columns is None:
+        return []
+    if not isinstance(raw_columns, list):
+        raise HTTPException(status_code=400, detail="Columns must be an array")
+
+    columns = []
+    seen = set()
+    for index, item in enumerate(raw_columns):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="Each column must be an object")
+        key = str(item.get("key", "")).strip()
+        label = str(item.get("label", "")).strip()
+        column_type = str(item.get("type", "text")).strip() or "text"
+        width = int(item.get("width", 96) or 96)
+        order = int(item.get("order", index) or index)
+        visible = item.get("visible", True) is not False
+
+        if not COLUMN_KEY_PATTERN.fullmatch(key):
+            raise HTTPException(status_code=400, detail=f"Invalid column key: {key}")
+        if key in RESERVED_COLUMN_KEYS:
+            raise HTTPException(status_code=400, detail=f"Column key is reserved: {key}")
+        if key in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicated column key: {key}")
+        if not label:
+            raise HTTPException(status_code=400, detail="Column label is required")
+
+        seen.add(key)
+        columns.append(
+            {
+                "key": key,
+                "label": label[:24],
+                "type": column_type if column_type in COLUMN_TYPES else "text",
+                "width": max(72, min(width, 220)),
+                "order": order,
+                "visible": visible,
+            }
+        )
+    return sorted(columns, key=lambda column: (column["order"], column["label"]))
+
+
+def allowed_extra_keys(topic: Topic | None) -> set[str]:
+    if topic is None:
+        return set()
+    return {
+        str(column.get("key", "")).strip()
+        for column in deserialize_json_list(topic.columns_json)
+        if isinstance(column, dict)
+    }
+
+
+def normalize_extra(payload: dict, topic: Topic | None) -> dict[str, str]:
+    raw = payload.get("extra") or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="Extra must be an object")
+
+    allowed = allowed_extra_keys(topic)
+    normalized = {}
+    for key, value in raw.items():
+        name = str(key or "").strip()
+        if name not in allowed:
+            continue
+        normalized[name] = "" if value is None else str(value)
+    return normalized
+
+
+def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | None) -> dict[str, str]:
+    allowed = allowed_extra_keys(topic)
+    preserved = {
+        key: "" if value is None else str(value)
+        for key, value in (existing_extra or {}).items()
+        if key not in allowed
+    }
+    return {**preserved, **next_extra}
 
 
 def normalize_related_event_ids(payload: dict) -> list[int]:
@@ -224,6 +314,7 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         "bodyMarkdown": event.body_markdown or default_body_markdown(items),
         "tags": tags,
+        "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
         "relatedEventIds": related_ids,
         "relatedEvents": [related_lookup[event_id] for event_id in related_ids if related_lookup and event_id in related_lookup],
@@ -295,7 +386,7 @@ def get_topic_or_404(db: Session, topic_id: int) -> Topic:
 def get_event_or_404(db: Session, event_id: int) -> TimelineEvent:
     event = (
         db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
+        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image), joinedload(TimelineEvent.topic))
         .filter(TimelineEvent.id == event_id)
         .first()
     )
@@ -395,6 +486,8 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.title = str(payload["title"] or "").strip()
     if "subtitle" in payload:
         topic.subtitle = str(payload["subtitle"] or "").strip()
+    if "columns" in payload:
+        topic.columns_json = json.dumps(normalize_topic_columns(payload.get("columns")), ensure_ascii=False)
     db.commit()
     db.refresh(topic)
     return get_topic_meta(db, topic_id)
@@ -588,7 +681,7 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None, tags:
         fallback_tag = (tags or ["politics"])[0]
         derived = derive_items_from_markdown(body_markdown or "", fallback_tag)
         if derived:
-          return derived
+            return derived
         raise HTTPException(status_code=400, detail="Event items are required")
 
     items = []
@@ -603,7 +696,7 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None, tags:
     return items
 
 
-def normalize_event_payload(payload: dict) -> dict:
+def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dict:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
@@ -616,6 +709,7 @@ def normalize_event_payload(payload: dict) -> dict:
     items = normalize_event_items(payload, body_markdown, tags)
     attachments = normalize_attachments(payload)
     related_event_ids = normalize_related_event_ids(payload)
+    extra = normalize_extra(payload, topic)
     state = {}
     if "favorite" in payload:
         state["favorite"] = bool(payload.get("favorite"))
@@ -646,6 +740,7 @@ def normalize_event_payload(payload: dict) -> dict:
             "era": era,
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "tags": tags,
+            "extra": extra,
             "attachments": attachments,
             "relatedEventIds": related_event_ids,
             "items": items,
@@ -671,6 +766,7 @@ def normalize_event_payload(payload: dict) -> dict:
         "era": era,
         "bodyMarkdown": body_markdown or default_body_markdown(items),
         "tags": tags,
+        "extra": extra,
         "attachments": attachments,
         "relatedEventIds": related_event_ids,
         "items": items,
@@ -690,6 +786,7 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
     event.era = data["era"]
     event.body_markdown = data["bodyMarkdown"]
     event.tags_json = json.dumps(data["tags"], ensure_ascii=False)
+    event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
     event.related_event_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)
     event.image = image
@@ -700,7 +797,7 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
 
 def create_event(db: Session, topic_id: int, payload: dict, user: User | None, *, legacy: bool = False) -> dict:
     topic = get_topic_or_404(db, topic_id)
-    data = normalize_event_payload(payload)
+    data = normalize_event_payload(payload, topic=topic)
     image = resolve_image(db, data["image"])
     event = TimelineEvent(
         topic_id=topic.id,
@@ -732,7 +829,8 @@ def update_event(db: Session, event_id: int, payload: dict, *, legacy: bool = Fa
         raise HTTPException(status_code=409, detail="Deleted events cannot be edited")
 
     old_image_id = event.image_id
-    data = normalize_event_payload(payload)
+    data = normalize_event_payload(payload, topic=event.topic)
+    data["extra"] = merge_orphan_extra(deserialize_json_dict(event.extra_json), data["extra"], event.topic)
     image = resolve_image(db, data["image"])
     write_event_model(event, data, image)
     for item in list(event.items):
@@ -765,15 +863,18 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
     if isinstance(parsed, dict):
         title = parsed.get("title", "")
         subtitle = parsed.get("subtitle", "")
+        columns = parsed.get("columns", [])
         raw_events = parsed.get("events", [])
     elif isinstance(parsed, list):
         title = topic.title
         subtitle = topic.subtitle
+        columns = deserialize_json_list(topic.columns_json)
         raw_events = parsed
     else:
         raise ValueError("JSON must be an array or object with events")
 
-    normalized_events = [normalize_event_payload(item) for item in raw_events]
+    topic.columns_json = json.dumps(normalize_topic_columns(columns), ensure_ascii=False)
+    normalized_events = [normalize_event_payload(item, topic=topic) for item in raw_events]
 
     existing_events = db.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
     old_image_ids = {event.image_id for event in existing_events if event.image_id}
@@ -808,6 +909,7 @@ def export_topic_data(db: Session, topic_id: int, *, from_key: int | None = None
         "schemaVersion": 2,
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
+        "columns": deserialize_json_list(topic.columns_json),
         "events": serialize_event_rows(db, rows),
     }
     safe_ascii_name = "timeline-export.json"

@@ -1,14 +1,13 @@
 <script setup>
-import { computed, ref } from "vue";
-import { buildTopicMetaLine, collectEventTags } from "@/utils/timelineNotes";
-import { pushToast } from "@/composables/useToast";
+import { computed, reactive, ref } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import { collectEventTags } from "@/utils/timelineNotes";
 
 const props = defineProps({
   brand: {
     type: String,
-    default: "时间线笔记",
+    default: "编年",
   },
   topics: {
     type: Array,
@@ -30,6 +29,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  activeEra: {
+    type: String,
+    default: "",
+  },
   loading: {
     type: Boolean,
     default: false,
@@ -44,13 +47,26 @@ const emit = defineEmits([
   "create-event",
   "create-topic",
   "select-topic",
+  "select-era",
   "update:filter",
   "update:tag",
+  "focus-search",
   "open-settings",
 ]);
 
-const creatingTopic = ref(false);
+const state = reactive({
+  ribbon: "files",
+  sections: {
+    views: false,
+    topics: false,
+    tags: false,
+    stats: false,
+  },
+  topicCollapsed: {},
+});
+
 const topicName = ref("");
+const creatingTopic = ref(false);
 
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
@@ -62,11 +78,7 @@ function isToday(event) {
   const date = eventCreatedDate(event);
   if (!date) return false;
   const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
 }
 
 function isThisWeek(event) {
@@ -94,9 +106,9 @@ function countForFilter(filter) {
 }
 
 const quickFilters = computed(() => [
-  { id: "all", label: "全部笔记", count: countForFilter("all"), icon: "note" },
+  { id: "all", label: "全部笔记", count: countForFilter("all"), icon: "library" },
   { id: "today", label: "今天", count: countForFilter("today"), icon: "calendar" },
-  { id: "week", label: "本周", count: countForFilter("week"), icon: "calendar" },
+  { id: "week", label: "本周", count: countForFilter("week"), icon: "clock" },
   { id: "favorite", label: "收藏", count: countForFilter("favorite"), icon: "star" },
   { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "trash" },
 ]);
@@ -109,13 +121,25 @@ const currentFilterEvents = computed(() => {
   return liveEvents.value;
 });
 
-const tagFilters = computed(() => {
+const eraRows = computed(() => {
+  const counts = new Map();
+  for (const event of liveEvents.value) {
+    const key = String(event?.era || "未分期").trim() || "未分期";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([era, count]) => ({ era, count }))
+    .sort((left, right) => right.count - left.count || left.era.localeCompare(right.era));
+});
+
+const tagRows = computed(() => {
   const counts = new Map();
   for (const event of currentFilterEvents.value) {
     for (const tag of collectEventTags(event)) {
       counts.set(tag.value, {
         value: tag.value,
         label: tag.label,
+        color: tag.color,
         count: (counts.get(tag.value)?.count || 0) + 1,
       });
     }
@@ -123,136 +147,241 @@ const tagFilters = computed(() => {
   return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 });
 
+const stats = computed(() => ({
+  notes: liveEvents.value.length,
+  week: liveEvents.value.filter(isThisWeek).length,
+  favorite: liveEvents.value.filter((event) => event.favorite).length,
+}));
+
+function toggleSection(key) {
+  state.sections[key] = !state.sections[key];
+}
+
+function toggleTopic(topicId) {
+  state.topicCollapsed[topicId] = !state.topicCollapsed[topicId];
+  emit("select-topic", topicId);
+}
+
+function focusSearch() {
+  state.ribbon = "search";
+  emit("focus-search");
+}
+
 function submitTopic() {
   const nextName = topicName.value
     .trim()
     .slice(0, CONTENT_LIMITS.topicTitle)
     .replace(/[^\w\-\u4e00-\u9fff]/g, "");
-  if (!nextName) {
-    pushToast("请输入有效的笔记本名称", "error");
-    return;
-  }
+  if (!nextName) return;
   emit("create-topic", nextName);
   topicName.value = "";
   creatingTopic.value = false;
 }
+
+function collapseAll() {
+  state.sections.views = true;
+  state.sections.topics = true;
+  state.sections.tags = true;
+  state.sections.stats = true;
+  for (const topic of props.topics) {
+    state.topicCollapsed[topic.id] = true;
+  }
+}
 </script>
 
 <template>
-  <aside class="timeline-sidebar">
-    <div class="timeline-brand">
-      <div class="timeline-brand-main">
-        <span class="timeline-brand-mark" aria-hidden="true"></span>
-        <h1>{{ brand }}</h1>
-      </div>
-      <button type="button" class="timeline-icon-btn timeline-menu-btn" aria-label="菜单">
-        <TimelineLucideIcon name="menu" :stroke-width="1.8" />
+  <aside class="col sidebar">
+    <div class="ribbon">
+      <button class="rb brand" :title="props.brand">
+        <TimelineLucideIcon name="book" :stroke-width="1.8" />
+      </button>
+      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" @click="state.ribbon = 'files'">
+        <TimelineLucideIcon name="folder" :stroke-width="1.8" />
+      </button>
+      <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" @click="focusSearch">
+        <TimelineLucideIcon name="search" :stroke-width="1.8" />
+      </button>
+      <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="state.ribbon = 'star'">
+        <TimelineLucideIcon name="star" :stroke-width="1.8" />
+      </button>
+      <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="标签" @click="state.ribbon = 'tags'">
+        <TimelineLucideIcon name="hash" :stroke-width="1.8" />
+      </button>
+      <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="state.ribbon = 'stats'">
+        <TimelineLucideIcon name="bar" :stroke-width="1.8" />
+      </button>
+      <span class="sp"></span>
+      <button class="rb" :class="{ active: state.ribbon === 'trash' }" title="回收站" @click="state.ribbon = 'trash'">
+        <TimelineLucideIcon name="trash" :stroke-width="1.8" />
       </button>
     </div>
 
-    <button type="button" class="timeline-sidebar-create" @click="emit('create-event')">
-      <TimelineLucideIcon name="pen" :stroke-width="1.8" />
-      <span>快速记录</span>
-      <kbd>⌘N</kbd>
-    </button>
-
-    <nav class="timeline-quick-nav" aria-label="笔记分类">
-      <button
-        v-for="filter in quickFilters"
-        :key="filter.id"
-        type="button"
-        class="timeline-quick-item"
-        :class="{ active: filter.id === props.activeFilter }"
-        @click="emit('update:filter', filter.id)"
-      >
-        <TimelineLucideIcon class="timeline-quick-icon" :name="filter.icon" :stroke-width="1.8" />
-        <span>{{ filter.label }}</span>
-        <strong>{{ filter.count }}</strong>
-      </button>
-    </nav>
-
-    <nav class="timeline-sidebar-section" aria-label="笔记本">
-      <div class="timeline-sidebar-head">
-        <span>笔记本</span>
-        <button type="button" class="timeline-mini-btn" @click="creatingTopic = !creatingTopic" aria-label="新建笔记本">
-          <TimelineLucideIcon name="plus" :stroke-width="1.8" />
+    <div class="pane">
+      <div class="pane-head">
+        <span class="ph-title">笔记本</span>
+        <button type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
+          <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
+          <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="排序">
+          <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="全部折叠" @click="collapseAll">
+          <TimelineLucideIcon name="fold" :stroke-width="1.8" />
         </button>
       </div>
 
-      <div v-if="creatingTopic" class="timeline-topic-create">
-        <input
-          v-model="topicName"
-          type="text"
-          :maxlength="CONTENT_LIMITS.topicTitle"
-          placeholder="新笔记本名称"
-          @keyup.enter="submitTopic"
-        />
-        <div class="timeline-inline-actions">
-          <button type="button" class="timeline-secondary-btn" @click="creatingTopic = false">取消</button>
-          <button type="button" class="timeline-primary-btn" @click="submitTopic">保存</button>
+      <div class="pane-scroll scroll">
+        <div v-if="creatingTopic" class="topic-inline-create">
+          <input
+            v-model="topicName"
+            type="text"
+            :maxlength="CONTENT_LIMITS.topicTitle"
+            placeholder="新笔记本名称"
+            @keyup.enter="submitTopic"
+          />
+          <div class="topic-inline-actions">
+            <button type="button" class="iconbtn sm" @click="creatingTopic = false">
+              <TimelineLucideIcon name="close" :stroke-width="1.8" />
+            </button>
+            <button type="button" class="iconbtn sm primary" @click="submitTopic">
+              <TimelineLucideIcon name="check" :stroke-width="1.8" />
+            </button>
+          </div>
+        </div>
+
+        <div class="tg" :class="{ collapsed: state.sections.views }">
+          <div class="tg-head" @click="toggleSection('views')">
+            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+            <span class="tg-name">视图</span>
+          </div>
+          <div class="tg-body">
+            <button
+              v-for="filter in quickFilters"
+              :key="filter.id"
+              type="button"
+              class="ti leaf"
+              :class="{ active: filter.id === props.activeFilter }"
+              @click="emit('update:filter', filter.id)"
+            >
+              <span class="ti-chev"></span>
+              <span class="ti-ic"><TimelineLucideIcon :name="filter.icon" :stroke-width="1.8" /></span>
+              <span class="ti-name">{{ filter.label }}</span>
+              <span class="ti-cnt">{{ filter.count }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tg" :class="{ collapsed: state.sections.topics }">
+          <div class="tg-head" @click="toggleSection('topics')">
+            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+            <span class="tg-name">笔记本</span>
+            <button type="button" class="iconbtn sm" title="新建笔记本" @click.stop="creatingTopic = !creatingTopic">
+              <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
+            </button>
+          </div>
+          <div class="tg-body">
+            <p v-if="props.loading" class="sidebar-copy">正在加载笔记本...</p>
+            <p v-else-if="props.error" class="sidebar-copy">{{ props.error }}</p>
+            <template v-else>
+              <div v-for="topic in props.topics" :key="topic.id">
+                <button
+                  type="button"
+                  class="ti folder"
+                  :class="{ active: topic.id === props.activeTopicId, collapsed: state.topicCollapsed[topic.id] }"
+                  @click="toggleTopic(topic.id)"
+                >
+                  <span class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
+                  <span class="ti-name">{{ topic.title || topic.name }}</span>
+                  <span class="ti-cnt">{{ topic.eventCount || 0 }}</span>
+                </button>
+                <div
+                  v-if="topic.id === props.activeTopicId && !state.topicCollapsed[topic.id]"
+                  class="ti-kids"
+                  :style="{ '--pdepth': 0 }"
+                >
+                  <button
+                    v-for="era in eraRows"
+                    :key="era.era"
+                    type="button"
+                    class="ti leaf"
+                    :class="{ active: era.era === props.activeEra }"
+                    :style="{ '--depth': 1 }"
+                    @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
+                  >
+                    <span class="ti-chev"></span>
+                    <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.8" /></span>
+                    <span class="ti-name">{{ era.era }}</span>
+                    <span class="ti-cnt">{{ era.count }}</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="tg" :class="{ collapsed: state.sections.tags }">
+          <div class="tg-head" @click="toggleSection('tags')">
+            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+            <span class="tg-name">标签</span>
+          </div>
+          <div class="tg-body">
+            <button
+              v-for="tag in tagRows"
+              :key="tag.value"
+              type="button"
+              class="ti leaf tag"
+              :class="{ active: tag.value === props.activeTag }"
+              @click="emit('update:tag', tag.value === props.activeTag ? '' : tag.value)"
+            >
+              <span class="ti-chev"></span>
+              <span class="ti-dot" :style="{ '--dot': tag.color }"></span>
+              <span class="ti-name">{{ tag.label }}</span>
+              <span class="ti-cnt">{{ tag.count }}</span>
+            </button>
+            <p v-if="!tagRows.length" class="sidebar-copy">暂无标签</p>
+          </div>
+        </div>
+
+        <div class="tg" :class="{ collapsed: state.sections.stats }">
+          <div class="tg-head" @click="toggleSection('stats')">
+            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+            <span class="tg-name">统计</span>
+          </div>
+          <div class="tg-body">
+            <div class="mini-stats">
+              <div class="ms-cell">
+                <div class="ms-num">{{ stats.notes }}</div>
+                <div class="ms-cap">笔记</div>
+              </div>
+              <div class="ms-cell">
+                <div class="ms-num accent">{{ stats.week }}</div>
+                <div class="ms-cap">本周新增</div>
+              </div>
+              <div class="ms-cell">
+                <div class="ms-num">{{ stats.favorite }}</div>
+                <div class="ms-cap">收藏</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div v-if="props.loading" class="timeline-empty-copy">正在加载笔记本...</div>
-      <div v-else-if="props.error" class="timeline-error-copy">{{ props.error }}</div>
-      <div v-else-if="props.topics.length === 0" class="timeline-empty-copy">暂无笔记本。</div>
-
-      <div v-else class="timeline-topic-list">
-        <button
-          v-for="topic in props.topics"
-          :key="topic.id"
-          type="button"
-          class="timeline-topic-item"
-          :data-topic-id="topic.id"
-          :class="{ active: topic.id === props.activeTopicId }"
-          @click="emit('select-topic', topic.id)"
-        >
-          <span class="timeline-topic-folder" aria-hidden="true"></span>
-          <span class="timeline-topic-main">
-            <strong>{{ topic.title || topic.name }}</strong>
-            <span>{{ buildTopicMetaLine(topic) }}</span>
-          </span>
-          <strong class="timeline-topic-count">{{ topic.eventCount || 0 }}</strong>
+      <div class="pane-foot">
+        <button type="button" class="vault-switch">
+          <TimelineLucideIcon name="chevronsUpDown" :stroke-width="1.8" />
+          <b>{{ props.brand }}</b>
+        </button>
+        <button type="button" class="iconbtn" title="帮助">
+          <TimelineLucideIcon name="help" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="设置" @click="emit('open-settings')">
+          <TimelineLucideIcon name="settings" :stroke-width="1.8" />
         </button>
       </div>
-    </nav>
-
-    <nav class="timeline-sidebar-section timeline-tag-section" aria-label="标签">
-      <div class="timeline-sidebar-head">
-        <span>标签</span>
-        <button
-          v-if="props.activeTag"
-          type="button"
-          class="timeline-clear-tag"
-          @click="emit('update:tag', '')"
-        >
-          清除
-        </button>
-        <button v-else type="button" class="timeline-mini-btn" aria-label="标签来自当前笔记">
-          <TimelineLucideIcon name="plus" :stroke-width="1.8" />
-        </button>
-      </div>
-
-      <div v-if="tagFilters.length" class="timeline-tag-list">
-        <button
-          v-for="tag in tagFilters"
-          :key="tag.value"
-          type="button"
-          class="timeline-tag-item"
-          :class="{ active: tag.value === props.activeTag }"
-          @click="emit('update:tag', tag.value === props.activeTag ? '' : tag.value)"
-        >
-          <span class="timeline-tag-dot" aria-hidden="true"></span>
-          <span>{{ tag.label }}</span>
-          <strong>{{ tag.count }}</strong>
-        </button>
-      </div>
-      <p v-else class="timeline-empty-copy timeline-empty-tags">暂无标签</p>
-    </nav>
-
-    <button type="button" class="timeline-settings-row" @click="emit('open-settings')">
-      <TimelineLucideIcon name="settings" :stroke-width="1.7" />
-      <span>设置</span>
-    </button>
+    </div>
   </aside>
 </template>

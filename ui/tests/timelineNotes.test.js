@@ -5,8 +5,12 @@ import {
   buildReadableDetailGroups,
   buildEditorDraft,
   buildEventPreview,
+  buildTimelineGridTemplate,
+  buildVisibleTimelineColumns,
   collectEventTags,
   groupTimelineEvents,
+  normalizeEventExtra,
+  normalizeTopicColumns,
 } from "../src/utils/timelineNotes.js";
 
 const events = [
@@ -125,4 +129,33 @@ test("buildReadableDetailGroups removes empty read-mode support groups", () => {
   assert.deepEqual(groups.tags, ["politics"]);
   assert.deepEqual(groups.attachments.map((attachment) => attachment.filename), ["source.pdf"]);
   assert.deepEqual(groups.relatedEvents.map((event) => event.id), [2]);
+});
+
+test("normalizeTopicColumns validates and sorts user-defined columns", () => {
+  const columns = normalizeTopicColumns([
+    { key: "source", label: "来源", type: "text", width: 180, order: 2, visible: true },
+    { key: "place", label: "地点", type: "text", width: 88, order: 1, visible: false },
+    { key: "type", label: "Reserved", type: "text", width: 50, order: 0, visible: true },
+  ]);
+
+  assert.deepEqual(
+    columns.map((column) => ({ key: column.key, width: column.width, visible: column.visible })),
+    [
+      { key: "place", width: 88, visible: false },
+      { key: "source", width: 180, visible: true },
+    ]
+  );
+});
+
+test("buildVisibleTimelineColumns and normalizeEventExtra honor custom column visibility and whitelist", () => {
+  const topicColumns = normalizeTopicColumns([
+    { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
+    { key: "source", label: "来源", type: "text", width: 110, order: 1, visible: false },
+  ]);
+  const columns = buildVisibleTimelineColumns(topicColumns, { type: true, tags: false });
+  const extra = normalizeEventExtra({ place: "广州", source: "档案馆", ignored: "drop" }, topicColumns);
+
+  assert.deepEqual(columns.map((column) => column.key), ["time", "title", "type", "place"]);
+  assert.equal(buildTimelineGridTemplate(topicColumns, { type: true, tags: false }), "28px 96px minmax(0,1fr) 72px 92px 30px");
+  assert.deepEqual(extra, { place: "广州", source: "档案馆" });
 });

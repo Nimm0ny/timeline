@@ -1,24 +1,25 @@
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
+import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
+import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
-  buildReadableDetailGroups,
   buildEditorDraft,
+  buildReadableDetailGroups,
   formatEventDate,
   formatEventDisplayDate,
+  normalizeEventExtra,
   normalizeTagValues,
+  normalizeTopicColumns,
 } from "@/utils/timelineNotes";
 import { renderMarkdownToHtml } from "@/utils/markdownPreview";
 import {
   attachmentIconName,
   attachmentKind,
   buildAttachmentMarkdown,
-  buildBlockInsertion,
   filterRelatedEventCandidates,
-  wrapMarkdownAtRange,
 } from "@/utils/editorMarkdown";
 
 const props = defineProps({
@@ -33,6 +34,10 @@ const props = defineProps({
   topicTitle: {
     type: String,
     default: "",
+  },
+  topicColumns: {
+    type: Array,
+    default: () => [],
   },
   loading: {
     type: Boolean,
@@ -54,56 +59,45 @@ const props = defineProps({
 
 const emit = defineEmits([
   "cancel",
-  "create",
+  "close",
   "edit",
-  "save",
-  "open-related",
-  "toggle-favorite",
   "open-menu",
+  "open-related",
+  "save",
+  "toggle-favorite",
   "dirty-change",
 ]);
 
-const draft = reactive(buildEditorDraft(null));
+const bodyEditableRef = ref(null);
 const initialSnapshot = ref("");
 const uploading = ref(false);
 const sessionUploads = ref([]);
 const pendingDeleteImages = ref([]);
 const relatedSearchQuery = ref("");
-const bodyDragActive = ref(false);
-const bodyEditorRef = ref(null);
+const modalAttachment = ref(null);
+const dragActive = ref(false);
+
+const draft = reactive(buildEditorDraft(null, props.topicColumns));
 
 const inEditMode = computed(() => props.mode === "edit" || props.mode === "create");
 const isDeleted = computed(() => Boolean(props.event?.deletedAt || draft.deletedAt));
-
-const panelHeading = computed(() => {
-  if (props.mode === "create") return "新建时间点";
-  return props.event?.headline || "事件详情";
+const topicColumns = computed(() => normalizeTopicColumns(props.topicColumns));
+const readableGroups = computed(() => buildReadableDetailGroups(props.event));
+const renderedBody = computed(() => renderMarkdownToHtml(props.event?.bodyMarkdown || ""));
+const tagText = computed({
+  get: () => draft.tags.join(", "),
+  set: (value) => {
+    draft.tags = normalizeTagValues(String(value || "").split(/[,，]/)).slice(0, CONTENT_LIMITS.tagsVisible);
+  },
 });
 
-const activeBodyMarkdown = computed(() => (inEditMode.value ? draft.bodyMarkdown : props.event?.bodyMarkdown || ""));
-const renderedBody = computed(() => renderMarkdownToHtml(activeBodyMarkdown.value));
-const readableDetailGroups = computed(() => buildReadableDetailGroups(props.event));
-const detailTags = computed(() => readableDetailGroups.value.tags);
-const detailAttachments = computed(() => readableDetailGroups.value.attachments);
-const detailRelatedEvents = computed(() => readableDetailGroups.value.relatedEvents);
-const metaDateLabel = computed(() => {
-  if ((props.mode === "edit" || props.mode === "view") && props.event?.dateRangeLabel) {
-    return props.event.dateRangeLabel;
-  }
-  if (inEditMode.value) {
-    const year = String(draft.dateYear || "").trim();
-    const month = String(draft.dateMonth || "").trim();
-    const day = String(draft.dateDay || "").trim();
-    if (!year) return "";
-    if (!month) return `${year}年`;
-    if (!day) return `${year}年${month}月`;
-    return `${year}年${month}月${day}日`;
-  }
-  return props.event?.dateRangeLabel || formatEventDisplayDate(props.event);
-});
-const metaTagLabel = computed(() => {
-  const tags = inEditMode.value ? draft.tags : detailTags.value;
-  return tags[0] || (inEditMode.value ? draft.era : props.event?.era) || props.topicTitle || "历史学习";
+const selectedRelatedEvents = computed(() => {
+  const lookup = new Map(
+    [...props.candidateEvents, ...(Array.isArray(draft.relatedEvents) ? draft.relatedEvents : [])]
+      .filter(Boolean)
+      .map((event) => [Number(event.id), event])
+  );
+  return draft.relatedEventIds.map((id) => lookup.get(Number(id))).filter(Boolean);
 });
 
 const candidateRelatedEvents = computed(() =>
@@ -114,19 +108,95 @@ const candidateRelatedEvents = computed(() =>
   })
 );
 
-const selectedRelatedEvents = computed(() => {
-  const relatedLookup = new Map(
-    [...props.candidateEvents, ...draft.relatedEvents].filter(Boolean).map((event) => [Number(event.id), event])
-  );
-  return draft.relatedEventIds.map((eventId) => relatedLookup.get(Number(eventId))).filter(Boolean);
-});
+function inlineToMarkdown(node) {
+  if (!node) return "";
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
-const tagText = computed({
-  get: () => draft.tags.join(", "),
-  set: (value) => {
-    draft.tags = normalizeTagValues(String(value || "").split(/[,，]/)).slice(0, CONTENT_LIMITS.tagsVisible);
-  },
-});
+  const children = Array.from(node.childNodes).map(inlineToMarkdown).join("");
+  const tag = node.nodeName.toLowerCase();
+  if (tag === "strong" || tag === "b") return `**${children}**`;
+  if (tag === "em" || tag === "i") return `*${children}*`;
+  if (tag === "code") return `\`${node.textContent || ""}\``;
+  if (tag === "a") return `[${children || node.textContent || ""}](${node.getAttribute("href") || ""})`;
+  if (tag === "img") return `![${node.getAttribute("alt") || ""}](${node.getAttribute("src") || ""})`;
+  if (tag === "br") return "\n";
+  return children;
+}
+
+function blockToMarkdown(node) {
+  if (!node) return "";
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent?.trim() || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+  const tag = node.nodeName.toLowerCase();
+  if (tag === "h1" || tag === "h2" || tag === "h3") {
+    const level = Number(tag[1]);
+    return `${"#".repeat(level)} ${inlineToMarkdown(node).trim()}`.trim();
+  }
+  if (tag === "blockquote") {
+    return inlineToMarkdown(node)
+      .split("\n")
+      .map((line) => (line.trim() ? `> ${line.trim()}` : ">"))
+      .join("\n");
+  }
+  if (tag === "ul") {
+    return Array.from(node.children)
+      .map((item) => `- ${inlineToMarkdown(item).trim()}`.trim())
+      .join("\n");
+  }
+  if (tag === "img") {
+    return inlineToMarkdown(node);
+  }
+  if (tag === "div" && node.classList.contains("body-editable")) {
+    return Array.from(node.childNodes)
+      .map(blockToMarkdown)
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return inlineToMarkdown(node).trim();
+}
+
+function editableRootToMarkdown() {
+  if (!bodyEditableRef.value) return draft.bodyMarkdown || "";
+  return Array.from(bodyEditableRef.value.childNodes)
+    .map(blockToMarkdown)
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function syncEditableBody(markdown) {
+  if (!bodyEditableRef.value) return;
+  const html = renderMarkdownToHtml(markdown || "");
+  const nextHtml = html || "<p><br></p>";
+  if (bodyEditableRef.value.innerHTML !== nextHtml) {
+    bodyEditableRef.value.innerHTML = nextHtml;
+  }
+}
+
+function handleBodyInput() {
+  draft.bodyMarkdown = editableRootToMarkdown();
+}
+
+function openAttachment(attachment) {
+  modalAttachment.value = attachment;
+}
+
+function closeAttachmentModal() {
+  modalAttachment.value = null;
+}
+
+function handleBodyClick(event) {
+  if (event.target instanceof HTMLImageElement) {
+    openAttachment({
+      name: event.target.alt || "图片",
+      imageUrl: event.target.getAttribute("src"),
+      url: event.target.getAttribute("src"),
+      mimeType: "image/*",
+    });
+  }
+}
 
 function snapshotDraft() {
   return JSON.stringify({
@@ -143,19 +213,20 @@ function snapshotDraft() {
     relatedEventIds: draft.relatedEventIds,
     favorite: Boolean(draft.favorite),
     deletedAt: draft.deletedAt || null,
+    extra: draft.extra,
   });
 }
 
 const isDirty = computed(() => inEditMode.value && snapshotDraft() !== initialSnapshot.value);
 
 function applyDraft(sourceEvent) {
-  const next = buildEditorDraft(sourceEvent);
+  const next = buildEditorDraft(sourceEvent, topicColumns.value);
   draft.id = next.id;
   draft.dateYear = next.dateYear;
   draft.dateMonth = next.dateMonth;
   draft.dateDay = next.dateDay;
   draft.headline = next.headline;
-  draft.era = next.era || props.topicTitle || "历史学习";
+  draft.era = next.era || props.topicTitle || "未分期";
   draft.bodyMarkdown = next.bodyMarkdown;
   draft.image = next.image;
   draft.imageUrl = next.imageUrl;
@@ -166,8 +237,10 @@ function applyDraft(sourceEvent) {
   draft.favorite = next.favorite;
   draft.deletedAt = next.deletedAt;
   draft.items = next.items;
+  draft.extra = next.extra;
   relatedSearchQuery.value = "";
   nextTick(() => {
+    syncEditableBody(draft.bodyMarkdown);
     initialSnapshot.value = snapshotDraft();
   });
 }
@@ -181,53 +254,13 @@ async function cleanupTransientUploads() {
   );
   sessionUploads.value = [];
   pendingDeleteImages.value = [];
-  if (staleUploads.length === 0) return;
+  if (!staleUploads.length) return;
   await Promise.allSettled(staleUploads.map((filename) => api.deleteImage(filename)));
 }
-
-watch(
-  () => [props.mode, props.event?.id],
-  async ([mode, eventId], previous = []) => {
-    const [previousMode, previousEventId] = previous;
-    const wasEditing = previousMode === "edit" || previousMode === "create";
-    const switchingEditorContext = wasEditing && (mode !== previousMode || eventId !== previousEventId);
-
-    if (switchingEditorContext) {
-      await cleanupTransientUploads();
-    }
-
-    if (mode === "edit" || mode === "create") {
-      applyDraft(mode === "create" ? null : props.event);
-    }
-  },
-  { immediate: true }
-);
-
-watch(isDirty, (value) => emit("dirty-change", value), { immediate: true });
 
 function queueDeleteFile(filename) {
   if (!filename || pendingDeleteImages.value.includes(filename)) return;
   pendingDeleteImages.value.push(filename);
-}
-
-function bodySelection() {
-  const textarea = bodyEditorRef.value;
-  const bodyLength = String(draft.bodyMarkdown || "").length;
-  if (!textarea) return { start: bodyLength, end: bodyLength };
-  return {
-    start: textarea.selectionStart ?? bodyLength,
-    end: textarea.selectionEnd ?? textarea.selectionStart ?? bodyLength,
-  };
-}
-
-function applyBodyEdit(result) {
-  draft.bodyMarkdown = result.text;
-  nextTick(() => {
-    const textarea = bodyEditorRef.value;
-    if (!textarea) return;
-    textarea.focus();
-    textarea.setSelectionRange(result.cursorStart, result.cursorEnd);
-  });
 }
 
 function buildAttachmentFromUpload(result, file) {
@@ -241,10 +274,10 @@ function buildAttachmentFromUpload(result, file) {
   };
 }
 
-async function uploadAttachment(event, { insertIntoBody = false } = {}) {
-  const files = Array.from(event.target.files || []);
-  await uploadFiles(files, { insertIntoBody });
-  event.target.value = "";
+function appendMarkdownBlock(markdownText, notice = "已插入正文") {
+  draft.bodyMarkdown = [String(draft.bodyMarkdown || "").trim(), markdownText].filter(Boolean).join("\n\n");
+  nextTick(() => syncEditableBody(draft.bodyMarkdown));
+  if (notice) pushToast(notice);
 }
 
 async function uploadFiles(files, { insertIntoBody = false } = {}) {
@@ -268,9 +301,9 @@ async function uploadFiles(files, { insertIntoBody = false } = {}) {
 
     draft.attachments = [...draft.attachments, ...uploadedAttachments].slice(0, CONTENT_LIMITS.attachmentsVisible);
 
-    if (insertIntoBody && uploadedAttachments.length) {
-      insertMarkdownBlock(uploadedAttachments.map(buildAttachmentMarkdown).filter(Boolean).join("\n\n"), false);
-      pushToast("图片已插入正文");
+    if (insertIntoBody) {
+      const block = uploadedAttachments.map(buildAttachmentMarkdown).filter(Boolean).join("\n\n");
+      appendMarkdownBlock(block, "图片已插入正文");
     } else {
       pushToast("附件已上传");
     }
@@ -281,43 +314,44 @@ async function uploadFiles(files, { insertIntoBody = false } = {}) {
   }
 }
 
-async function uploadDroppedImages(files) {
-  const fileList = Array.from(files || []);
-  const imageFiles = fileList.filter((file) => String(file.type || "").startsWith("image/"));
+function uploadDroppedImages(files) {
+  const imageFiles = (Array.isArray(files) ? files : []).filter((file) =>
+    String(file?.type || "").startsWith("image/")
+  );
   if (!imageFiles.length) {
     pushToast("仅支持拖拽或粘贴图片", "error");
     return;
   }
-  if (imageFiles.length !== fileList.length) {
-    pushToast("已忽略非图片文件", "error");
-  }
-  await uploadFiles(imageFiles, { insertIntoBody: true });
+  uploadFiles(imageFiles, { insertIntoBody: true });
 }
 
-function handleEditorPaste(event) {
-  if (!inEditMode.value) return;
+async function uploadAttachment(event, options) {
+  const files = Array.from(event.target.files || []);
+  await uploadFiles(files, options);
+  event.target.value = "";
+}
+
+function handleEditablePaste(event) {
   const files = Array.from(event.clipboardData?.files || []);
   if (!files.length) return;
   event.preventDefault();
   uploadDroppedImages(files);
 }
 
-function handleEditorDrop(event) {
-  if (!inEditMode.value) return;
+function handleEditableDrop(event) {
   event.preventDefault();
-  bodyDragActive.value = false;
-  uploadDroppedImages(event.dataTransfer?.files || []);
+  dragActive.value = false;
+  uploadDroppedImages(Array.from(event.dataTransfer?.files || []));
 }
 
-function handleEditorDragOver(event) {
-  if (!inEditMode.value) return;
+function handleEditableDragOver(event) {
   event.preventDefault();
-  bodyDragActive.value = true;
+  dragActive.value = true;
 }
 
-function handleEditorDragLeave(event) {
+function handleEditableDragLeave(event) {
   if (!event.currentTarget.contains(event.relatedTarget)) {
-    bodyDragActive.value = false;
+    dragActive.value = false;
   }
 }
 
@@ -328,30 +362,15 @@ function removeAttachment(index) {
   draft.attachments.splice(index, 1);
 }
 
-function appendAttachmentMarkdown(attachment, notify = true) {
-  const markdown = buildAttachmentMarkdown(attachment);
-  if (!markdown) return;
-  insertMarkdownBlock(markdown, false);
-  if (notify) pushToast("已插入正文");
-}
-
-function insertMarkdown(prefix, suffix = "") {
-  const { start, end } = bodySelection();
-  applyBodyEdit(wrapMarkdownAtRange(draft.bodyMarkdown, start, end, prefix, suffix));
-}
-
-function insertMarkdownBlock(markdown, notify = true) {
-  if (!markdown) return;
-  const { start, end } = bodySelection();
-  applyBodyEdit(buildBlockInsertion(draft.bodyMarkdown, start, end, markdown));
-  if (notify) pushToast("已插入正文");
+function appendAttachmentMarkdown(attachment) {
+  const markdownText = buildAttachmentMarkdown(attachment);
+  if (!markdownText) return;
+  appendMarkdownBlock(markdownText);
 }
 
 function addRelatedCandidate(eventId) {
-  if (!eventId) return;
-  if (!draft.relatedEventIds.includes(eventId)) {
-    draft.relatedEventIds = [...draft.relatedEventIds, eventId];
-  }
+  if (!eventId || draft.relatedEventIds.includes(eventId)) return;
+  draft.relatedEventIds = [...draft.relatedEventIds, eventId];
   relatedSearchQuery.value = "";
 }
 
@@ -359,49 +378,10 @@ function removeRelatedEvent(eventId) {
   draft.relatedEventIds = draft.relatedEventIds.filter((id) => id !== eventId);
 }
 
-function openRelatedEvent(eventId) {
-  if (!eventId) return;
-  emit("open-related", eventId);
-}
-
-function openAttachment(attachment) {
-  if (!attachment?.url) return;
-  window.open(attachment.url, "_blank", "noopener");
-}
-
-function markSaved() {
-  sessionUploads.value = [];
-  pendingDeleteImages.value = [];
-  initialSnapshot.value = snapshotDraft();
-}
-
-async function cancelEdit() {
-  emit("cancel");
-}
-
-function parseStrictInteger(value, { allowNegative = false } = {}) {
-  const raw = String(value ?? "").trim();
-  const pattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
-  if (!pattern.test(raw)) return Number.NaN;
-  return Number.parseInt(raw, 10);
-}
-
-function hasValidDraftDate(year, month, day) {
-  return (
-    Number.isInteger(year) &&
-    Number.isInteger(month) &&
-    Number.isInteger(day) &&
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= 31
-  );
-}
-
 function submit() {
-  const dateYear = parseStrictInteger(draft.dateYear, { allowNegative: true });
-  const dateMonth = parseStrictInteger(draft.dateMonth);
-  const dateDay = parseStrictInteger(draft.dateDay);
+  const dateYear = Number.parseInt(draft.dateYear, 10);
+  const dateMonth = Number.parseInt(draft.dateMonth, 10);
+  const dateDay = Number.parseInt(draft.dateDay, 10);
   const headline = String(draft.headline || "").trim().slice(0, CONTENT_LIMITS.cardTitle);
   const era = String(draft.era || "").trim().slice(0, CONTENT_LIMITS.eraLabel);
   const bodyMarkdown = String(draft.bodyMarkdown || "").trim().slice(0, CONTENT_LIMITS.bodyMarkdown);
@@ -412,14 +392,10 @@ function submit() {
     filename: item.filename,
     mimeType: item.mimeType || null,
   }));
+  const extra = normalizeEventExtra(draft.extra, topicColumns.value);
 
-  if (
-    !hasValidDraftDate(dateYear, dateMonth, dateDay) ||
-    !headline ||
-    !era ||
-    !bodyMarkdown
-  ) {
-    pushToast("请补全日期、标题、年代和正文", "error");
+  if (!Number.isInteger(dateYear) || !Number.isInteger(dateMonth) || !Number.isInteger(dateDay) || !headline || !era || !bodyMarkdown) {
+    pushToast("请补全日期、标题、分期和正文", "error");
     return false;
   }
 
@@ -439,12 +415,12 @@ function submit() {
       favorite: Boolean(draft.favorite),
       deletedAt: draft.deletedAt || null,
       items: [],
+      extra,
     },
     imageOps: {
       deleteImages: [...new Set(pendingDeleteImages.value)],
     },
   });
-
   return true;
 }
 
@@ -452,247 +428,307 @@ function discardDraft() {
   applyDraft(props.mode === "create" ? null : props.event);
 }
 
-defineExpose({ submit, discardDraft, markSaved });
+function markSaved() {
+  sessionUploads.value = [];
+  pendingDeleteImages.value = [];
+  initialSnapshot.value = snapshotDraft();
+}
+
+defineExpose({ discardDraft, markSaved, submit });
+
+watch(isDirty, (value) => emit("dirty-change", value), { immediate: true });
+
+watch(
+  () => [props.mode, props.event?.id, JSON.stringify(topicColumns.value)],
+  async ([mode, eventId], previous = []) => {
+    const [prevMode, prevEventId] = previous;
+    const switchingEditorContext = (prevMode === "edit" || prevMode === "create") && (mode !== prevMode || eventId !== prevEventId);
+
+    if (switchingEditorContext) {
+      await cleanupTransientUploads();
+    }
+
+    if (mode === "edit" || mode === "create") {
+      applyDraft(mode === "create" ? null : props.event);
+      return;
+    }
+
+    modalAttachment.value = null;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => draft.bodyMarkdown,
+  (value) => {
+    if (inEditMode.value) {
+      nextTick(() => syncEditableBody(value));
+    }
+  }
+);
+
+onBeforeUnmount(() => {
+  cleanupTransientUploads();
+});
 </script>
 
 <template>
-  <aside class="timeline-detail-panel" :class="{ 'is-edit-mode': inEditMode, 'is-read-mode': !inEditMode }">
-    <div v-if="props.loading" class="timeline-detail-empty">
+  <aside class="col detail" :class="{ 'detail-edit': inEditMode }">
+    <div v-if="props.loading" class="detail-empty">
       <h3>正在加载详情</h3>
       <p>请稍候。</p>
     </div>
 
-    <div v-else-if="props.error" class="timeline-detail-empty">
+    <div v-else-if="props.error" class="detail-empty">
       <h3>详情加载失败</h3>
       <p>{{ props.error }}</p>
     </div>
 
-    <div v-else-if="!props.event && props.mode === 'view'" class="timeline-detail-empty">
+    <div v-else-if="!props.event && props.mode === 'view'" class="detail-empty">
       <h3>选择一条事件</h3>
-      <p>右栏会展示当前时间点的详细内容。</p>
+      <p>点击中栏行后，右栏会展开并展示详情。</p>
     </div>
 
     <template v-else>
-      <div class="timeline-detail-actionbar">
-        <div class="timeline-nav-actions">
-          <button type="button" class="timeline-icon-btn" aria-label="上一条">
-            <TimelineLucideIcon name="arrowLeft" :stroke-width="1.8" />
-          </button>
-          <button type="button" class="timeline-icon-btn" aria-label="下一条">
-            <TimelineLucideIcon name="arrowRight" :stroke-width="1.8" />
-          </button>
-        </div>
-        <div class="timeline-pane-actions">
-          <button
-            type="button"
-            class="timeline-icon-btn timeline-star-btn"
-            :class="{ active: (inEditMode ? draft.favorite : props.event?.favorite) }"
-            :disabled="isDeleted"
-            :aria-label="(inEditMode ? draft.favorite : props.event?.favorite) ? '取消收藏' : '收藏'"
-            @click="inEditMode ? (draft.favorite = !draft.favorite) : emit('toggle-favorite', props.event)"
-          >
-            <TimelineLucideIcon name="star" :stroke-width="1.8" />
-          </button>
-          <button type="button" class="timeline-icon-btn" aria-label="锁定">
-            <TimelineLucideIcon name="lock" :stroke-width="1.8" />
-          </button>
-          <button type="button" class="timeline-icon-btn" aria-label="更多操作" @click="emit('open-menu', props.event || draft)">
-            <TimelineLucideIcon name="more" :stroke-width="1.8" />
-          </button>
-          <button
-            v-if="inEditMode"
-            type="button"
-            class="timeline-save-btn"
-            :disabled="props.saving"
-            @click="submit"
-          >
-            {{ props.saving ? "保存中..." : "保存" }}
-          </button>
-          <button
-            type="button"
-            class="timeline-icon-btn timeline-view-toggle"
-            :aria-label="inEditMode ? '阅读视图' : '编辑'"
-            :disabled="isDeleted && !inEditMode"
-            @click="inEditMode ? cancelEdit() : emit('edit')"
-          >
-            <TimelineLucideIcon :name="inEditMode ? 'close' : 'edit'" :stroke-width="1.8" />
-          </button>
-        </div>
+      <div class="actionbar">
+        <span class="spacer"></span>
+        <button
+          id="detailStar"
+          type="button"
+          class="iconbtn"
+          :class="{ on: inEditMode ? draft.favorite : props.event?.favorite }"
+          :disabled="isDeleted"
+          title="收藏"
+          @click="inEditMode ? (draft.favorite = !draft.favorite) : emit('toggle-favorite', props.event)"
+        >
+          <TimelineLucideIcon name="star" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="置顶（暂未接线）" disabled>
+          <TimelineLucideIcon name="pin" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn" title="回收站操作" @click="emit('open-menu', props.event || draft)">
+          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn primary" :disabled="!inEditMode || props.saving" title="保存" @click="submit">
+          <TimelineLucideIcon name="save" :stroke-width="1.8" />
+        </button>
+        <span class="divider"></span>
+        <button
+          id="modeBtn"
+          type="button"
+          class="iconbtn"
+          :class="{ on: inEditMode }"
+          :disabled="isDeleted && !inEditMode"
+          :title="inEditMode ? '阅读视图' : '编辑'"
+          @click="inEditMode ? emit('cancel') : emit('edit')"
+        >
+          <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.8" />
+        </button>
+        <button id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
+          <TimelineLucideIcon name="close" :stroke-width="1.8" />
+        </button>
       </div>
 
-      <div class="timeline-detail-head">
-        <label v-if="inEditMode" class="timeline-title-field">
-          <input
-            v-model="draft.headline"
-            type="text"
-            :maxlength="CONTENT_LIMITS.cardTitle"
-            placeholder="时间点标题"
-          />
+      <div class="detail-scroll scroll">
+        <label v-if="inEditMode" class="detail-title-field inline">
+          <input v-model="draft.headline" type="text" :maxlength="CONTENT_LIMITS.cardTitle" placeholder="时间点标题" />
         </label>
-        <h3 v-else class="timeline-pane-title">{{ panelHeading }}</h3>
-        <div v-if="inEditMode" class="timeline-edit-meta-row" aria-label="日期和专题">
-          <label>
-            <span>年份</span>
-            <input v-model="draft.dateYear" type="text" inputmode="numeric" maxlength="8" placeholder="年份" />
-          </label>
-          <label>
-            <span>月份</span>
-            <input v-model="draft.dateMonth" type="text" inputmode="numeric" maxlength="2" placeholder="月" />
-          </label>
-          <label>
-            <span>日期</span>
-            <input v-model="draft.dateDay" type="text" inputmode="numeric" maxlength="2" placeholder="日" />
-          </label>
-          <label class="timeline-era-field">
-            <span>专题</span>
-            <input v-model="draft.era" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="专题" />
-          </label>
-        </div>
-        <div v-else class="timeline-event-meta-line" aria-label="时间和标签">
-          <span class="timeline-event-meta-item">
-            <TimelineLucideIcon name="calendar" :stroke-width="1.7" />
-            <span>{{ metaDateLabel }}</span>
-          </span>
-          <span class="timeline-event-meta-item timeline-event-meta-tag">
-            <TimelineLucideIcon name="leaf" :stroke-width="1.55" />
-            <span>{{ metaTagLabel }}</span>
-            <TimelineLucideIcon class="timeline-event-meta-chevron" name="chevronDown" :stroke-width="1.8" />
-          </span>
-          <span v-if="props.event?.deletedAt" class="timeline-event-meta-status">已在回收站</span>
-        </div>
-      </div>
+        <h1 v-else class="detail-title">{{ props.event?.headline || "未命名事件" }}</h1>
 
-      <section
-        class="timeline-markdown-surface"
-        :class="{ 'is-editing': inEditMode, 'is-dragging': bodyDragActive }"
-        @dragover="handleEditorDragOver"
-        @dragleave="handleEditorDragLeave"
-        @drop="handleEditorDrop"
-      >
-        <textarea
-          v-if="inEditMode"
-          ref="bodyEditorRef"
-          v-model="draft.bodyMarkdown"
-          class="timeline-markdown-editor"
-          :maxlength="CONTENT_LIMITS.bodyMarkdown"
-          placeholder="使用 Markdown 记录事件正文。"
-          @paste="handleEditorPaste"
-        ></textarea>
-        <div v-else-if="renderedBody" class="timeline-markdown-body" v-html="renderedBody"></div>
-        <p v-else class="timeline-pane-empty timeline-markdown-empty">暂无正文。</p>
-
-        <div v-if="inEditMode" class="timeline-markdown-toolbar" aria-label="Markdown 工具栏">
-          <button type="button" @click="insertMarkdown('**', '**')">B</button>
-          <button type="button" @click="insertMarkdown('*', '*')"><em>I</em></button>
-          <button type="button" @click="insertMarkdown('## ')">H</button>
-          <button type="button" @click="insertMarkdown('- ')">•</button>
-          <button type="button" @click="insertMarkdown('1. ')">1.</button>
-          <button type="button" @click="insertMarkdown('`', '`')">&lt;/&gt;</button>
-          <button type="button" @click="insertMarkdown('&gt; ')">“</button>
-          <button type="button" @click="insertMarkdown('[', '](url)')">⌁</button>
-          <label>
-            <span>▧</span>
-            <input type="file" accept="image/*" hidden :disabled="uploading" @change="uploadAttachment($event, { insertIntoBody: true })" />
-          </label>
-          <label>
-            <span>＋</span>
-            <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
-          </label>
-        </div>
-      </section>
-
-      <section v-if="inEditMode || detailTags.length" class="timeline-pane-section">
-        <div class="timeline-section-title-row">
-          <h4>标签</h4>
-          <button v-if="inEditMode" type="button" class="timeline-mini-soft-btn" @click="draft.tags = [...draft.tags, ''].slice(0, CONTENT_LIMITS.tagsVisible)">+</button>
-        </div>
-        <label v-if="inEditMode" class="timeline-field compact">
-          <input v-model="tagText" type="text" :maxlength="120" placeholder="历史学习, 事件" />
-        </label>
-        <div v-if="(inEditMode ? draft.tags : detailTags).length" class="timeline-chip-row">
-          <span
-            v-for="tag in (inEditMode ? draft.tags : detailTags).slice(0, CONTENT_LIMITS.tagsVisible)"
-            :key="tag"
-            class="timeline-chip"
-          >
-            {{ tag }}
-          </span>
-        </div>
-        <p v-else class="timeline-pane-empty">暂无标签。</p>
-      </section>
-
-      <section v-if="inEditMode || detailAttachments.length" class="timeline-pane-section">
-        <div class="timeline-section-title-row">
-          <h4>附件</h4>
-          <span v-if="inEditMode" class="timeline-section-helper">{{ uploading ? "上传中..." : "可插入正文或挂载资料" }}</span>
-        </div>
-        <div v-if="(inEditMode ? draft.attachments : detailAttachments).length" class="timeline-support-list timeline-attachment-list">
-          <div
-            v-for="(attachment, index) in (inEditMode ? draft.attachments : detailAttachments).slice(0, CONTENT_LIMITS.attachmentsVisible)"
-            :key="attachment.filename || attachment.url || attachment.name || index"
-            class="timeline-support-row"
-          >
-            <span class="timeline-file-preview" :class="`kind-${attachmentKind(attachment)}`" aria-hidden="true">
-              <img v-if="attachmentKind(attachment) === 'image' && attachment.imageUrl" :src="attachment.imageUrl" :alt="attachment.name" />
-              <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.7" />
+        <div class="meta-row">
+          <span v-if="inEditMode" class="meta meta-edit">
+            <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
+            <span class="meta-input-cluster">
+              <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" />
+              <span>年</span>
+              <input v-model="draft.dateMonth" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" />
+              <span>月</span>
+              <input v-model="draft.dateDay" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" />
+              <span>日</span>
             </span>
-            <div class="timeline-support-main">
-              <strong>{{ attachment.name || attachment.filename || "附件" }}</strong>
-              <span>{{ attachment.mimeType || "文件" }}</span>
-            </div>
-            <div class="timeline-row-actions">
-              <button type="button" class="timeline-text-btn" @click="openAttachment(attachment)">打开</button>
-              <button v-if="inEditMode" type="button" class="timeline-text-btn" @click="appendAttachmentMarkdown(attachment)">插入正文</button>
-              <button v-if="inEditMode" type="button" class="timeline-text-btn danger" @click="removeAttachment(index)">删除</button>
-            </div>
+          </span>
+          <span v-else class="meta">
+            <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
+            <span>{{ formatEventDisplayDate(props.event) }}</span>
+          </span>
+
+          <span v-if="inEditMode" class="meta meta-edit">
+            <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
+            <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" />
+            <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+          </span>
+          <button v-else type="button" class="meta">
+            <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
+            <span>{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</span>
+            <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+          </button>
+        </div>
+
+        <section class="body-wrap" :class="{ editing: inEditMode, dragging: dragActive }">
+          <div
+            v-if="inEditMode"
+            ref="bodyEditableRef"
+            class="body markdown-body body-editable"
+            contenteditable="true"
+            spellcheck="false"
+            @click="handleBodyClick"
+            @input="handleBodyInput"
+            @paste="handleEditablePaste"
+            @drop="handleEditableDrop"
+            @dragover="handleEditableDragOver"
+            @dragleave="handleEditableDragLeave"
+          ></div>
+          <div
+            v-else
+            class="body markdown-body"
+            v-html="renderedBody"
+            @click="handleBodyClick"
+          ></div>
+        </section>
+
+        <div v-if="topicColumns.length" class="pane-sec">
+          <div class="pane-sec-head">
+            <h3>字段</h3>
+          </div>
+          <div class="detail-field-list">
+            <label v-for="column in topicColumns" :key="column.key" class="detail-field-item">
+              <span>{{ column.label }}</span>
+              <input
+                v-if="inEditMode"
+                v-model="draft.extra[column.key]"
+                :type="column.type === 'number' ? 'number' : 'text'"
+                :placeholder="column.label"
+              />
+              <strong v-else>{{ props.event?.extra?.[column.key] || "—" }}</strong>
+            </label>
           </div>
         </div>
-        <p v-else class="timeline-pane-empty">暂无附件。</p>
-      </section>
 
-      <section v-if="inEditMode || detailRelatedEvents.length" class="timeline-pane-section timeline-related-section">
-        <div class="timeline-section-title-row">
-          <h4>相关时间点</h4>
-          <span v-if="inEditMode" class="timeline-section-helper">来自当前笔记本</span>
+        <div class="pane-sec">
+          <div class="pane-sec-head">
+            <h3>标签</h3>
+          </div>
+          <input
+            v-if="inEditMode"
+            v-model="tagText"
+            class="detail-inline-input"
+            type="text"
+            placeholder="战争, 政治, 改革"
+          />
+          <div class="pane-tags">
+            <span v-for="tag in (inEditMode ? draft.tags : readableGroups.tags)" :key="tag" class="ptag">
+              <i></i>{{ tag }}
+            </span>
+            <span v-if="!(inEditMode ? draft.tags : readableGroups.tags).length" class="pane-empty">暂无标签。</span>
+          </div>
         </div>
 
-        <div v-if="inEditMode" class="timeline-related-picker">
-          <label class="timeline-related-search">
-            <TimelineLucideIcon name="search" :stroke-width="1.7" />
-            <input v-model="relatedSearchQuery" type="search" placeholder="搜索标题、日期、标签" />
-          </label>
-          <div v-if="candidateRelatedEvents.length" class="timeline-related-results">
-            <button
-              v-for="candidate in candidateRelatedEvents"
-              :key="candidate.id"
-              type="button"
-              class="timeline-related-result"
-              @click="addRelatedCandidate(candidate.id)"
+        <div class="pane-sec">
+          <div class="pane-sec-head">
+            <h3>附件 · {{ (inEditMode ? draft.attachments : readableGroups.attachments).length }}</h3>
+            <div v-if="inEditMode" class="pane-sec-actions">
+              <label class="iconbtn sm" title="上传图片">
+                <TimelineLucideIcon name="image" :stroke-width="1.8" />
+                <input type="file" accept="image/*" hidden :disabled="uploading" @change="uploadAttachment($event, { insertIntoBody: true })" />
+              </label>
+              <label class="iconbtn sm" title="上传附件">
+                <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+                <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
+              </label>
+            </div>
+          </div>
+          <div v-if="(inEditMode ? draft.attachments : readableGroups.attachments).length" class="row-list">
+            <div
+              v-for="(attachment, index) in (inEditMode ? draft.attachments : readableGroups.attachments)"
+              :key="attachment.filename || attachment.url || attachment.name || index"
+              class="lrow"
             >
-              <strong>{{ candidate.headline }}</strong>
-              <span>{{ candidate.displayLabel || formatEventDate(candidate) }}</span>
+              <span class="lrow-ic">
+                <img
+                  v-if="attachmentKind(attachment) === 'image' && attachment.imageUrl"
+                  class="lrow-thumb"
+                  :src="attachment.imageUrl"
+                  :alt="attachment.name"
+                />
+                <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.8" />
+              </span>
+              <div class="lrow-main">
+                <b>{{ attachment.name || attachment.filename || "附件" }}</b>
+                <span>{{ attachment.mimeType || attachmentKind(attachment) }}</span>
+              </div>
+              <div class="lrow-actions">
+                <button type="button" class="iconbtn sm" title="查看" @click="openAttachment(attachment)">
+                  <TimelineLucideIcon name="maximize" :stroke-width="1.8" />
+                </button>
+                <button
+                  v-if="inEditMode"
+                  type="button"
+                  class="iconbtn sm"
+                  title="插入正文"
+                  @click="appendAttachmentMarkdown(attachment)"
+                >
+                  <TimelineLucideIcon name="link" :stroke-width="1.8" />
+                </button>
+                <button
+                  v-if="inEditMode"
+                  type="button"
+                  class="iconbtn sm"
+                  title="删除附件"
+                  @click="removeAttachment(index)"
+                >
+                  <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <p v-else class="pane-empty">暂无附件。</p>
+        </div>
+
+        <div class="pane-sec">
+          <div class="pane-sec-head">
+            <h3>关联事件 · {{ (inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents).length }}</h3>
+          </div>
+          <template v-if="inEditMode">
+            <label class="detail-inline-search">
+              <TimelineLucideIcon name="search" :stroke-width="1.8" />
+              <input v-model="relatedSearchQuery" type="search" placeholder="搜索当前专题事件" />
+            </label>
+            <div v-if="candidateRelatedEvents.length" class="related-results">
+              <button
+                v-for="candidate in candidateRelatedEvents"
+                :key="candidate.id"
+                type="button"
+                class="related-result"
+                @click="addRelatedCandidate(candidate.id)"
+              >
+                <strong>{{ candidate.headline }}</strong>
+                <span>{{ candidate.displayLabel || formatEventDate(candidate) }}</span>
+              </button>
+            </div>
+          </template>
+          <div v-if="(inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents).length" class="row-list">
+            <button
+              v-for="item in (inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents)"
+              :key="item.id"
+              type="button"
+              class="lrow"
+              @click="inEditMode ? removeRelatedEvent(item.id) : emit('open-related', item.id)"
+            >
+              <span class="lrow-ic"><TimelineLucideIcon name="calendar" :stroke-width="1.8" /></span>
+              <div class="lrow-main">
+                <b>{{ item.headline || item.displayLabel || "未命名事件" }}</b>
+                <span>{{ item.displayLabel || formatEventDate(item) }}</span>
+              </div>
+              <span class="lrow-act">
+                <TimelineLucideIcon :name="inEditMode ? 'trash' : 'arrowRight'" :stroke-width="1.8" />
+              </span>
             </button>
           </div>
-          <p v-else-if="relatedSearchQuery" class="timeline-pane-empty">没有匹配的时间点。</p>
+          <p v-else class="pane-empty">暂无关联事件。</p>
         </div>
+      </div>
 
-        <div v-if="(inEditMode ? selectedRelatedEvents : detailRelatedEvents).length" class="timeline-support-list">
-          <button
-            v-for="item in (inEditMode ? selectedRelatedEvents : detailRelatedEvents).slice(0, CONTENT_LIMITS.relatedNotesVisible)"
-            :key="item.id"
-            type="button"
-            class="timeline-support-row"
-            @click="inEditMode ? removeRelatedEvent(item.id) : openRelatedEvent(item.id)"
-          >
-            <div class="timeline-support-main">
-              <strong>{{ item.headline || item.displayLabel || formatEventDate(item) || "未命名时间点" }}</strong>
-              <span>{{ item.displayLabel || formatEventDate(item) }}</span>
-            </div>
-            <span class="timeline-support-action">{{ inEditMode ? "移除" : "查看" }}</span>
-          </button>
-        </div>
-        <p v-else class="timeline-pane-empty">暂无相关时间点。</p>
-      </section>
+      <AttachmentModal :open="Boolean(modalAttachment)" :attachment="modalAttachment" @close="closeAttachmentModal" />
     </template>
   </aside>
 </template>

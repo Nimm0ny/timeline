@@ -23,6 +23,13 @@ def init_database():
 
 def ensure_timeline_event_schema():
     inspector = inspect(engine)
+    topic_columns = set()
+    if "topics" in inspector.get_table_names():
+        topic_columns = {column["name"] for column in inspector.get_columns("topics")}
+        if "columns_json" not in topic_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE topics ADD COLUMN columns_json TEXT DEFAULT '[]'"))
+
     if "timeline_events" not in inspector.get_table_names():
         return
 
@@ -42,6 +49,8 @@ def ensure_timeline_event_schema():
         statements.append("ALTER TABLE timeline_events ADD COLUMN body_markdown TEXT DEFAULT ''")
     if "tags_json" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN tags_json TEXT DEFAULT '[]'")
+    if "extra_json" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN extra_json TEXT DEFAULT '{}'")
     if "attachments_json" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN attachments_json TEXT DEFAULT '[]'")
     if "related_event_ids_json" not in existing:
@@ -139,6 +148,7 @@ def ensure_timeline_event_schema():
                 UPDATE timeline_events
                 SET body_markdown = COALESCE(body_markdown, ''),
                     tags_json = COALESCE(tags_json, '[]'),
+                    extra_json = COALESCE(extra_json, '{}'),
                     attachments_json = COALESCE(attachments_json, '[]'),
                     related_event_ids_json = COALESCE(related_event_ids_json, '[]'),
                     created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP),
@@ -146,6 +156,8 @@ def ensure_timeline_event_schema():
                 """
             )
         )
+        if "topics" in inspector.get_table_names():
+            connection.execute(text("UPDATE topics SET columns_json = COALESCE(columns_json, '[]')"))
 
 
 def migrate_legacy_files(db: Session):
@@ -193,6 +205,7 @@ def import_topic_file(db: Session, path: Path):
         name=sanitize_topic_name(path.stem) or path.stem,
         title=str(title or "").strip(),
         subtitle=str(subtitle or "").strip(),
+        columns_json="[]",
     )
     db.add(topic)
     db.flush()
@@ -234,6 +247,7 @@ def import_topic_file(db: Session, path: Path):
                 ],
                 ensure_ascii=False,
             ),
+            extra_json="{}",
             attachments_json="[]",
             related_event_ids_json="[]",
             image=image,
