@@ -191,6 +191,30 @@ const stats = computed(() => ({
   favorite: liveEvents.value.filter((event) => event.favorite).length,
 }));
 
+// Lightweight "new notes per week" trend (last 8 weeks) as CSS bars — no deps,
+// no chart library; oldest week left, current week right.
+const weeklyTrend = computed(() => {
+  const weeks = 8;
+  const buckets = Array.from({ length: weeks }, () => 0);
+  const startOfWeek = (date) => {
+    const value = new Date(date);
+    const day = (value.getDay() + 6) % 7;
+    value.setDate(value.getDate() - day);
+    value.setHours(0, 0, 0, 0);
+    return value;
+  };
+  const currentStart = startOfWeek(new Date());
+  const weekMs = 7 * 24 * 3600 * 1000;
+  for (const event of liveEvents.value) {
+    const date = eventCreatedDate(event);
+    if (!date) continue;
+    const diff = Math.round((currentStart - startOfWeek(date)) / weekMs);
+    if (diff >= 0 && diff < weeks) buckets[weeks - 1 - diff] += 1;
+  }
+  const max = Math.max(1, ...buckets);
+  return buckets.map((count) => ({ count, pct: count ? Math.max(8, Math.round((count / max) * 100)) : 0 }));
+});
+
 function toggleSection(key) {
   state.sections[key] = !state.sections[key];
 }
@@ -484,6 +508,19 @@ watch(
               <div class="ms-cell">
                 <div class="ms-num">{{ stats.favorite }}</div>
                 <div class="ms-cap">收藏</div>
+              </div>
+            </div>
+            <div class="stat-trend">
+              <div class="stat-trend-cap">近 8 周新增</div>
+              <div class="spark">
+                <span
+                  v-for="(bar, index) in weeklyTrend"
+                  :key="index"
+                  class="spark-bar"
+                  :class="{ on: bar.count }"
+                  :style="{ height: bar.pct + '%' }"
+                  :title="`${bar.count} 条`"
+                ></span>
               </div>
             </div>
           </div>
