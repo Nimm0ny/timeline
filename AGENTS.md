@@ -1,6 +1,7 @@
 # AGENTS.md
 
 本文件是本仓库的强约束工程入口，目标是让每次任务都先读到同一套边界、视觉基准和验收标准，达到项目级常驻指导文件的效果。
+本文件必须以 UTF-8 保存和读取；如果终端显示乱码，先用显式 UTF-8 重新读取，不得在乱码状态下改写中文内容。
 
 任何自动化代理、AI 助手或维护者在开始改动前，必须先完整阅读本文件。涉及前端 UI、布局、样式、交互或视觉还原的任务，还必须阅读 `docs/00-mandatory-readonly-design-brief.md`。
 
@@ -14,6 +15,7 @@
 - 单次任务预计改动超过 `500` 行或超过 `12` 个文件时，必须先拆分任务；确实无法拆分时，必须在动手前说明原因。
 - 新增单个函数、方法或计算块超过 `50` 行时，必须拆分或说明为什么保持单体更清晰；禁止为了满足行数规则制造无意义抽象。
 - 单次任务新增代码有效行数超过 `50` 行时，必须在本地 commit 前进行 code review；不得通过拆文件、拆 commit 或把代码挪到配置/模板中规避 review。
+- 当任务被拆给 subagent 时，必须给每个 subagent 明确独立目标和文件所有权；不同 subagent 不得同时修改同一文件。主 agent 负责整合、验证和最终 commit。
 - 当任务要求或默认流程需要提交时，agent 负责创建本地原子 commit。commit 必须只包含本次任务相关文件，不得混入用户已有无关改动。
 - push 远端必须等待用户明确授权；没有授权时，禁止执行 `git push`、发布、部署或任何会改变远端状态的操作。
 - 前端视觉改动必须先确定视觉基准。可用基准包括用户确认的原型、必读设计文档、固定截图或当前已批准实现；没有基准时不得直接实施。
@@ -60,7 +62,7 @@
 
 - 前端：Vue 3 + Vite。
 - 图标：`@lucide/vue`，必须通过 `TimelineLucideIcon.vue` 集中使用。
-- 文本测量：中栏使用 `@chenglou/pretext`，只负责测量、截断、高度预测和滚动 offset 估算，不负责渲染 UI。
+- 文本测量：中栏使用 `@chenglou/pretext`，只负责测量、截断、高度预测和滚动 offset 估算，不负责渲染 UI。中栏卡片相关 preset 必须使用 `TimelinePrototypeFont`，不得回退到系统字体栈。
 - 后端：FastAPI + SQLAlchemy + SQLite。
 - 当前核心页面：三栏时间线笔记界面，左栏分类，中栏时间线，右栏详情/编辑。
 - 当前视觉阶段：桌面端、亮色模式、`1920×1080`、one-view 像素级还原。
@@ -77,6 +79,8 @@
 6. 现有代码实现。
 
 旧设计文档、旧截图、旧 1536 方案只作为历史参考。只要与当前 one-view 原型或必读设计文档冲突，一律不采用。
+`README.md` 当前包含旧接口、旧页面和旧测试状态说明，只作为启动和背景参考；如与本文件、当前代码或测试脚本冲突，以本文件和当前代码为准。
+旧文档中出现的 `.tmp-qa/visual-server.mjs` 或 `?topic=1&event=101` 属于历史验收写法；当前可追踪入口和 fixture 以本文件第 8 节为准。
 
 ## 3. 前端硬约束
 
@@ -91,6 +95,14 @@
 - 高度变化只调整内部滚动区域，不得裁掉左栏设置、底部 composer、右栏底部操作区。
 - 所有滚动容器允许滚动但不显示滚动条。
 
+### 3.1.1 视觉 QA Fixture
+
+- 当前默认视觉 QA fixture 为 `topic=1`、`event=1`、`mode=edit`，对应固定 URL：`http://127.0.0.1:8798/?topic=1&event=1&mode=edit`。
+- 该 fixture 必须通过 `cmd /c npm run qa:visual-fixture` 校验：`event` 必须属于同一个 `topic`，且不能处于回收站。
+- 不得直接复制旧文档里的 `?topic=1&event=101`。当前数据库中该事件不属于 `topic=1`，会进入“指定事件不存在”路径，不能作为视觉验收目标。
+- 如果迁移、重置数据库或调整种子数据导致默认 fixture 失效，必须同步更新本节、`tools/qa/visual-fixture.mjs` 默认值和视觉 QA 记录。
+- 需要验证具名原型热点时，必须先确认 fixture 数据能渲染对应节点；否则按首屏第 N 张卡片的 selector 和坐标验收，并在目标文档写明映射关系。
+
 ### 3.2 必须对齐的 1920 热点
 
 目标容差为 `±4px`：
@@ -99,10 +111,10 @@
 | --- | --- |
 | 左栏快速记录按钮 | `x=21, y=80, w=253, h=40` |
 | 搜索笔记 | `x=329, y=16, w=565, h=40` |
-| 1840 鸦片战争卡片 | `x=473, y=167, w=531, h=175` |
-| 1911 辛亥革命卡片 | `x=473, y=387, w=531, h=147` |
-| 1949 新中国成立卡片 | `x=473, y=580, w=531, h=162` |
-| 秦始皇统一六国卡片 | `x=473, y=791, w=531, h=155` |
+| 首屏第 1 张事件卡 | `x=473, y=167, w=531, h=175` |
+| 首屏第 2 张事件卡 | `x=473, y=387, w=531, h=147` |
+| 首屏第 3 张事件卡 | `x=473, y=580, w=531, h=162` |
+| 首屏第 4 张事件卡 | `x=473, y=791, w=531, h=155` |
 | 底部新增记录输入框 | `x=354, y=968, w=662, h=77` |
 | 保存按钮 | `x=1751, y=80, w=84, h=38` |
 | 右侧笔记编辑区域 | `x=1393, y=226, w=508, h=797` |
@@ -116,6 +128,7 @@
 - 图标必须是真实 DOM/SVG/CSS 图形。
 - 运行时 SVG 图标必须来自 Lucide，并经 `ui/src/components/timeline-notes/TimelineLucideIcon.vue` 统一维护。
 - 不允许散落手写 SVG。
+- 例外：`ui/src/services/timelineExport.js` 这类导出 SVG/PNG 的 artifact generation 逻辑不属于运行时 UI，可以生成 SVG 字符串；但不得把导出 SVG 反向用于页面渲染。
 - 不允许从 PNG 反推一套运行时 SVG token。
 - 常规图标视觉尺寸锁定在 `16px~18px`。
 - 图标按钮热区按场景使用 `28px / 32px / 36px / 40px`。
@@ -132,6 +145,7 @@
 - 字距保持正常，不使用负字距。
 - 文本不得与按钮、图标、卡片边界或相邻内容重叠。
 - 固定格式 UI 必须有稳定尺寸或响应式约束，避免 hover、加载、长文本造成布局跳动。
+- `ui/src/services/pretextLayout.js` 中 `timelineCardTitle`、`timelineCardPreview`、`timelineCardChip` 必须绑定 `TimelinePrototypeFont`，并与 CSS 字号、字重、行高同步。`export*` 或历史测量 preset 可以保留系统字体，但不得用于三栏运行时 UI。
 
 ### 3.5 颜色与装饰
 
@@ -260,6 +274,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - 使用浏览器原生 `confirm()`。
 - 使用运行时 `transform: scale*()` 承载布局、视觉修正或像素还原。
 - 运行时 CSS 字体声明绕过 `TimelinePrototypeFont` 或 `--tn-*` 字体 token。
+- 中栏卡片 Pretext preset 未绑定 `TimelinePrototypeFont`。
 
 如果只改文档，可不运行构建和测试，但需要说明未运行原因。
 
@@ -267,14 +282,16 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 - 先运行 `cmd /c npm run build`。
 - 启动后端：`python backend/server.py`。
+- 校验 fixture：`cmd /c npm run qa:visual-fixture`。
 - 另开终端运行：`cmd /c npm run qa:visual-server`。
-- 固定 URL：`http://127.0.0.1:8798/?topic=1&event=101&mode=edit`。
+- 固定 URL：`http://127.0.0.1:8798/?topic=1&event=1&mode=edit`。
 - 固定视口：`1920×1080`。
 - 检查首屏无横向溢出、无文本重叠、无关键元素缺失。
 - 检查关键热点位置和尺寸接近第 3.2 节。
 - 检查左栏筛选、标签、收藏、回收站、右栏阅读/编辑切换仍可用。
 
 说明：旧文档中可能提到 `.tmp-qa/visual-server.mjs`；该路径属于本地临时目录且被 `.gitignore` 忽略。本仓库可追踪的视觉 QA 入口是 `tools/qa/visual-server.mjs`，通过 `npm run qa:visual-server` 使用。
+说明：`qa:visual-fixture` 只校验后端数据和固定 URL 是否可用，不替代像素热点验收。涉及视觉改动时仍必须用浏览器在 `1920×1080` 读取真实 DOM 位置，或在目标文档中说明为什么无法完成。
 
 ## 8.1 最终回复强制格式
 
@@ -284,7 +301,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - `Changed`: 实际改动的文件和行为摘要。
 - `Verified`: 已运行的命令及结果；未运行必须说明原因。
 - `Review`: 是否触发 subagent review；触发时列出 review 结论，未触发时说明原因。
-- `Visual QA`: 若涉及前端视觉，说明是否按 `1920×1080` 固定 URL 验证，以及发现的问题。
+- `Visual QA`: 若涉及前端视觉，说明是否通过 `qa:visual-fixture`，是否按 `1920×1080` 固定 URL 验证，以及发现的问题。
 - `Risks`: 剩余风险或明确写 `无已知剩余风险`。
 
 ## 9. 完成前自检

@@ -124,6 +124,28 @@ const checks = [
       return failures;
     },
   },
+  {
+    name: "Timeline Pretext presets must use project font",
+    test(file, source) {
+      if (path.normalize(file) !== path.normalize(path.join(uiSrc, "services", "pretextLayout.js"))) {
+        return [];
+      }
+      const requiredPresets = ["timelineCardTitle", "timelineCardPreview", "timelineCardChip"];
+      const failures = [];
+      for (const preset of requiredPresets) {
+        const presetPattern = new RegExp(`${preset}\\s*:\\s*([^\\n,]+),`);
+        const match = source.match(presetPattern);
+        if (!match || !match[1].includes("TimelinePrototypeFont")) {
+          failures.push({
+            file,
+            line: match ? lineNumber(source, match.index) : 1,
+            message: `${preset} must use TimelinePrototypeFont so Pretext matches the 1920 UI.`,
+          });
+        }
+      }
+      return failures;
+    },
+  },
 ];
 
 const files = walk(uiSrc);

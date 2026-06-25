@@ -6,6 +6,8 @@ import { URL } from "node:url";
 const root = process.cwd();
 const port = Number.parseInt(process.env.TIMELINE_VISUAL_PORT || process.env.PORT || "8798", 10);
 const backendOrigin = process.env.TIMELINE_BACKEND_URL || "http://127.0.0.1:8000";
+const visualTopicId = process.env.TIMELINE_VISUAL_TOPIC_ID || "1";
+const visualEventId = process.env.TIMELINE_VISUAL_EVENT_ID || "1";
 const frontendDir = path.join(root, "frontend");
 
 const contentTypes = {
@@ -127,6 +129,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Visual QA server: http://127.0.0.1:${port}/?topic=1&event=101&mode=edit`);
+  console.log(`Visual QA server: http://127.0.0.1:${port}/?topic=${visualTopicId}&event=${visualEventId}&mode=edit`);
   console.log(`Backend proxy target: ${backendOrigin}`);
 });
