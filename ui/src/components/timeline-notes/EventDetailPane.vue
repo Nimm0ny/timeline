@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
@@ -66,6 +66,7 @@ const emit = defineEmits([
   "save",
   "toggle-favorite",
   "dirty-change",
+  "preview-change",
 ]);
 
 const bodyEditableRef = ref(null);
@@ -74,8 +75,14 @@ const uploading = ref(false);
 const sessionUploads = ref([]);
 const pendingDeleteImages = ref([]);
 const relatedSearchQuery = ref("");
+const showRelatedSearch = ref(false);
+const showTagEditor = ref(false);
+const tagInputRef = ref(null);
+const relatedSearchInputRef = ref(null);
 const modalAttachment = ref(null);
 const dragActive = ref(false);
+const dateEditorOpen = ref(false);
+const eraEditorOpen = ref(false);
 
 const draft = reactive(buildEditorDraft(null, props.topicColumns));
 
@@ -100,13 +107,83 @@ const selectedRelatedEvents = computed(() => {
   return draft.relatedEventIds.map((id) => lookup.get(Number(id))).filter(Boolean);
 });
 
-const candidateRelatedEvents = computed(() =>
-  filterRelatedEventCandidates(props.candidateEvents, {
+// Seamless edit: candidates stay hidden until the user opts in and actually
+// searches, so entering edit mode never dumps a long list of alternatives.
+const candidateRelatedEvents = computed(() => {
+  const query = relatedSearchQuery.value.trim();
+  if (!query) return [];
+  return filterRelatedEventCandidates(props.candidateEvents, {
     currentId: draft.id,
     selectedIds: draft.relatedEventIds,
-    query: relatedSearchQuery.value,
-  })
+    query,
+  });
+});
+
+const draftDisplayDate = computed(() => {
+  const year = String(draft.dateYear || "").trim();
+  const month = String(draft.dateMonth || "").trim();
+  const day = String(draft.dateDay || "").trim();
+  if (!year || !month || !day) return "未设置日期";
+  return `${year}年${month}月${day}日`;
+});
+
+// Editor-first detail pane: tag / attachment / related sections only render when
+// they hold content (or, in edit mode, once their toolbar add-button is used).
+const hasTags = computed(() => (inEditMode.value ? draft.tags : readableGroups.value.tags).length > 0);
+const hasAttachments = computed(
+  () => (inEditMode.value ? draft.attachments : readableGroups.value.attachments).length > 0
 );
+const hasRelated = computed(
+  () => (inEditMode.value ? selectedRelatedEvents.value : readableGroups.value.relatedEvents).length > 0
+);
+const showTagSection = computed(() => hasTags.value || (inEditMode.value && showTagEditor.value));
+const showAttachmentSection = computed(() => hasAttachments.value);
+const showRelatedSection = computed(() => hasRelated.value || (inEditMode.value && showRelatedSearch.value));
+
+function revealTagEditor() {
+  showTagEditor.value = true;
+  nextTick(() => tagInputRef.value?.focus());
+}
+
+function revealRelatedEditor() {
+  showRelatedSearch.value = true;
+  nextTick(() => relatedSearchInputRef.value?.focus());
+}
+
+// Live edit preview pushed up so the center-column row reflects the draft in
+// real time. Null when not editing, which also clears the overlay on the page.
+const livePreview = computed(() => {
+  if (!inEditMode.value || !draft.id) return null;
+  return {
+    id: draft.id,
+    headline: draft.headline,
+    dateYear: draft.dateYear,
+    dateMonth: draft.dateMonth,
+    dateDay: draft.dateDay,
+    era: draft.era,
+  };
+});
+
+function toggleDateEditor() {
+  dateEditorOpen.value = !dateEditorOpen.value;
+  if (dateEditorOpen.value) eraEditorOpen.value = false;
+}
+
+function toggleEraEditor() {
+  eraEditorOpen.value = !eraEditorOpen.value;
+  if (eraEditorOpen.value) dateEditorOpen.value = false;
+}
+
+function closeMetaEditors() {
+  dateEditorOpen.value = false;
+  eraEditorOpen.value = false;
+}
+
+function handleDocumentPointer(event) {
+  if (!dateEditorOpen.value && !eraEditorOpen.value) return;
+  if (event.target instanceof Element && event.target.closest(".meta-pop-wrap")) return;
+  closeMetaEditors();
+}
 
 function inlineToMarkdown(node) {
   if (!node) return "";
@@ -230,7 +307,7 @@ function applyDraft(sourceEvent) {
   draft.bodyMarkdown = next.bodyMarkdown;
   draft.image = next.image;
   draft.imageUrl = next.imageUrl;
-  draft.tags = next.tags.length ? next.tags : [draft.era];
+  draft.tags = next.tags;
   draft.attachments = next.attachments;
   draft.relatedEventIds = next.relatedEventIds;
   draft.relatedEvents = next.relatedEvents;
@@ -239,6 +316,9 @@ function applyDraft(sourceEvent) {
   draft.items = next.items;
   draft.extra = next.extra;
   relatedSearchQuery.value = "";
+  showRelatedSearch.value = false;
+  showTagEditor.value = false;
+  closeMetaEditors();
   nextTick(() => {
     syncEditableBody(draft.bodyMarkdown);
     initialSnapshot.value = snapshotDraft();
@@ -437,6 +517,7 @@ function markSaved() {
 defineExpose({ discardDraft, markSaved, submit });
 
 watch(isDirty, (value) => emit("dirty-change", value), { immediate: true });
+watch(livePreview, (value) => emit("preview-change", value), { immediate: true });
 
 watch(
   () => [props.mode, props.event?.id, JSON.stringify(topicColumns.value)],
@@ -467,7 +548,13 @@ watch(
   }
 );
 
+onMounted(() => {
+  document.addEventListener("pointerdown", handleDocumentPointer);
+});
+
 onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleDocumentPointer);
+  emit("preview-change", null);
   cleanupTransientUploads();
 });
 </script>
@@ -492,6 +579,19 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="actionbar">
         <span class="spacer"></span>
+        <template v-if="inEditMode">
+          <button type="button" class="iconbtn" title="添加标签" @click="revealTagEditor">
+            <TimelineLucideIcon name="hash" :stroke-width="1.8" />
+          </button>
+          <label class="iconbtn" title="添加附件">
+            <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+            <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
+          </label>
+          <button type="button" class="iconbtn" :class="{ on: showRelatedSearch }" title="关联事件" @click="revealRelatedEditor">
+            <TimelineLucideIcon name="link" :stroke-width="1.8" />
+          </button>
+          <span class="divider"></span>
+        </template>
         <button
           id="detailStar"
           type="button"
@@ -509,10 +609,10 @@ onBeforeUnmount(() => {
         <button type="button" class="iconbtn" title="回收站操作" @click="emit('open-menu', props.event || draft)">
           <TimelineLucideIcon name="trash" :stroke-width="1.8" />
         </button>
-        <button type="button" class="iconbtn primary" :disabled="!inEditMode || props.saving" title="保存" @click="submit">
+        <span class="divider"></span>
+        <button v-if="inEditMode" type="button" class="iconbtn primary" :disabled="props.saving" title="保存" @click="submit">
           <TimelineLucideIcon name="save" :stroke-width="1.8" />
         </button>
-        <span class="divider"></span>
         <button
           id="modeBtn"
           type="button"
@@ -536,32 +636,42 @@ onBeforeUnmount(() => {
         <h1 v-else class="detail-title">{{ props.event?.headline || "未命名事件" }}</h1>
 
         <div class="meta-row">
-          <span v-if="inEditMode" class="meta meta-edit">
-            <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
-            <span class="meta-input-cluster">
-              <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" />
-              <span>年</span>
-              <input v-model="draft.dateMonth" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" />
-              <span>月</span>
-              <input v-model="draft.dateDay" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" />
-              <span>日</span>
-            </span>
-          </span>
-          <span v-else class="meta">
+          <span v-if="!inEditMode" class="meta">
             <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
             <span>{{ formatEventDisplayDate(props.event) }}</span>
           </span>
-
-          <span v-if="inEditMode" class="meta meta-edit">
-            <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
-            <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" />
-            <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+          <span v-else class="meta-pop-wrap">
+            <button type="button" class="meta meta-trigger" :class="{ on: dateEditorOpen }" @click.stop="toggleDateEditor">
+              <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
+              <span>{{ draftDisplayDate }}</span>
+            </button>
+            <div v-if="dateEditorOpen" class="meta-pop" @click.stop>
+              <div class="meta-pop-date">
+                <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" aria-label="年" />
+                <span>年</span>
+                <input v-model="draft.dateMonth" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="月" />
+                <span>月</span>
+                <input v-model="draft.dateDay" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="日" />
+                <span>日</span>
+              </div>
+            </div>
           </span>
-          <button v-else type="button" class="meta">
+
+          <button v-if="!inEditMode" type="button" class="meta">
             <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
             <span>{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</span>
             <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
           </button>
+          <span v-else class="meta-pop-wrap">
+            <button type="button" class="meta meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
+              <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
+              <span>{{ `${props.topicTitle} · ${draft.era || "未分期"}` }}</span>
+              <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+            </button>
+            <div v-if="eraEditorOpen" class="meta-pop" @click.stop>
+              <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
+            </div>
+          </span>
         </div>
 
         <section class="body-wrap" :class="{ editing: inEditMode, dragging: dragActive }">
@@ -604,40 +714,30 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="pane-sec">
+        <div v-if="showTagSection" class="pane-sec">
           <div class="pane-sec-head">
             <h3>标签</h3>
           </div>
           <input
             v-if="inEditMode"
+            ref="tagInputRef"
             v-model="tagText"
             class="detail-inline-input"
             type="text"
             placeholder="战争, 政治, 改革"
           />
-          <div class="pane-tags">
+          <div v-if="(inEditMode ? draft.tags : readableGroups.tags).length" class="pane-tags">
             <span v-for="tag in (inEditMode ? draft.tags : readableGroups.tags)" :key="tag" class="ptag">
               <i></i>{{ tag }}
             </span>
-            <span v-if="!(inEditMode ? draft.tags : readableGroups.tags).length" class="pane-empty">暂无标签。</span>
           </div>
         </div>
 
-        <div class="pane-sec">
+        <div v-if="showAttachmentSection" class="pane-sec">
           <div class="pane-sec-head">
             <h3>附件 · {{ (inEditMode ? draft.attachments : readableGroups.attachments).length }}</h3>
-            <div v-if="inEditMode" class="pane-sec-actions">
-              <label class="iconbtn sm" title="上传图片">
-                <TimelineLucideIcon name="image" :stroke-width="1.8" />
-                <input type="file" accept="image/*" hidden :disabled="uploading" @change="uploadAttachment($event, { insertIntoBody: true })" />
-              </label>
-              <label class="iconbtn sm" title="上传附件">
-                <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
-                <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
-              </label>
-            </div>
           </div>
-          <div v-if="(inEditMode ? draft.attachments : readableGroups.attachments).length" class="row-list">
+          <div class="row-list">
             <div
               v-for="(attachment, index) in (inEditMode ? draft.attachments : readableGroups.attachments)"
               :key="attachment.filename || attachment.url || attachment.name || index"
@@ -681,17 +781,16 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <p v-else class="pane-empty">暂无附件。</p>
         </div>
 
-        <div class="pane-sec">
+        <div v-if="showRelatedSection" class="pane-sec">
           <div class="pane-sec-head">
             <h3>关联事件 · {{ (inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents).length }}</h3>
           </div>
-          <template v-if="inEditMode">
+          <template v-if="inEditMode && showRelatedSearch">
             <label class="detail-inline-search">
               <TimelineLucideIcon name="search" :stroke-width="1.8" />
-              <input v-model="relatedSearchQuery" type="search" placeholder="搜索当前专题事件" />
+              <input ref="relatedSearchInputRef" v-model="relatedSearchQuery" type="search" placeholder="搜索当前专题事件" />
             </label>
             <div v-if="candidateRelatedEvents.length" class="related-results">
               <button
@@ -724,7 +823,6 @@ onBeforeUnmount(() => {
               </span>
             </button>
           </div>
-          <p v-else class="pane-empty">暂无关联事件。</p>
         </div>
       </div>
 

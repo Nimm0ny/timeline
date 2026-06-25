@@ -4,20 +4,23 @@
   box-sizing: border-box;
 }
 
+/* Noto Sans SC (SIL OFL 1.1) — self-hosted common-Chinese subset (incl. Latin
+   + punctuation). No unicode-range: characters outside the subset gracefully
+   fall through to the system stack in --tn-font. License: assets/fonts/noto-sans-sc/LICENSE */
 @font-face {
-  font-family: "TimelinePrototypeFont";
-  src: url("../assets/fonts/timeline-prototype-regular.ttc");
+  font-family: "Noto Sans SC";
+  src: url("../assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
   font-weight: 400 500;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 @font-face {
-  font-family: "TimelinePrototypeFont";
-  src: url("../assets/fonts/timeline-prototype-bold.ttc");
-  font-weight: 600 700;
+  font-family: "Noto Sans SC";
+  src: url("../assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2");
+  font-weight: 600 900;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 html,
@@ -33,7 +36,7 @@ html {
 body {
   min-height: 100vh;
   color: #211b17;
-  font-family: "TimelinePrototypeFont";
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
 }

@@ -24,6 +24,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  topicTitle: {
+    type: String,
+    default: "",
+  },
   eventCount: {
     type: Number,
     default: 0,
@@ -214,7 +218,7 @@ onBeforeUnmount(() => {
   <section class="col timeline" :class="{ 'preview-off': !props.showPreview }">
     <div class="tl-bar">
       <div>
-        <h2>历史事件</h2>
+        <h2>{{ props.topicTitle || "历史事件" }}</h2>
         <span class="tl-count">时间线 · 共 {{ props.eventCount }} 条</span>
       </div>
       <span class="spacer"></span>

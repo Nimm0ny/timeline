@@ -96,6 +96,7 @@ const state = reactive({
   showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
   builtinColumns: { type: true, tags: true },
   searchRequestKey: 0,
+  editPreview: null,
 });
 
 let resizeCleanup = null;
@@ -147,12 +148,50 @@ function matchesMainFilter(event, filter) {
   return true;
 }
 
+// Seamless edit preview: while a node is being edited, overlay the live draft
+// (title / date / era) onto its center-column row so the row updates and
+// re-sorts/re-groups in real time. Date is applied only once fully valid so a
+// mid-typing partial value never corrupts the sort order.
+function applyPreviewOverlay(event, preview) {
+  const year = Number.parseInt(preview.dateYear, 10);
+  const month = Number.parseInt(preview.dateMonth, 10);
+  const day = Number.parseInt(preview.dateDay, 10);
+  const validDate =
+    Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day) &&
+    month >= 1 && month <= 12 && day >= 1 && day <= 31;
+  const headline = String(preview.headline ?? "").trim();
+  const era = String(preview.era ?? "").trim();
+  return {
+    ...event,
+    headline: headline || event.headline,
+    era: era || event.era,
+    ...(validDate
+      ? {
+          dateParts: { year, month, day },
+          dateKey: year * 10000 + month * 100 + day,
+          isoDate: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+          displayLabel: `${year}年${month}月${day}日`,
+        }
+      : {}),
+  };
+}
+
+function previewedEvents() {
+  const preview = state.editPreview;
+  if (!preview || !preview.id) return state.events;
+  return state.events.map((event) => (event.id === preview.id ? applyPreviewOverlay(event, preview) : event));
+}
+
 function filterEvents({ filter = state.sidebarFilter, tag = state.activeTag, era = state.activeEra, search = state.searchQuery } = {}) {
-  return [...state.events]
-    .filter((event) => matchesMainFilter(event, filter))
-    .filter((event) => !tag || (event.tags || []).includes(tag))
-    .filter((event) => !era || event.era === era)
-    .filter((event) => matchesEventSearch(event, search))
+  // The row being edited stays visible even if the live draft no longer matches
+  // the active tag/era/search, so it never vanishes mid-edit under a filter.
+  // Never exempt it into the trash view (a live row must not appear there).
+  const editingId = filter === "trash" ? null : (state.editPreview?.id ?? null);
+  return [...previewedEvents()]
+    .filter((event) => event.id === editingId || matchesMainFilter(event, filter))
+    .filter((event) => event.id === editingId || !tag || (event.tags || []).includes(tag))
+    .filter((event) => event.id === editingId || !era || event.era === era)
+    .filter((event) => event.id === editingId || matchesEventSearch(event, search))
     .sort(compareTimelineEvents);
 }
 
@@ -675,6 +714,7 @@ watch(
       :loading="state.loading"
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId)"
+      :topic-title="activeTopicTitle"
       :event-count="visibleEvents.length"
       :empty-reason="feedEmptyReason"
       :search-query="state.searchQuery"
@@ -716,6 +756,7 @@ watch(
       @save="saveEvent"
       @toggle-favorite="toggleFavorite"
       @dirty-change="state.detailDirty = $event"
+      @preview-change="state.editPreview = $event"
     />
 
     <div id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
@@ -725,6 +766,7 @@ watch(
       <div class="timeline-action-menu" @click.stop>
         <template v-if="state.menuEvent.deletedAt">
           <button type="button" @click="restoreEvent(state.menuEvent)">恢复</button>
+          <span class="pop-divider"></span>
           <button type="button" class="danger" @click="permanentlyDeleteEvent(state.menuEvent)">永久删除</button>
         </template>
         <template v-else>

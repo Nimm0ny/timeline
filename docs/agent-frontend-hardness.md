@@ -10,7 +10,7 @@
 - 前端：Vue 3 + Vite。
 - 图标：`@lucide/vue`，必须通过 `ui/src/components/timeline-notes/TimelineLucideIcon.vue` 集中使用。
 - 文本测量：中栏使用 `@chenglou/pretext`，只负责测量、截断、高度预测和滚动 offset 估算，不负责渲染 UI。
-- 中栏卡片相关 preset 必须使用 `TimelinePrototypeFont`，不得回退到系统字体栈。
+- 中栏卡片相关 preset 必须使用 `Noto Sans SC`，不得回退到系统字体栈。
 - 后端：FastAPI + SQLAlchemy + SQLite。
 - 当前核心页面：三栏时间线笔记界面，左栏分类，中栏时间线，右栏详情/编辑。
 - 当前视觉阶段：桌面端、亮色模式、`1920×1080`、one-view 像素级还原。
@@ -78,16 +78,17 @@
 
 ## 6. 字体与排版
 
-- 页面字体必须使用项目内置 `TimelinePrototypeFont`。
-- 字体文件：
-  - `ui/src/assets/fonts/timeline-prototype-regular.ttc`
-  - `ui/src/assets/fonts/timeline-prototype-bold.ttc`
+- 页面字体必须使用项目自托管 `Noto Sans SC`（思源黑体，SIL OFL 1.1），并通过 `--tn-font` / `--tn-font-num` token 引用。
+- 字体文件（常用简体子集，含 Latin + 标点；子集外字符优雅回退到系统 sans 栈，绝不回退宋体/衬线）：
+  - `ui/src/assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-400-normal.woff2`
+  - `ui/src/assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-700-normal.woff2`
+  - 许可证：`ui/src/assets/fonts/noto-sans-sc/LICENSE`
 - 不允许把标题、年份、卡片正文或 Markdown 区域切到宋体、衬线字体或随意系统字体栈。
 - 不允许用视口宽度线性缩放字体。
 - 字距保持正常，不使用负字距。
 - 文本不得与按钮、图标、卡片边界或相邻内容重叠。
 - 固定格式 UI 必须有稳定尺寸或响应式约束，避免 hover、加载、长文本造成布局跳动。
-- `ui/src/services/pretextLayout.js` 中 `timelineCardTitle`、`timelineCardPreview`、`timelineCardChip` 必须绑定 `TimelinePrototypeFont`，并与 CSS 字号、字重、行高同步。
+- `ui/src/services/pretextLayout.js` 中 `timelineCardTitle`、`timelineCardPreview`、`timelineCardChip` 必须绑定 `Noto Sans SC`，并与 CSS 字号、字重、行高同步。
 - `export*` 或历史测量 preset 可以保留系统字体，但不得用于三栏运行时 UI。
 
 ## 7. 颜色与装饰
@@ -209,8 +210,8 @@
 - `components/timeline-notes/` 中散落内联 `<svg>`。
 - 使用浏览器原生 `confirm()`。
 - 使用运行时 `transform: scale*()` 承载布局、视觉修正或像素还原。
-- 运行时 CSS 字体声明绕过 `TimelinePrototypeFont` 或 `--tn-*` 字体 token。
-- 中栏卡片 Pretext preset 未绑定 `TimelinePrototypeFont`。
+- 运行时 CSS 字体声明绕过 `Noto Sans SC` 或 `--tn-*` 字体 token。
+- 中栏卡片 Pretext preset 未绑定 `Noto Sans SC`。
 
 视觉改动还必须做视觉 QA：
 

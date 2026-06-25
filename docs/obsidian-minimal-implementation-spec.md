@@ -27,8 +27,8 @@
 其它     --rail:#d8d2c8  --scrim:rgba(40,34,24,.34)  --shadow-pop:0 10px 34px rgba(30,24,14,.14)
 布局变量 --left-w:268px  --right-w:412px
 半径     --radius-lg:12  --radius:8  --radius-sm:6  --radius-pill:999
-字体     --font:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif   （正文/标题，沿用项目内置 TimelinePrototypeFont）
-        --font-num:"Segoe UI","Microsoft YaHei",sans-serif             （日期/数字，tabular-nums）
+字体     --tn-font:"Noto Sans SC","PingFang SC","Microsoft YaHei","Segoe UI",sans-serif   （正文/标题，自托管 Noto Sans SC woff2 子集）
+        --tn-font-num:"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif  （日期/数字，tabular-nums）
 缓动     --ease:cubic-bezier(.32,.08,.24,1)
 标签色   --t-war:#c05a52 --t-politics:#5f78c2 --t-culture:#b0863e --t-reform:#4f9488 --t-diplomacy:#8a6bc2 --t-economy:#6f9a4d --t-science:#4d8f9a
 ```
@@ -37,8 +37,16 @@
 
 - **禁显滚动条（全局）**：`*{scrollbar-width:none;-ms-overflow-style:none} *::-webkit-scrollbar{display:none} html,body{overflow:hidden}`；各栏内部用独立可滚动容器。
 - 图标线宽 `1.75`，视觉尺寸 16–18px，圆角圆端；按钮热区 26–34px。
-- 字体锁定项目内置字体，不回退宋体/衬线。
+- 字体锁定自托管 `Noto Sans SC`（SIL OFL）；子集外字符回退系统 sans 栈，不回退宋体/衬线。
 - 命令按钮统一 `.iconbtn`（hover 浅底，`.on` 强调色软底，`.primary` 强调色实心）。
+
+## 2.1 弹层（popover）与输入控件规范
+
+所有浮层与输入框统一走以下规范，新增控件必须遵守，禁止每处各自造样式。
+
+- **弹层容器**（`.popover` / `.meta-pop` / `.timeline-action-menu` 同款）：背景 `var(--bg-detail)`、1px `var(--border)` 边、圆角 `--radius-lg`、阴影 `--shadow-pop`、`z-index:40`、内边距 `6–8px`（密集表单类如列设置可用 10px）。标题用 `.pop-title`（11px、大写字距、`--text-faint`）。
+- **分割线分组（强制）**：弹层内按语义分组，组间用分割线隔开——多组用 `.pop-section`（相邻组自动 `border-top:1px var(--border-soft)` + 间距），或用显式 `.pop-divider`（1px `--border-soft`，纵向 margin 6px）。破坏性操作（如永久删除）必须用分割线与普通操作隔开。
+- **输入控件（强制无边框）**：`border:0`、底色 `var(--bg-surface-2)`、圆角 `--radius-sm`、字号 `13px`、最小高 `30px`、padding `0 10px`。聚焦：去 outline、底色提亮到 `--bg-surface`、加 `box-shadow: inset 0 0 0 1.5px var(--accent-line)`（聚焦环，非边框）。禁止 1px 实边框输入框，禁止让输入框继承浏览器默认 16px 字号。
 
 ## 3. 布局与外壳（自适应 + 可拖拽 + 右栏按需展开）
 

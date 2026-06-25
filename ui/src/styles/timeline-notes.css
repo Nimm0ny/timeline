@@ -28,8 +28,8 @@
   --radius: 8px;
   --radius-sm: 6px;
   --radius-pill: 999px;
-  --tn-font: "TimelinePrototypeFont", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-  --tn-font-num: "TimelinePrototypeFont", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --tn-font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --tn-font-num: "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --ease: cubic-bezier(0.32, 0.08, 0.24, 1);
   --t-war: #c05a52;
   --t-politics: #5f78c2;
@@ -145,9 +145,10 @@ button {
   height: 26px;
 }
 
+/* Top-bar function buttons share one size across all three columns. */
 .iconbtn.lg {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
 }
 
 .timeline-lucide-icon {
@@ -254,7 +255,7 @@ button {
 }
 
 .pane-head {
-  height: 44px;
+  height: 52px;
   display: flex;
   align-items: center;
   gap: 1px;
@@ -282,22 +283,37 @@ button {
   padding: 4px 6px 10px;
 }
 
+/* Input standard — borderless, soft fill, 13px (spec §2.1). */
 .topic-inline-create input,
 .detail-inline-input,
 .detail-inline-search input,
-.detail-edit-meta input,
 .detail-title-field input,
 .detail-field-item input,
 .col-grid input,
 .col-grid select,
 .pop-field input {
   width: 100%;
-  min-height: 32px;
-  border: 1px solid var(--border);
+  min-height: 30px;
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--bg-surface);
+  background: var(--bg-surface-2);
   color: var(--text);
+  font-size: 13px;
   padding: 0 10px;
+}
+
+.topic-inline-create input:focus,
+.detail-inline-input:focus,
+.detail-inline-search input:focus,
+.detail-field-item input:focus,
+.col-grid input:focus,
+.col-grid select:focus,
+.pop-field input:focus,
+.meta-input:focus,
+.meta-text-input:focus {
+  outline: none;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
 }
 
 .topic-inline-actions {
@@ -564,11 +580,16 @@ button {
   align-items: center;
   gap: 8px;
   padding: 0 11px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius);
-  background: var(--bg-surface);
+  background: var(--bg-surface-2);
   overflow: hidden;
   transition: width 0.22s var(--ease), opacity 0.18s var(--ease);
+}
+
+.searchbox:focus-within {
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
 }
 
 .searchbox.open {
@@ -986,10 +1007,18 @@ button {
   font-size: 11px;
 }
 
-.col-pop-section + .col-pop-section {
+/* Popover divider grouping (spec §2.1): sections auto-separate; .pop-divider is explicit. */
+.col-pop-section + .col-pop-section,
+.pop-section + .pop-section {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border-soft);
+}
+
+.pop-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-soft);
 }
 
 .col-pop-label {
@@ -1159,24 +1188,60 @@ button {
   color: var(--text-muted);
 }
 
-.meta-edit {
-  gap: 8px;
-  padding: 2px 0;
+/* Seamless edit: the date / era read as plain meta text and only reveal an
+   editor in a click-anchored popover, so read <-> edit stays zero-displacement. */
+.meta-pop-wrap {
+  position: relative;
+  display: inline-flex;
 }
 
-.meta-input-cluster {
+.meta-trigger {
+  gap: 7px;
+  padding: 3px 8px;
+  margin: -3px -8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+
+.meta-trigger:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.meta-trigger.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.meta-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-detail);
+  box-shadow: var(--shadow-pop);
+}
+
+.meta-pop-date {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .meta-input,
 .meta-text-input {
   min-height: 30px;
-  border: 1px solid var(--border-soft);
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--bg-surface);
+  background: var(--bg-surface-2);
   color: var(--text);
+  font-size: 13px;
   padding: 0 10px;
 }
 
@@ -1271,7 +1336,6 @@ button {
   margin-bottom: 10px;
 }
 
-.pane-sec-head h3,
 .detail-empty h3,
 .timeline-confirm-card h3,
 .timeline-settings-card h3 {
@@ -1280,7 +1344,15 @@ button {
   font-weight: 700;
 }
 
-.pane-sec-actions,
+/* Right-pane metadata sections read as quiet labels, not headings. */
+.pane-sec-head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+}
+
 .lrow-actions,
 .timeline-confirm-actions {
   display: flex;
@@ -1321,7 +1393,6 @@ button {
 
 .detail-field-item strong,
 .detail-empty p,
-.pane-empty,
 .timeline-confirm-card p,
 .timeline-settings-meta span {
   color: var(--text-muted);
@@ -1531,21 +1602,22 @@ button {
   position: fixed;
   right: 54px;
   top: 125px;
+  z-index: 40;
   width: 184px;
   display: grid;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-surface);
-  box-shadow: 0 14px 34px rgba(54, 36, 22, 0.16);
+  border-radius: var(--radius-lg);
+  background: var(--bg-detail);
+  box-shadow: var(--shadow-pop);
 }
 
 .timeline-action-menu button {
-  height: 34px;
-  border-radius: 7px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
   text-align: left;
   padding: 0 10px;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 

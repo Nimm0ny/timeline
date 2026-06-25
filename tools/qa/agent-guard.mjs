@@ -111,13 +111,13 @@ const checks = [
       for (const range of fontCheckRanges(file, source)) {
         for (const match of range.source.matchAll(/font-family\s*:\s*([^;\n}]+)/gi)) {
           const value = match[1];
-          if (value.includes("TimelinePrototypeFont") || value.includes("var(--tn-font)") || value.includes("var(--tn-serif)")) {
+          if (value.includes("Noto Sans SC") || value.includes("var(--tn-font")) {
             continue;
           }
           failures.push({
             file,
             line: lineNumber(source, range.start + match.index),
-            message: `Font declaration must use TimelinePrototypeFont or --tn font tokens: ${value.trim()}`,
+            message: `Font declaration must use the project font (Noto Sans SC) or --tn font tokens: ${value.trim()}`,
           });
         }
       }
@@ -135,11 +135,11 @@ const checks = [
       for (const preset of requiredPresets) {
         const presetPattern = new RegExp(`${preset}\\s*:\\s*([^\\n,]+),`);
         const match = source.match(presetPattern);
-        if (!match || !match[1].includes("TimelinePrototypeFont")) {
+        if (!match || !match[1].includes("Noto Sans SC")) {
           failures.push({
             file,
             line: match ? lineNumber(source, match.index) : 1,
-            message: `${preset} must use TimelinePrototypeFont so Pretext matches the 1920 UI.`,
+            message: `${preset} must use Noto Sans SC so Pretext matches the runtime UI font.`,
           });
         }
       }

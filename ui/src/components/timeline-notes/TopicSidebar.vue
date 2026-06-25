@@ -68,6 +68,19 @@ const state = reactive({
 const topicName = ref("");
 const creatingTopic = ref(false);
 
+// Each ribbon owns a distinct left-pane panel (Obsidian-style). The notebook
+// tree, tags, and stats are no longer stacked together under one tab.
+const RIBBON_PANELS = {
+  files: { title: "笔记本", sections: ["views", "topics"], tree: true },
+  search: { title: "搜索", sections: ["views", "topics"], tree: true },
+  star: { title: "收藏", sections: ["views", "topics"], tree: true },
+  tags: { title: "标签", sections: ["tags"], tree: false },
+  stats: { title: "统计", sections: ["stats"], tree: false },
+  trash: { title: "回收站", sections: ["views", "topics"], tree: true },
+};
+const activePanel = computed(() => RIBBON_PANELS[state.ribbon] || RIBBON_PANELS.files);
+const panelHas = (section) => activePanel.value.sections.includes(section);
+
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
   const date = raw ? new Date(raw) : null;
@@ -218,19 +231,21 @@ function collapseAll() {
 
     <div class="pane">
       <div class="pane-head">
-        <span class="ph-title">笔记本</span>
-        <button type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
-          <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
-        </button>
-        <button type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
-          <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
-        </button>
-        <button type="button" class="iconbtn" title="排序">
-          <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
-        </button>
-        <button type="button" class="iconbtn" title="全部折叠" @click="collapseAll">
-          <TimelineLucideIcon name="fold" :stroke-width="1.8" />
-        </button>
+        <span class="ph-title">{{ activePanel.title }}</span>
+        <template v-if="activePanel.tree">
+          <button type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
+            <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
+          </button>
+          <button type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
+            <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
+          </button>
+          <button type="button" class="iconbtn" title="排序">
+            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
+          </button>
+          <button type="button" class="iconbtn" title="全部折叠" @click="collapseAll">
+            <TimelineLucideIcon name="fold" :stroke-width="1.8" />
+          </button>
+        </template>
       </div>
 
       <div class="pane-scroll scroll">
@@ -252,7 +267,7 @@ function collapseAll() {
           </div>
         </div>
 
-        <div class="tg" :class="{ collapsed: state.sections.views }">
+        <div v-if="panelHas('views')" class="tg" :class="{ collapsed: state.sections.views }">
           <div class="tg-head" @click="toggleSection('views')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
             <span class="tg-name">视图</span>
@@ -274,7 +289,7 @@ function collapseAll() {
           </div>
         </div>
 
-        <div class="tg" :class="{ collapsed: state.sections.topics }">
+        <div v-if="panelHas('topics')" class="tg" :class="{ collapsed: state.sections.topics }">
           <div class="tg-head" @click="toggleSection('topics')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
             <span class="tg-name">笔记本</span>
@@ -323,7 +338,7 @@ function collapseAll() {
           </div>
         </div>
 
-        <div class="tg" :class="{ collapsed: state.sections.tags }">
+        <div v-if="panelHas('tags')" class="tg" :class="{ collapsed: state.sections.tags }">
           <div class="tg-head" @click="toggleSection('tags')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
             <span class="tg-name">标签</span>
@@ -346,7 +361,7 @@ function collapseAll() {
           </div>
         </div>
 
-        <div class="tg" :class="{ collapsed: state.sections.stats }">
+        <div v-if="panelHas('stats')" class="tg" :class="{ collapsed: state.sections.stats }">
           <div class="tg-head" @click="toggleSection('stats')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
             <span class="tg-name">统计</span>

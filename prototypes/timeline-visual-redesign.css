@@ -1,17 +1,19 @@
+/* Superseded redesign prototype; font repointed to the self-hosted Noto Sans SC
+   woff2 after the legacy .ttc bundle was removed. */
 @font-face {
   font-family: "TimelinePrototypeFont";
-  src: url("../ui/src/assets/fonts/timeline-prototype-regular.ttc");
+  src: url("../ui/src/assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
   font-weight: 400 500;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 @font-face {
   font-family: "TimelinePrototypeFont";
-  src: url("../ui/src/assets/fonts/timeline-prototype-bold.ttc");
+  src: url("../ui/src/assets/fonts/noto-sans-sc/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2");
   font-weight: 600 700;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 :root {
