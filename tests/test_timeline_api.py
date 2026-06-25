@@ -45,20 +45,46 @@ def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     assert items[0]["headline"] == "Structured Event"
 
 
-def test_event_contract_persists_markdown_tags_attachments_and_related_events(client, seeded_topic, db_session):
+PROPERTY_COLUMNS = [
+    {
+        "key": "type",
+        "label": "类型",
+        "type": "select",
+        "width": 96,
+        "order": 0,
+        "visible": True,
+        "options": [
+            {"id": "battle", "label": "战役", "color": "#c05a52"},
+            {"id": "treaty", "label": "条约", "color": "#5a7fc0"},
+        ],
+    },
+    {
+        "key": "tags",
+        "label": "标签",
+        "type": "multiselect",
+        "width": 150,
+        "order": 1,
+        "visible": True,
+        "options": [
+            {"id": "important", "label": "重要", "color": ""},
+            {"id": "archive", "label": "档案", "color": ""},
+        ],
+    },
+    {"key": "place", "label": "地点", "type": "text", "width": 88, "order": 2, "visible": True},
+    {"key": "source", "label": "来源", "type": "text", "width": 112, "order": 3, "visible": False},
+]
+
+
+def test_event_contract_persists_markdown_properties_attachments_and_related_events(client, seeded_topic, db_session):
     meta = client.put(
         f"/api/topics/{seeded_topic.id}/meta",
-        json={
-            "title": "History",
-            "subtitle": "Daily history",
-            "columns": [
-                {"key": "place", "label": "地点", "type": "text", "width": 88, "order": 0, "visible": True},
-                {"key": "source", "label": "来源", "type": "text", "width": 112, "order": 1, "visible": False},
-            ],
-        },
+        json={"title": "History", "subtitle": "Daily history", "columns": PROPERTY_COLUMNS},
     )
     assert meta.status_code == 200
-    assert meta.json()["columns"][0]["key"] == "place"
+    saved_columns = {column["key"]: column for column in meta.json()["columns"]}
+    assert saved_columns["type"]["type"] == "select"
+    assert saved_columns["tags"]["type"] == "multiselect"
+    assert [option["id"] for option in saved_columns["tags"]["options"]] == ["important", "archive"]
 
     existing = client.get(f"/api/topics/{seeded_topic.id}/events")
     assert existing.status_code == 200
@@ -74,15 +100,16 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
             "headline": "Markdown Contract",
             "era": "Modern China",
             "bodyMarkdown": "## Notes\n\nStructured markdown body.",
-            "tags": ["source", "treaty", "source"],
-            "extra": {"place": "广州", "source": "档案馆", "ignored": "drop me"},
+            # type: single valid id; tags: dedup + drop unknown id; place/source kept; ignored dropped
+            "extra": {
+                "type": "battle",
+                "tags": ["important", "archive", "important", "ghost"],
+                "place": "广州",
+                "source": "档案馆",
+                "ignored": "drop me",
+            },
             "attachments": [
-                {
-                    "id": None,
-                    "name": "archive-note.md",
-                    "filename": "archive-note.md",
-                    "mimeType": "text/markdown",
-                }
+                {"id": None, "name": "archive-note.md", "filename": "archive-note.md", "mimeType": "text/markdown"}
             ],
             "relatedEventIds": [related_id],
             "favorite": True,
@@ -93,8 +120,13 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
     assert response.status_code == 200
     created = response.json()
     assert created["bodyMarkdown"] == "## Notes\n\nStructured markdown body."
-    assert created["tags"] == ["source", "treaty"]
-    assert created["extra"] == {"place": "广州", "source": "档案馆"}
+    assert "tags" not in created  # tags are a property now, no top-level field
+    assert created["extra"] == {
+        "type": "battle",
+        "tags": ["important", "archive"],
+        "place": "广州",
+        "source": "档案馆",
+    }
     assert created["attachments"][0]["url"] == "/images/archive-note.md"
     assert created["relatedEventIds"] == [related_id]
     assert created["relatedEvents"][0]["id"] == related_id
@@ -102,7 +134,8 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
     assert created["updatedAt"]
     assert created["favorite"] is True
     assert created["deletedAt"] is None
-    assert created["items"][0]["tag"] == "source"
+    # Body is the canonical store; items derive from markdown with a neutral tag.
+    assert created["items"][0]["tag"] == "note"
 
     updated = client.put(
         f"/api/events/{created['id']}",
@@ -113,11 +146,11 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
             "headline": "Markdown Contract Updated",
             "era": "Modern China",
             "bodyMarkdown": "Updated body",
-            "tags": ["updated"],
-            "extra": {"place": "南京", "source": "条约文本", "unknown": "drop"},
+            # invalid select id falls back to ""; unknown property key dropped
+            "extra": {"type": "ghost", "tags": ["archive"], "place": "南京", "source": "条约文本", "unknown": "drop"},
             "attachments": [],
             "relatedEventIds": [related_id],
-            "items": [{"tag": "updated", "text": "Explicit item path."}],
+            "items": [],
             "image": None,
         },
     )
@@ -125,26 +158,23 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
     payload = updated.json()
     assert payload["headline"] == "Markdown Contract Updated"
     assert payload["bodyMarkdown"] == "Updated body"
-    assert payload["tags"] == ["updated"]
-    assert payload["extra"] == {"place": "南京", "source": "条约文本"}
-    assert payload["items"] == [{"tag": "updated", "text": "Explicit item path."}]
+    assert payload["extra"] == {"type": "", "tags": ["archive"], "place": "南京", "source": "条约文本"}
     assert payload["favorite"] is True
 
     exported, _ = export_topic_data(db_session, seeded_topic.id)
-    assert exported["columns"][0]["key"] == "place"
+    assert exported["columns"][0]["key"] == "type"
     exported_event = next(item for item in exported["events"] if item["id"] == created["id"])
     assert exported_event["bodyMarkdown"] == "Updated body"
-    assert exported_event["extra"] == {"place": "南京", "source": "条约文本"}
+    assert exported_event["extra"] == {"type": "", "tags": ["archive"], "place": "南京", "source": "条约文本"}
     assert exported_event["relatedEvents"][0]["id"] == related_id
 
+    # Remove the `source` property; its value must survive as an orphan soft-keep.
     removed_column = client.put(
         f"/api/topics/{seeded_topic.id}/meta",
         json={
             "title": "History",
             "subtitle": "Daily history",
-            "columns": [
-                {"key": "place", "label": "地点", "type": "text", "width": 88, "order": 0, "visible": True}
-            ],
+            "columns": [column for column in PROPERTY_COLUMNS if column["key"] != "source"],
         },
     )
     assert removed_column.status_code == 200
@@ -158,16 +188,20 @@ def test_event_contract_persists_markdown_tags_attachments_and_related_events(cl
             "headline": "Markdown Contract Preserved",
             "era": "Modern China",
             "bodyMarkdown": "Preserve orphan extra",
-            "tags": ["updated"],
-            "extra": {"place": "上海"},
+            "extra": {"type": "treaty", "tags": ["important"], "place": "上海"},
             "attachments": [],
             "relatedEventIds": [related_id],
-            "items": [{"tag": "updated", "text": "Preserved item path."}],
+            "items": [],
             "image": None,
         },
     )
     assert preserved.status_code == 200
-    assert preserved.json()["extra"] == {"place": "上海", "source": "条约文本"}
+    assert preserved.json()["extra"] == {
+        "type": "treaty",
+        "tags": ["important"],
+        "place": "上海",
+        "source": "条约文本",
+    }
 
 
 def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanent_delete(client, seeded_topic):

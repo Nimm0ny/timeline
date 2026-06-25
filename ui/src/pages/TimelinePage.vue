@@ -10,7 +10,7 @@ import {
   compareTimelineEvents,
   groupTimelineEvents,
   matchesEventSearch,
-  normalizeBuiltinColumns,
+  matchesPropertyFilter,
   normalizeTopicColumns,
 } from "@/utils/timelineNotes";
 
@@ -60,6 +60,11 @@ function parseRouteFilter() {
   return FILTERS.has(raw) ? raw : "all";
 }
 
+function parseRoutePropertyFilter() {
+  const key = parseRouteString("pk");
+  return key ? { key, value: parseRouteString("pv") } : { key: "", value: "" };
+}
+
 const state = reactive({
   loading: true,
   saving: false,
@@ -81,7 +86,7 @@ const state = reactive({
   selectedEventId: null,
   detailMode: "view",
   sidebarFilter: "all",
-  activeTag: "",
+  propertyFilter: { key: "", value: "" },
   activeEra: "",
   locateDate: "",
   detailDirty: false,
@@ -90,11 +95,11 @@ const state = reactive({
   afterSaveAction: null,
   menuEvent: null,
   settingsOpen: false,
+  confirmDeleteTopic: null,
   rightOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
   showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
-  builtinColumns: { type: true, tags: true },
   searchRequestKey: 0,
   editPreview: null,
 });
@@ -182,16 +187,17 @@ function previewedEvents() {
   return state.events.map((event) => (event.id === preview.id ? applyPreviewOverlay(event, preview) : event));
 }
 
-function filterEvents({ filter = state.sidebarFilter, tag = state.activeTag, era = state.activeEra, search = state.searchQuery } = {}) {
+function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
   // The row being edited stays visible even if the live draft no longer matches
-  // the active tag/era/search, so it never vanishes mid-edit under a filter.
+  // the active property/era/search, so it never vanishes mid-edit under a filter.
   // Never exempt it into the trash view (a live row must not appear there).
   const editingId = filter === "trash" ? null : (state.editPreview?.id ?? null);
+  const columns = topicColumns.value;
   return [...previewedEvents()]
     .filter((event) => event.id === editingId || matchesMainFilter(event, filter))
-    .filter((event) => event.id === editingId || !tag || (event.tags || []).includes(tag))
+    .filter((event) => event.id === editingId || !propertyFilter?.key || matchesPropertyFilter(event, propertyFilter))
     .filter((event) => event.id === editingId || !era || event.era === era)
-    .filter((event) => event.id === editingId || matchesEventSearch(event, search))
+    .filter((event) => event.id === editingId || matchesEventSearch(event, search, columns))
     .sort(compareTimelineEvents);
 }
 
@@ -204,27 +210,9 @@ const feedEmptyReason = computed(() => {
   if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
   if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
   if (state.activeEra) return "当前分期下没有记录。";
-  if (state.activeTag) return "当前标签下没有记录。";
+  if (state.propertyFilter?.key) return "当前属性筛选下没有记录。";
   return "当前筛选下没有记录。";
 });
-
-function builtinsStorageKey(topicId) {
-  return `chronicle-builtins:${topicId}`;
-}
-
-function loadBuiltinColumns(topicId) {
-  try {
-    const raw = readStorage(builtinsStorageKey(topicId), "");
-    return raw ? normalizeBuiltinColumns(JSON.parse(raw)) : normalizeBuiltinColumns({});
-  } catch {
-    return normalizeBuiltinColumns({});
-  }
-}
-
-function persistBuiltinColumns() {
-  if (!state.activeTopicId) return;
-  writeStorage(builtinsStorageKey(state.activeTopicId), JSON.stringify(state.builtinColumns));
-}
 
 async function syncRouteState(overrides = {}) {
   const topicId = overrides.topicId !== undefined ? overrides.topicId : state.activeTopicId;
@@ -236,7 +224,7 @@ async function syncRouteState(overrides = {}) {
         : null;
   const mode = overrides.mode ?? state.detailMode;
   const filter = overrides.filter ?? state.sidebarFilter;
-  const tag = overrides.tag ?? state.activeTag;
+  const propertyFilter = overrides.propertyFilter ?? state.propertyFilter;
   const era = overrides.era ?? state.activeEra;
   const date = overrides.date ?? state.locateDate;
   await router.replace({
@@ -246,7 +234,9 @@ async function syncRouteState(overrides = {}) {
       event: eventId ? String(eventId) : undefined,
       mode: mode !== "view" ? mode : undefined,
       filter: filter !== "all" ? filter : undefined,
-      tag: tag || undefined,
+      pk: propertyFilter?.key || undefined,
+      pv: propertyFilter?.key ? String(propertyFilter.value) : undefined,
+      tag: undefined,
       era: era || undefined,
       date: date || undefined,
     },
@@ -275,7 +265,7 @@ async function loadWorkspace(options = {}) {
   state.error = "";
   state.detailError = "";
   state.sidebarFilter = parseRouteFilter();
-  state.activeTag = parseRouteString("tag");
+  state.propertyFilter = parseRoutePropertyFilter();
   state.activeEra = parseRouteString("era");
   state.locateDate = parseRouteString("date");
 
@@ -302,7 +292,6 @@ async function loadWorkspace(options = {}) {
 
     const [meta, response] = await Promise.all([api.getTopicMeta(resolvedTopicId), api.getTimelineEvents(resolvedTopicId)]);
     state.activeTopicMeta = meta;
-    state.builtinColumns = loadBuiltinColumns(resolvedTopicId);
     state.eventBounds = response.bounds || null;
     state.hasMore = Boolean(response.hasMore);
     state.nextCursor = response.nextCursor || null;
@@ -455,7 +444,7 @@ async function saveEvent(payload) {
 async function selectTopic(topicId) {
   if (topicId === state.activeTopicId) return;
   runOrConfirm(async () => {
-    state.activeTag = "";
+    state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
     await loadWorkspace({
@@ -465,7 +454,7 @@ async function selectTopic(topicId) {
       openDetail: false,
     });
     state.rightOpen = false;
-    await syncRouteState({ topicId, eventId: null, tag: "", era: "", mode: "view" });
+    await syncRouteState({ topicId, eventId: null, propertyFilter: { key: "", value: "" }, era: "", mode: "view" });
   });
 }
 
@@ -486,9 +475,9 @@ async function createTopic(name) {
   }
 }
 
-function applyFilterState({ filter = state.sidebarFilter, tag = state.activeTag, era = state.activeEra, date = state.locateDate } = {}) {
+function applyFilterState({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, date = state.locateDate } = {}) {
   state.sidebarFilter = filter;
-  state.activeTag = tag;
+  state.propertyFilter = propertyFilter;
   state.activeEra = era;
   state.locateDate = date;
   setDefaultSelection();
@@ -507,10 +496,10 @@ function updateSidebarFilter(filter) {
   });
 }
 
-function updateActiveTag(tag) {
+function updatePropertyFilter(propertyFilter) {
   runOrConfirm(async () => {
-    applyFilterState({ tag });
-    await syncRouteState({ tag, eventId: state.rightOpen ? state.selectedEventId : null });
+    applyFilterState({ propertyFilter });
+    await syncRouteState({ propertyFilter, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
 
@@ -613,12 +602,50 @@ function focusFeedSearch() {
   state.searchRequestKey += 1;
 }
 
-function toggleBuiltinColumn(key) {
-  state.builtinColumns = normalizeBuiltinColumns({
-    ...state.builtinColumns,
-    [key]: !(state.builtinColumns?.[key] !== false),
+// A brand-new option created in the picker is folded into its property and
+// persisted to the topic immediately (optimistic local update first).
+async function addPropertyOption({ key, option }) {
+  if (!state.activeTopicId || !key || !option?.id) return;
+  const columns = normalizeTopicColumns(state.activeTopicMeta?.columns).map((column) => {
+    if (column.key !== key) return column;
+    if ((column.options || []).some((existing) => existing.id === option.id)) return column;
+    return { ...column, options: [...(column.options || []), option] };
   });
-  persistBuiltinColumns();
+  state.activeTopicMeta = { ...state.activeTopicMeta, columns };
+  try {
+    const meta = await api.updateTopicMeta(state.activeTopicId, {
+      title: state.activeTopicMeta?.title || "",
+      subtitle: state.activeTopicMeta?.subtitle || "",
+      columns,
+    });
+    state.activeTopicMeta = meta;
+  } catch (error) {
+    pushToast(`选项保存失败：${error.message}`, "error");
+  }
+}
+
+function requestDeleteTopic(topicId) {
+  const topic = state.topics.find((item) => item.id === topicId);
+  if (topic) state.confirmDeleteTopic = topic;
+}
+
+function closeDeleteTopic() {
+  state.confirmDeleteTopic = null;
+}
+
+async function confirmDeleteTopicNow() {
+  const topic = state.confirmDeleteTopic;
+  if (!topic) return;
+  try {
+    await api.deleteTopic(topic.id);
+    state.confirmDeleteTopic = null;
+    await loadWorkspace({ preferredTopicId: null, preferredEventId: null, preferredMode: "view", openDetail: false });
+    state.rightOpen = false;
+    await syncRouteState({ topicId: state.activeTopicId, eventId: null });
+    pushToast(`已删除笔记本：${topic.title || topic.name}`);
+  } catch (error) {
+    pushToast(`删除失败：${error.message}`, "error");
+  }
 }
 
 async function saveTopicColumns(columns) {
@@ -678,10 +705,10 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => [route.query.topic, route.query.event, route.query.mode, route.query.filter, route.query.tag, route.query.era, route.query.date],
+  () => [route.query.topic, route.query.event, route.query.mode, route.query.filter, route.query.pk, route.query.pv, route.query.era, route.query.date],
   () => {
     state.sidebarFilter = parseRouteFilter();
-    state.activeTag = parseRouteString("tag");
+    state.propertyFilter = parseRoutePropertyFilter();
     state.activeEra = parseRouteString("era");
     state.locateDate = parseRouteString("date");
   }
@@ -696,18 +723,20 @@ watch(
       :events="state.events"
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
-      :active-tag="state.activeTag"
+      :columns="topicColumns"
+      :property-filter="state.propertyFilter"
       :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
       @create-event="startCreateEvent"
       @create-topic="createTopic"
+      @delete-topic="requestDeleteTopic"
       @focus-search="focusFeedSearch"
       @open-settings="state.settingsOpen = true"
       @select-era="updateActiveEra"
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
-      @update:tag="updateActiveTag"
+      @update:property-filter="updatePropertyFilter"
     />
 
     <TimelineFeed
@@ -721,7 +750,6 @@ watch(
       :groups="groupedEvents"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
-      :builtin-columns="state.builtinColumns"
       :columns="topicColumns"
       :column-saving="state.columnSaving"
       :show-preview="state.showPreview"
@@ -730,7 +758,6 @@ watch(
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
       @select-event="selectEvent"
-      @toggle-builtin="toggleBuiltinColumn"
       @toggle-favorite="toggleFavorite"
       @toggle-preview="togglePreview"
       @update:searchQuery="updateSearchQuery"
@@ -753,6 +780,7 @@ watch(
       @open-related="openRelatedEvent"
       @save="saveEvent"
       @toggle-favorite="toggleFavorite"
+      @create-option="addPropertyOption"
       @dirty-change="state.detailDirty = $event"
       @preview-change="state.editPreview = $event"
     />
@@ -781,6 +809,17 @@ watch(
           <button type="button" class="timeline-primary-btn" @click="saveAndContinue">保存</button>
           <button type="button" class="timeline-secondary-btn" @click="discardAndContinue">放弃</button>
           <button type="button" class="timeline-secondary-btn" @click="closeUnsavedDialog">取消</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="state.confirmDeleteTopic" class="timeline-modal-backdrop">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="删除笔记本">
+        <h3>删除笔记本</h3>
+        <p>将永久删除「{{ state.confirmDeleteTopic.title || state.confirmDeleteTopic.name }}」及其全部时间点，此操作不可恢复。</p>
+        <div class="timeline-confirm-actions">
+          <button type="button" class="timeline-primary-btn danger" @click="confirmDeleteTopicNow">删除</button>
+          <button type="button" class="timeline-secondary-btn" @click="closeDeleteTopic">取消</button>
         </div>
       </section>
     </div>

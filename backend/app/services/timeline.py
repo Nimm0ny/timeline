@@ -25,8 +25,22 @@ from backend.app.services.date_utils import (
 SUPPORTED_ZOOM_LEVELS = ["year", "month", "day"]
 EVENT_STATE_KEYS = {"favorite", "deletedAt"}
 COLUMN_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
-RESERVED_COLUMN_KEYS = {"title", "time", "type", "tags"}
-COLUMN_TYPES = {"text", "number", "date", "select"}
+# Unified property model: every column is a property. Only the two structural
+# columns (date + headline) are reserved; type/tags are ordinary, deletable
+# properties seeded by default (see DEFAULT_TOPIC_COLUMNS).
+RESERVED_COLUMN_KEYS = {"title", "time"}
+COLUMN_TYPES = {"text", "number", "date", "select", "multiselect"}
+OPTION_COLUMN_TYPES = {"select", "multiselect"}
+
+# Seeded into every new notebook; both are deletable like any other property.
+DEFAULT_TOPIC_COLUMNS = [
+    {"key": "type", "label": "类型", "type": "select", "width": 96, "order": 0, "visible": True, "options": []},
+    {"key": "tags", "label": "标签", "type": "multiselect", "width": 150, "order": 1, "visible": True, "options": []},
+]
+
+
+def default_topic_columns_json() -> str:
+    return json.dumps(DEFAULT_TOPIC_COLUMNS, ensure_ascii=False)
 
 
 def sanitize_topic_name(name: str) -> str:
@@ -148,14 +162,6 @@ def default_body_markdown(items: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def normalize_tags(payload: dict, items: list[dict]) -> list[str]:
-    raw = payload.get("tags")
-    if isinstance(raw, list):
-        tags = [str(tag).strip() for tag in raw if str(tag).strip()]
-        return list(dict.fromkeys(tags))
-    return list(dict.fromkeys(item["tag"] for item in items if item["tag"]))
-
-
 def normalize_attachments(payload: dict) -> list[dict]:
     raw = payload.get("attachments") or []
     if not isinstance(raw, list):
@@ -181,6 +187,28 @@ def normalize_attachments(payload: dict) -> list[dict]:
     return attachments
 
 
+def normalize_options(raw_options, column_type: str) -> list[dict]:
+    """Options are only meaningful for select/multiselect. Each option carries a
+    stable `id` (referenced by event values), a display `label`, and a `color`."""
+    if column_type not in OPTION_COLUMN_TYPES:
+        return []
+    if not isinstance(raw_options, list):
+        return []
+    options = []
+    seen = set()
+    for item in raw_options:
+        if not isinstance(item, dict):
+            continue
+        oid = str(item.get("id", "")).strip()
+        if not oid or oid in seen:
+            continue
+        label = str(item.get("label", "")).strip() or oid
+        color = str(item.get("color", "")).strip()
+        seen.add(oid)
+        options.append({"id": oid[:48], "label": label[:24], "color": color[:32]})
+    return options
+
+
 def normalize_topic_columns(raw_columns) -> list[dict]:
     if raw_columns is None:
         return []
@@ -195,6 +223,7 @@ def normalize_topic_columns(raw_columns) -> list[dict]:
         key = str(item.get("key", "")).strip()
         label = str(item.get("label", "")).strip()
         column_type = str(item.get("type", "text")).strip() or "text"
+        column_type = column_type if column_type in COLUMN_TYPES else "text"
         width = int(item.get("width", 96) or 96)
         order = int(item.get("order", index) or index)
         visible = item.get("visible", True) is not False
@@ -213,13 +242,24 @@ def normalize_topic_columns(raw_columns) -> list[dict]:
             {
                 "key": key,
                 "label": label[:24],
-                "type": column_type if column_type in COLUMN_TYPES else "text",
+                "type": column_type,
                 "width": max(72, min(width, 220)),
                 "order": order,
                 "visible": visible,
+                "options": normalize_options(item.get("options"), column_type),
             }
         )
     return sorted(columns, key=lambda column: (column["order"], column["label"]))
+
+
+def topic_columns_index(topic: "Topic | None") -> dict[str, dict]:
+    if topic is None:
+        return {}
+    index = {}
+    for column in deserialize_json_list(topic.columns_json):
+        if isinstance(column, dict) and str(column.get("key", "")).strip():
+            index[str(column["key"]).strip()] = column
+    return index
 
 
 def allowed_extra_keys(topic: Topic | None) -> set[str]:
@@ -232,25 +272,43 @@ def allowed_extra_keys(topic: Topic | None) -> set[str]:
     }
 
 
-def normalize_extra(payload: dict, topic: Topic | None) -> dict[str, str]:
+def normalize_extra(payload: dict, topic: Topic | None) -> dict:
+    """Filter event property values by the topic's property definitions. Free
+    fields coerce to str; select keeps a single valid option id (else ""); multi
+    keeps the subset of valid option ids, de-duplicated in order. Unknown keys
+    and unknown option ids are dropped (no fabricated data)."""
     raw = payload.get("extra") or {}
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="Extra must be an object")
 
-    allowed = allowed_extra_keys(topic)
+    columns = topic_columns_index(topic)
     normalized = {}
     for key, value in raw.items():
         name = str(key or "").strip()
-        if name not in allowed:
+        column = columns.get(name)
+        if column is None:
             continue
-        normalized[name] = "" if value is None else str(value)
+        column_type = str(column.get("type", "text"))
+        if column_type in OPTION_COLUMN_TYPES:
+            valid = {str(option.get("id", "")) for option in (column.get("options") or []) if isinstance(option, dict)}
+            if column_type == "multiselect":
+                raw_ids = value if isinstance(value, list) else ([value] if value not in (None, "") else [])
+                picked = [str(item) for item in raw_ids if str(item) in valid]
+                normalized[name] = list(dict.fromkeys(picked))
+            else:  # select
+                single = str(value or "")
+                normalized[name] = single if single in valid else ""
+        else:
+            normalized[name] = "" if value is None else str(value)
     return normalized
 
 
-def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | None) -> dict[str, str]:
+def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | None) -> dict:
+    """Preserve values whose property has since been deleted (orphan soft-keep),
+    keeping their original scalar/list shape, then overlay the fresh values."""
     allowed = allowed_extra_keys(topic)
     preserved = {
-        key: "" if value is None else str(value)
+        key: value
         for key, value in (existing_extra or {}).items()
         if key not in allowed
     }
@@ -292,7 +350,6 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     image_filename = event.image.filename if event.image else None
     items = serialize_items(event)
-    tags = deserialize_json_list(event.tags_json, fallback=[item["tag"] for item in items if item["tag"]])
     attachments = [build_attachment_payload(item) for item in deserialize_json_list(event.attachments_json)]
     related_ids = [int(value) for value in deserialize_json_list(event.related_event_ids_json) if str(value).strip().isdigit()]
     return {
@@ -313,7 +370,6 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         "bodyMarkdown": event.body_markdown or default_body_markdown(items),
-        "tags": tags,
         "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
         "relatedEventIds": related_ids,
@@ -439,7 +495,7 @@ def create_topic(db: Session, name: str) -> dict:
     exists = db.query(Topic).filter(Topic.name == safe).first()
     if exists:
         raise HTTPException(status_code=409, detail="Topic already exists")
-    topic = Topic(name=safe, title=safe, subtitle="")
+    topic = Topic(name=safe, title=safe, subtitle="", columns_json=default_topic_columns_json())
     db.add(topic)
     db.commit()
     db.refresh(topic)
@@ -647,14 +703,19 @@ def resolve_image(db: Session, image_name: str | None) -> ImageAsset | None:
     return image
 
 
-def derive_items_from_markdown(body_markdown: str, default_tag: str) -> list[dict]:
+# Body is the canonical content (body_markdown). EventItem is the legacy body
+# store; its `tag` is no longer a property source, just a non-null filler.
+DEFAULT_ITEM_TAG = "note"
+
+
+def derive_items_from_markdown(body_markdown: str) -> list[dict]:
     chunks = [segment.strip() for segment in str(body_markdown or "").split("\n\n") if segment.strip()]
     if not chunks:
         return []
-    return [{"tag": default_tag, "text": chunk} for chunk in chunks]
+    return [{"tag": DEFAULT_ITEM_TAG, "text": chunk} for chunk in chunks]
 
 
-def normalize_event_items(payload: dict, body_markdown: str | None = None, tags: list[str] | None = None) -> list[dict]:
+def normalize_event_items(payload: dict, body_markdown: str | None = None) -> list[dict]:
     raw_items = payload.get("items")
     if raw_items is None:
         raw_items = payload.get("events")
@@ -663,8 +724,7 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None, tags:
         raise HTTPException(status_code=400, detail="Event items must be an array")
 
     if len(raw_items) == 0:
-        fallback_tag = (tags or ["politics"])[0]
-        derived = derive_items_from_markdown(body_markdown or "", fallback_tag)
+        derived = derive_items_from_markdown(body_markdown or "")
         if derived:
             return derived
         raise HTTPException(status_code=400, detail="Event items are required")
@@ -673,10 +733,10 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None, tags:
     for item in raw_items:
         if not isinstance(item, dict):
             raise HTTPException(status_code=400, detail="Each event item must be an object")
-        tag = str(item.get("tag", "")).strip()
+        tag = str(item.get("tag", "")).strip() or DEFAULT_ITEM_TAG
         text = str(item.get("text", "")).strip()
-        if not tag or not text:
-            raise HTTPException(status_code=400, detail="Each event item requires tag and text")
+        if not text:
+            raise HTTPException(status_code=400, detail="Each event item requires text")
         items.append({"tag": tag, "text": text})
     return items
 
@@ -690,8 +750,7 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     if not era:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()
-    tags = normalize_tags(payload, normalize_event_items(payload, body_markdown, []))
-    items = normalize_event_items(payload, body_markdown, tags)
+    items = normalize_event_items(payload, body_markdown)
     attachments = normalize_attachments(payload)
     related_event_ids = normalize_related_event_ids(payload)
     extra = normalize_extra(payload, topic)
@@ -724,7 +783,6 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
             "legacyYear": legacy_year,
             "era": era,
             "bodyMarkdown": body_markdown or default_body_markdown(items),
-            "tags": tags,
             "extra": extra,
             "attachments": attachments,
             "relatedEventIds": related_event_ids,
@@ -750,7 +808,6 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
         "legacyYear": legacy_year or build_display_label(year, month, day, headline),
         "era": era,
         "bodyMarkdown": body_markdown or default_body_markdown(items),
-        "tags": tags,
         "extra": extra,
         "attachments": attachments,
         "relatedEventIds": related_event_ids,
@@ -770,7 +827,6 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
     event.headline = data["headline"]
     event.era = data["era"]
     event.body_markdown = data["bodyMarkdown"]
-    event.tags_json = json.dumps(data["tags"], ensure_ascii=False)
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
     event.related_event_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)

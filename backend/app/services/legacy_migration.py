@@ -7,19 +7,53 @@ from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG
-from backend.app.db.session import Base, engine
+from backend.app.db.session import Base, SessionLocal, engine
 from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
 from backend.app.services.date_utils import (
     date_key_to_parts,
     extract_headline_from_legacy_label,
     make_date_key,
 )
-from backend.app.services.timeline import sanitize_topic_name
+from backend.app.services.timeline import (
+    DEFAULT_TOPIC_COLUMNS,
+    normalize_topic_columns,
+    sanitize_topic_name,
+)
+
+# Default tag label/color seed (ported from ui/src/constants/tags.js). Used to
+# give migrated tag options friendly labels and palette colors; after migration,
+# labels/colors live in each topic's "tags" property options.
+TAG_SEED = {
+    "war": ("战争", "var(--t-war)"),
+    "politics": ("政治", "var(--t-politics)"),
+    "culture": ("文化", "var(--t-culture)"),
+    "science": ("科技", "var(--t-science)"),
+    "explore": ("探索", "var(--t-science)"),
+    "disaster": ("灾难", "var(--t-war)"),
+    "reform": ("改革", "var(--t-reform)"),
+    "diplomacy": ("外交", "var(--t-diplomacy)"),
+    "economy": ("经济", "var(--t-economy)"),
+}
+# Palette tokens for tag values not present in TAG_SEED.
+TAG_PALETTE = [
+    "var(--t-war)", "var(--t-politics)", "var(--t-culture)",
+    "var(--t-science)", "var(--t-reform)", "var(--t-diplomacy)", "var(--t-economy)",
+]
+
+
+def build_tag_options(values: list[str]) -> list[dict]:
+    """Turn distinct tag values into option defs (id = original value)."""
+    options = []
+    for index, value in enumerate(dict.fromkeys(v for v in values if v)):
+        label, color = TAG_SEED.get(value, (value, TAG_PALETTE[index % len(TAG_PALETTE)]))
+        options.append({"id": value, "label": label, "color": color})
+    return options
 
 
 def init_database():
     Base.metadata.create_all(bind=engine)
     ensure_timeline_event_schema()
+    migrate_to_property_model()
     drop_legacy_auth_artifacts()
 
 
@@ -49,8 +83,6 @@ def ensure_timeline_event_schema():
         statements.append("ALTER TABLE timeline_events ADD COLUMN headline VARCHAR(255)")
     if "body_markdown" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN body_markdown TEXT DEFAULT ''")
-    if "tags_json" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN tags_json TEXT DEFAULT '[]'")
     if "extra_json" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN extra_json TEXT DEFAULT '{}'")
     if "attachments_json" not in existing:
@@ -149,7 +181,6 @@ def ensure_timeline_event_schema():
                 """
                 UPDATE timeline_events
                 SET body_markdown = COALESCE(body_markdown, ''),
-                    tags_json = COALESCE(tags_json, '[]'),
                     extra_json = COALESCE(extra_json, '{}'),
                     attachments_json = COALESCE(attachments_json, '[]'),
                     related_event_ids_json = COALESCE(related_event_ids_json, '[]'),
@@ -215,6 +246,93 @@ def rebuild_table_from_model(table):
         connection.close()
 
 
+def _safe_list(value):
+    try:
+        parsed = json.loads(value or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _safe_dict(value):
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def ensure_seed_columns(topic: Topic, tag_options: list[dict]) -> list[dict]:
+    """Guarantee the topic has the default type/tags properties, and fold the
+    migrated tag options into the tags property (never clobbering existing ones)."""
+    columns = normalize_topic_columns(_safe_list(topic.columns_json))
+    by_key = {column["key"]: column for column in columns}
+    for seed in DEFAULT_TOPIC_COLUMNS:
+        if seed["key"] not in by_key:
+            seeded = {**seed, "options": list(seed.get("options") or [])}
+            columns.append(seeded)
+            by_key[seed["key"]] = seeded
+
+    tags_column = by_key.get("tags")
+    if tags_column is not None and tags_column.get("type") == "multiselect":
+        merged = {option["id"]: option for option in (tags_column.get("options") or [])}
+        for option in tag_options:
+            merged.setdefault(option["id"], option)
+        tags_column["options"] = list(merged.values())
+    return normalize_topic_columns(columns)
+
+
+def migrate_to_property_model():
+    """One-time, idempotent migration to the unified property model. Historical
+    tag values (tags_json + EventItem.tag) become a multiselect `tags` property
+    whose options live on the topic, with each event's values in extra_json. The
+    `type` property stays empty — it was a derived view, never real data, so we
+    do not fabricate it. Idempotency signal: the tags_json column; once dropped,
+    this is a no-op."""
+    inspector = inspect(engine)
+    if "timeline_events" not in inspector.get_table_names():
+        return
+    if "tags_json" not in {column["name"] for column in inspector.get_columns("timeline_events")}:
+        return  # already migrated
+
+    session = SessionLocal()
+    try:
+        raw_tags = {
+            row[0]: _safe_list(row[1])
+            for row in session.execute(text("SELECT id, tags_json FROM timeline_events")).all()
+        }
+        for topic in session.query(Topic).all():
+            events = session.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
+            per_event_tags: dict[int, list[str]] = {}
+            topic_tag_values: list[str] = []
+            for event in events:
+                values: list[str] = []
+                sources = [str(value).strip() for value in raw_tags.get(event.id, [])]
+                sources += [str(item.tag).strip() for item in event.items]
+                for value in sources:
+                    if value and value not in values:
+                        values.append(value)
+                per_event_tags[event.id] = values
+                for value in values:
+                    if value not in topic_tag_values:
+                        topic_tag_values.append(value)
+
+            topic.columns_json = json.dumps(
+                ensure_seed_columns(topic, build_tag_options(topic_tag_values)), ensure_ascii=False
+            )
+            for event in events:
+                extra = _safe_dict(event.extra_json)
+                extra["tags"] = per_event_tags.get(event.id, [])
+                event.extra_json = json.dumps(extra, ensure_ascii=False)
+        session.commit()
+    finally:
+        session.close()
+
+    # Tag values now live in extra_json; drop the orphaned column to match the
+    # clean model (SQLite can't ALTER-DROP, so rebuild from the ORM definition).
+    rebuild_table_from_model(TimelineEvent.__table__)
+
+
 def migrate_legacy_files(db: Session):
     if db.query(Topic).count() > 0:
         seed_config_if_missing(db)
@@ -258,11 +376,12 @@ def import_topic_file(db: Session, path: Path):
         name=sanitize_topic_name(path.stem) or path.stem,
         title=str(title or "").strip(),
         subtitle=str(subtitle or "").strip(),
-        columns_json="[]",
+        columns_json=json.dumps(DEFAULT_TOPIC_COLUMNS, ensure_ascii=False),
     )
     db.add(topic)
     db.flush()
 
+    all_tag_values: list[str] = []
     for node in events:
         image_name = (node.get("image") or "").strip() if isinstance(node, dict) else ""
         image = None
@@ -277,6 +396,17 @@ def import_topic_file(db: Session, path: Path):
         sort_key = int(round(float(node.get("sortKey", 0))))
         date_year, date_month, date_day = date_key_to_parts(sort_key)
         headline = extract_headline_from_legacy_label(str(node.get("year", "")).strip())
+        event_tags = [
+            tag
+            for tag in dict.fromkeys(
+                str(item.get("tag", "")).strip()
+                for item in node.get("events", [])
+                if str(item.get("tag", "")).strip()
+            )
+        ]
+        for tag in event_tags:
+            if tag not in all_tag_values:
+                all_tag_values.append(tag)
 
         event = TimelineEvent(
             topic_id=topic.id,
@@ -289,18 +419,7 @@ def import_topic_file(db: Session, path: Path):
             headline=headline,
             era=str(node.get("era", "")).strip(),
             body_markdown="\n\n".join(str(item.get("text", "")).strip() for item in node.get("events", []) if str(item.get("text", "")).strip()),
-            tags_json=json.dumps(
-                [
-                    tag
-                    for tag in dict.fromkeys(
-                        str(item.get("tag", "")).strip()
-                        for item in node.get("events", [])
-                        if str(item.get("tag", "")).strip()
-                    )
-                ],
-                ensure_ascii=False,
-            ),
-            extra_json="{}",
+            extra_json=json.dumps({"tags": event_tags}, ensure_ascii=False),
             attachments_json="[]",
             related_event_ids_json="[]",
             image=image,
@@ -311,9 +430,11 @@ def import_topic_file(db: Session, path: Path):
             db.add(
                 EventItem(
                     event_id=event.id,
-                    tag=str(item.get("tag", "")).strip(),
+                    tag=str(item.get("tag", "")).strip() or "note",
                     text=str(item.get("text", "")).strip(),
                     sort_order=index,
                 )
             )
+
+    topic.columns_json = json.dumps(ensure_seed_columns(topic, build_tag_options(all_tag_values)), ensure_ascii=False)
     db.commit()

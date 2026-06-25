@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { collectEventTags } from "@/utils/timelineNotes";
+import { buildPropertyRows } from "@/utils/timelineNotes";
 
 const props = defineProps({
   brand: {
@@ -25,9 +25,13 @@ const props = defineProps({
     type: String,
     default: "all",
   },
-  activeTag: {
-    type: String,
-    default: "",
+  columns: {
+    type: Array,
+    default: () => [],
+  },
+  propertyFilter: {
+    type: Object,
+    default: () => ({ key: "", value: "" }),
   },
   activeEra: {
     type: String,
@@ -49,7 +53,8 @@ const emit = defineEmits([
   "select-topic",
   "select-era",
   "update:filter",
-  "update:tag",
+  "update:property-filter",
+  "delete-topic",
   "focus-search",
   "open-settings",
 ]);
@@ -59,7 +64,7 @@ const state = reactive({
   sections: {
     views: false,
     topics: false,
-    tags: false,
+    properties: false,
     stats: false,
   },
   topicCollapsed: {},
@@ -74,7 +79,7 @@ const RIBBON_PANELS = {
   files: { title: "笔记本", sections: ["views", "topics"], tree: true },
   search: { title: "搜索", sections: ["views", "topics"], tree: true },
   star: { title: "收藏", sections: ["views", "topics"], tree: true },
-  tags: { title: "标签", sections: ["tags"], tree: false },
+  tags: { title: "属性", sections: ["properties"], tree: false },
   stats: { title: "统计", sections: ["stats"], tree: false },
   trash: { title: "回收站", sections: ["views", "topics"], tree: true },
 };
@@ -126,14 +131,6 @@ const quickFilters = computed(() => [
   { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "trash" },
 ]);
 
-const currentFilterEvents = computed(() => {
-  if (props.activeFilter === "today") return liveEvents.value.filter(isToday);
-  if (props.activeFilter === "week") return liveEvents.value.filter(isThisWeek);
-  if (props.activeFilter === "favorite") return liveEvents.value.filter((event) => event.favorite);
-  if (props.activeFilter === "trash") return deletedEvents.value;
-  return liveEvents.value;
-});
-
 const eraRows = computed(() => {
   const counts = new Map();
   for (const event of liveEvents.value) {
@@ -145,20 +142,22 @@ const eraRows = computed(() => {
     .sort((left, right) => right.count - left.count || left.era.localeCompare(right.era));
 });
 
-const tagRows = computed(() => {
-  const counts = new Map();
-  for (const event of currentFilterEvents.value) {
-    for (const tag of collectEventTags(event)) {
-      counts.set(tag.value, {
-        value: tag.value,
-        label: tag.label,
-        color: tag.color,
-        count: (counts.get(tag.value)?.count || 0) + 1,
-      });
-    }
-  }
-  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
-});
+// Properties (and their option counts) for the left "属性" tab. Counts run over
+// all live events so the list never blanks out under an active view filter.
+const propertyRows = computed(() => buildPropertyRows(props.columns, liveEvents.value));
+
+const PROPERTY_TYPE_LABELS = { text: "文本", number: "数字", date: "日期", select: "单选", multiselect: "多选" };
+function propTypeLabel(type) {
+  return PROPERTY_TYPE_LABELS[type] || "文本";
+}
+
+function isOptionActive(key, value) {
+  return props.propertyFilter?.key === key && props.propertyFilter?.value === value;
+}
+
+function togglePropertyFilter(key, value) {
+  emit("update:property-filter", isOptionActive(key, value) ? { key: "", value: "" } : { key, value });
+}
 
 const stats = computed(() => ({
   notes: liveEvents.value.length,
@@ -222,8 +221,8 @@ function toggleCollapseAll() {
       <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="state.ribbon = 'star'">
         <TimelineLucideIcon name="star" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="标签" @click="state.ribbon = 'tags'">
-        <TimelineLucideIcon name="hash" :stroke-width="1.8" />
+      <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="属性" @click="state.ribbon = 'tags'">
+        <TimelineLucideIcon name="sliders" :stroke-width="1.8" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="state.ribbon = 'stats'">
         <TimelineLucideIcon name="bar" :stroke-width="1.8" />
@@ -238,6 +237,15 @@ function toggleCollapseAll() {
       <div class="pane-head">
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
+          <button
+            v-if="props.activeTopicId"
+            type="button"
+            class="iconbtn"
+            title="删除当前笔记本"
+            @click="emit('delete-topic', props.activeTopicId)"
+          >
+            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+          </button>
           <button type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
             <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
           </button>
@@ -343,26 +351,39 @@ function toggleCollapseAll() {
           </div>
         </div>
 
-        <div v-if="panelHas('tags')" class="tg" :class="{ collapsed: state.sections.tags }">
-          <div class="tg-head" @click="toggleSection('tags')">
+        <div v-if="panelHas('properties')" class="tg" :class="{ collapsed: state.sections.properties }">
+          <div class="tg-head" @click="toggleSection('properties')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
-            <span class="tg-name">标签</span>
+            <span class="tg-name">属性</span>
           </div>
           <div class="tg-body">
-            <button
-              v-for="tag in tagRows"
-              :key="tag.value"
-              type="button"
-              class="ti leaf tag"
-              :class="{ active: tag.value === props.activeTag }"
-              @click="emit('update:tag', tag.value === props.activeTag ? '' : tag.value)"
-            >
-              <span class="ti-chev"></span>
-              <span class="ti-dot" :style="{ '--dot': tag.color }"></span>
-              <span class="ti-name">{{ tag.label }}</span>
-              <span class="ti-cnt">{{ tag.count }}</span>
-            </button>
-            <p v-if="!tagRows.length" class="sidebar-copy">暂无标签</p>
+            <p v-if="!props.activeTopicId" class="sidebar-copy">先选择一个笔记本。</p>
+            <p v-else-if="!propertyRows.length" class="sidebar-copy">暂无属性。</p>
+            <template v-else>
+              <div v-for="prop in propertyRows" :key="prop.key" class="prop-group">
+                <div class="prop-group-head">
+                  <span class="prop-group-name">{{ prop.label }}</span>
+                  <span class="prop-group-type">{{ propTypeLabel(prop.type) }}</span>
+                </div>
+                <template v-if="prop.isOption">
+                  <button
+                    v-for="option in prop.options"
+                    :key="option.value"
+                    type="button"
+                    class="ti leaf tag"
+                    :class="{ active: isOptionActive(prop.key, option.value) }"
+                    @click="togglePropertyFilter(prop.key, option.value)"
+                  >
+                    <span class="ti-chev"></span>
+                    <span class="ti-dot" :style="{ '--dot': option.color }"></span>
+                    <span class="ti-name">{{ option.label }}</span>
+                    <span class="ti-cnt">{{ option.count }}</span>
+                  </button>
+                  <p v-if="!prop.options.length" class="prop-empty">暂无选项</p>
+                </template>
+                <p v-else class="prop-empty">自由值</p>
+              </div>
+            </template>
           </div>
         </div>
 

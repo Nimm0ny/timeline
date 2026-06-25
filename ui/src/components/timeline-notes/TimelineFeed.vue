@@ -6,9 +6,10 @@ import {
   buildEventPreview,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
-  collectEventTags,
   dateKeyFromLocator,
   eventColumnValue,
+  isOptionColumn,
+  resolvePropertyChips,
 } from "@/utils/timelineNotes";
 
 const props = defineProps({
@@ -52,10 +53,6 @@ const props = defineProps({
     type: String,
     default: "",
   },
-  builtinColumns: {
-    type: Object,
-    default: () => ({ type: true, tags: true }),
-  },
   columns: {
     type: Array,
     default: () => [],
@@ -82,7 +79,6 @@ const emit = defineEmits([
   "toggle-favorite",
   "toggle-preview",
   "save-columns",
-  "toggle-builtin",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -99,11 +95,11 @@ function togglePopover(name) {
 }
 
 function visibleColumns() {
-  return buildVisibleTimelineColumns(props.columns, props.builtinColumns);
+  return buildVisibleTimelineColumns(props.columns);
 }
 
 function rowGrid() {
-  return buildTimelineGridTemplate(props.columns, props.builtinColumns);
+  return buildTimelineGridTemplate(props.columns);
 }
 
 function setRowRef(id, element) {
@@ -306,11 +302,9 @@ onBeforeUnmount(() => {
 
         <ColumnConfigPopover
           v-else-if="activePopover === 'columns'"
-          :builtin-state="props.builtinColumns"
           :columns="props.columns"
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"
-          @toggle-builtin="emit('toggle-builtin', $event)"
         />
       </div>
     </div>
@@ -354,11 +348,16 @@ onBeforeUnmount(() => {
                 </span>
                 <span class="ev-sum">{{ buildEventPreview(event, 90) }}</span>
               </span>
-              <span v-else-if="column.key === 'type'" class="c-type">{{ eventColumnValue(event, column) }}</span>
-              <span v-else-if="column.key === 'tags'" class="c-tags">
-                <span v-for="tag in collectEventTags(event).slice(0, 2)" :key="tag.value" class="td" :style="{ '--dot': tag.color }">
-                  <i></i>{{ tag.label }}
+              <span v-else-if="isOptionColumn(column)" class="c-tags">
+                <span
+                  v-for="chip in resolvePropertyChips(event, column).slice(0, 2)"
+                  :key="chip.value"
+                  class="td"
+                  :style="{ '--dot': chip.color }"
+                >
+                  <i></i>{{ chip.label }}
                 </span>
+                <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
               </span>
               <span
                 v-else

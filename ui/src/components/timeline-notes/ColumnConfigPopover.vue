@@ -3,10 +3,6 @@ import { reactive, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 
 const props = defineProps({
-  builtinState: {
-    type: Object,
-    default: () => ({ type: true, tags: true }),
-  },
   columns: {
     type: Array,
     default: () => [],
@@ -17,19 +13,17 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["toggle-builtin", "save-columns"]);
+const emit = defineEmits(["save-columns"]);
 
 const draft = reactive({
   columns: [],
 });
 
+// Only the date + headline columns are structural; every other column (type,
+// tags, custom) is an ordinary, reorderable, deletable property.
 const BUILTIN_LOCKED = [
   { key: "time", label: "时间", icon: "calendar" },
   { key: "title", label: "事件", icon: "alignLeft" },
-];
-const BUILTIN_TOGGLE = [
-  { key: "type", label: "类型", icon: "list" },
-  { key: "tags", label: "标签", icon: "hash" },
 ];
 
 // Notion-style: each property carries a small type glyph.
@@ -38,6 +32,7 @@ const TYPE_ICON = {
   number: "hash",
   date: "calendar",
   select: "list",
+  multiselect: "hash",
 };
 
 function syncColumns(source) {
@@ -48,6 +43,9 @@ function syncColumns(source) {
     width: Number(column?.width || 96),
     order: Number(column?.order ?? index),
     visible: column?.visible !== false,
+    // Options are managed via the picker / left 属性 tab; carry them through
+    // untouched so editing a column never wipes its options.
+    options: Array.isArray(column?.options) ? column.options.map((option) => ({ ...option })) : [],
     expanded: false,
   }));
 }
@@ -67,6 +65,7 @@ function addColumn() {
     width: 96,
     order: draft.columns.length,
     visible: true,
+    options: [],
     expanded: true,
   });
 }
@@ -87,6 +86,7 @@ function submitColumns() {
         width: Number(column.width || 96),
         order: Number(column.order ?? index),
         visible: column.visible !== false,
+        options: Array.isArray(column.options) ? column.options : [],
       }))
   );
 }
@@ -108,24 +108,6 @@ function submitColumns() {
         <TimelineLucideIcon name="eye" :stroke-width="1.8" />
       </button>
     </div>
-    <div
-      v-for="item in BUILTIN_TOGGLE"
-      :key="item.key"
-      class="pop-item col-row"
-      :class="{ 'is-hidden': props.builtinState[item.key] === false }"
-    >
-      <TimelineLucideIcon :name="item.icon" :stroke-width="1.8" class="pop-item-ic" />
-      <span class="lbl">{{ item.label }}</span>
-      <button
-        type="button"
-        class="col-eye"
-        :title="props.builtinState[item.key] !== false ? '隐藏此列' : '显示此列'"
-        @click="emit('toggle-builtin', item.key)"
-      >
-        <TimelineLucideIcon :name="props.builtinState[item.key] !== false ? 'eye' : 'eyeOff'" :stroke-width="1.8" />
-      </button>
-    </div>
-
     <template v-for="(column, index) in draft.columns" :key="`${column.key || 'column'}-${index}`">
       <div class="pop-item col-row" :class="{ 'is-hidden': column.visible === false, editing: column.expanded }">
         <TimelineLucideIcon :name="TYPE_ICON[column.type] || TYPE_ICON.text" :stroke-width="1.8" class="pop-item-ic" />
@@ -168,7 +150,8 @@ function submitColumns() {
             <option value="text">text</option>
             <option value="number">number</option>
             <option value="date">date</option>
-            <option value="select">select</option>
+            <option value="select">单选</option>
+            <option value="multiselect">多选</option>
           </select>
         </label>
         <label>
@@ -188,5 +171,5 @@ function submitColumns() {
     </button>
   </div>
 
-  <p class="pop-note">键名须英文小写开头，可含数字和下划线；改完点右上角 ✓ 保存到当前专题。</p>
+  <p class="pop-note">类型/标签与自定义列都是属性；键名须英文小写开头，可含数字和下划线。单选/多选的选项在右栏编辑或左栏「属性」中维护。改完点右上角 ✓ 保存。</p>
 </template>

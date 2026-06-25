@@ -2,16 +2,31 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildReadableDetailGroups,
   buildEditorDraft,
   buildEventPreview,
+  buildPropertyRows,
+  buildReadableDetailGroups,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
-  collectEventTags,
   groupTimelineEvents,
+  matchesPropertyFilter,
   normalizeEventExtra,
   normalizeTopicColumns,
+  resolvePropertyChips,
 } from "../src/utils/timelineNotes.js";
+
+const tagsColumn = {
+  key: "tags",
+  label: "标签",
+  type: "multiselect",
+  order: 1,
+  visible: true,
+  options: [
+    { id: "war", label: "战争", color: "var(--t-war)" },
+    { id: "politics", label: "政治", color: "var(--t-politics)" },
+    { id: "reform", label: "改革", color: "var(--t-reform)" },
+  ],
+};
 
 const events = [
   {
@@ -23,8 +38,7 @@ const events = [
     displayLabel: "1911-10-10 Republic Revolution",
     era: "Modern China",
     bodyMarkdown: "## Result\nPolitical system changed.",
-    tags: ["politics", "reform"],
-    items: [{ tag: "politics", text: "Political system changed." }],
+    extra: { tags: ["politics", "reform"] },
   },
   {
     id: 1,
@@ -35,8 +49,7 @@ const events = [
     displayLabel: "1840-06-01 Trade Conflict",
     era: "Modern China",
     bodyMarkdown: "## Context\nTreaty port pressure begins.",
-    tags: ["war", "diplomacy"],
-    items: [{ tag: "war", text: "Treaty port pressure begins." }],
+    extra: { tags: ["war"] },
   },
   {
     id: 3,
@@ -47,8 +60,7 @@ const events = [
     displayLabel: "1840-03-01 Archive Review",
     era: "Source Notes",
     bodyMarkdown: "Early archive pass.",
-    tags: ["science"],
-    items: [{ tag: "science", text: "Early archive pass." }],
+    extra: { tags: [] },
   },
 ];
 
@@ -67,6 +79,11 @@ test("groupTimelineEvents keeps chronological order within grouped years", () =>
   assert.deepEqual(groups[0].items.map((event) => event.id), [3, 1]);
 });
 
+test("groupTimelineEvents can search by resolved option label", () => {
+  const groups = groupTimelineEvents(events, "year", "政治", [tagsColumn]);
+  assert.deepEqual(groups.flatMap((group) => group.items.map((event) => event.id)), [2]);
+});
+
 test("buildEventPreview strips markdown and truncates to the requested length", () => {
   const preview = buildEventPreview(
     {
@@ -79,40 +96,33 @@ test("buildEventPreview strips markdown and truncates to the requested length", 
   assert.equal(preview, "Heading This timeline...");
 });
 
-test("collectEventTags deduplicates structured tags and preserves fallback item tags", () => {
-  const structured = collectEventTags({ tags: ["war", "war", "diplomacy"], items: [] });
-  const fallback = collectEventTags({
-    tags: [],
-    items: [
-      { tag: "science", text: "A" },
-      { tag: "science", text: "B" },
-      { tag: "custom", text: "C" },
-    ],
-  });
-
-  assert.deepEqual(structured.map((tag) => tag.value), ["war", "diplomacy"]);
-  assert.deepEqual(fallback.map((tag) => tag.value), ["science", "custom"]);
+test("resolvePropertyChips maps option ids to labels and colors, keeping unknown ids", () => {
+  const chips = resolvePropertyChips({ extra: { tags: ["war", "politics", "ghost"] } }, tagsColumn);
+  assert.deepEqual(chips.map((chip) => chip.value), ["war", "politics", "ghost"]);
+  assert.deepEqual(chips.map((chip) => chip.label), ["战争", "政治", "ghost"]);
+  assert.equal(chips[0].color, "var(--t-war)");
 });
 
-test("buildEditorDraft clones event DTO fields for safe editing", () => {
+test("buildEditorDraft clones event DTO fields and seeds property values", () => {
   const event = {
     id: 99,
     dateParts: { year: 1949, month: 10, day: 1 },
     headline: "Founding Note",
     era: "Modern",
     bodyMarkdown: "",
-    tags: ["politics"],
     attachments: [{ id: 7, name: "source.pdf", filename: "source.pdf" }],
     relatedEventIds: [1],
     relatedEvents: [{ id: 1, headline: "Trade Conflict" }],
-    items: [{ tag: "politics", text: "Fallback body" }],
+    items: [{ tag: "note", text: "Fallback body" }],
+    extra: { tags: ["politics"] },
   };
-  const draft = buildEditorDraft(event);
+  const draft = buildEditorDraft(event, [tagsColumn]);
 
   assert.equal(draft.dateYear, 1949);
   assert.equal(draft.bodyMarkdown, "Fallback body");
-  assert.deepEqual(draft.tags, ["politics"]);
+  assert.deepEqual(draft.extra.tags, ["politics"]);
   assert.deepEqual(draft.relatedEventIds, [1]);
+  assert.equal(draft.tags, undefined);
 
   draft.attachments[0].name = "changed.pdf";
   assert.equal(draft.attachments[0].name, "changed.pdf");
@@ -121,41 +131,69 @@ test("buildEditorDraft clones event DTO fields for safe editing", () => {
 
 test("buildReadableDetailGroups removes empty read-mode support groups", () => {
   const groups = buildReadableDetailGroups({
-    tags: ["", " politics ", "politics"],
     attachments: [{ name: "  " }, { filename: "source.pdf" }],
     relatedEvents: [{ id: 1, headline: "" }, { id: 2, headline: "Trade Conflict" }],
   });
 
-  assert.deepEqual(groups.tags, ["politics"]);
+  assert.equal(groups.tags, undefined);
   assert.deepEqual(groups.attachments.map((attachment) => attachment.filename), ["source.pdf"]);
   assert.deepEqual(groups.relatedEvents.map((event) => event.id), [2]);
 });
 
-test("normalizeTopicColumns validates and sorts user-defined columns", () => {
+test("normalizeTopicColumns validates, sorts, dedups options, and reserves only title/time", () => {
   const columns = normalizeTopicColumns([
     { key: "source", label: "来源", type: "text", width: 180, order: 2, visible: true },
     { key: "place", label: "地点", type: "text", width: 88, order: 1, visible: false },
-    { key: "type", label: "Reserved", type: "text", width: 50, order: 0, visible: true },
+    { key: "title", label: "Reserved", type: "text", width: 50, order: 0, visible: true },
+    {
+      key: "tags",
+      label: "标签",
+      type: "multiselect",
+      order: 3,
+      visible: true,
+      options: [
+        { id: "war", label: "战争", color: "x" },
+        { id: "war", label: "dup" },
+      ],
+    },
   ]);
 
-  assert.deepEqual(
-    columns.map((column) => ({ key: column.key, width: column.width, visible: column.visible })),
-    [
-      { key: "place", width: 88, visible: false },
-      { key: "source", width: 180, visible: true },
-    ]
-  );
+  assert.deepEqual(columns.map((column) => column.key), ["place", "source", "tags"]);
+  const tags = columns.find((column) => column.key === "tags");
+  assert.equal(tags.options.length, 1);
+  assert.equal(tags.options[0].id, "war");
 });
 
-test("buildVisibleTimelineColumns and normalizeEventExtra honor custom column visibility and whitelist", () => {
-  const topicColumns = normalizeTopicColumns([
-    { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
-    { key: "source", label: "来源", type: "text", width: 110, order: 1, visible: false },
+test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whitelist and options", () => {
+  const cols = normalizeTopicColumns([
+    { key: "type", label: "类型", type: "select", width: 96, order: 0, visible: true, options: [{ id: "a", label: "A" }] },
+    { key: "tags", label: "标签", type: "multiselect", width: 150, order: 1, visible: true, options: [{ id: "war", label: "战争" }] },
+    { key: "place", label: "地点", type: "text", width: 92, order: 2, visible: true },
+    { key: "source", label: "来源", type: "text", width: 110, order: 3, visible: false },
   ]);
-  const columns = buildVisibleTimelineColumns(topicColumns, { type: true, tags: false });
-  const extra = normalizeEventExtra({ place: "广州", source: "档案馆", ignored: "drop" }, topicColumns);
+  const visible = buildVisibleTimelineColumns(cols);
+  // `source` is defined but hidden — its value is still kept; only the unknown
+  // `drop` key is filtered out. Visibility controls display, not storage.
+  const extra = normalizeEventExtra({ type: "a", tags: ["war", "ghost", "war"], place: "广州", source: "x", drop: "z" }, cols);
 
-  assert.deepEqual(columns.map((column) => column.key), ["time", "title", "type", "place"]);
-  assert.equal(buildTimelineGridTemplate(topicColumns, { type: true, tags: false }), "28px 96px minmax(0,1fr) 72px 92px 30px");
-  assert.deepEqual(extra, { place: "广州", source: "档案馆" });
+  assert.deepEqual(visible.map((column) => column.key), ["time", "title", "type", "tags", "place"]);
+  assert.equal(buildTimelineGridTemplate(cols), "28px 96px minmax(0,1fr) 96px 150px 92px 30px");
+  assert.deepEqual(extra, { type: "a", tags: ["war"], place: "广州", source: "x" });
+  assert.deepEqual(normalizeEventExtra({ type: "ghost" }, cols), { type: "" });
+});
+
+test("matchesPropertyFilter matches scalar and multi-value properties", () => {
+  assert.equal(matchesPropertyFilter({ extra: { tags: ["war"] } }, { key: "tags", value: "war" }), true);
+  assert.equal(matchesPropertyFilter({ extra: { tags: ["politics"] } }, { key: "tags", value: "war" }), false);
+  assert.equal(matchesPropertyFilter({ extra: { type: "a" } }, { key: "type", value: "a" }), true);
+  assert.equal(matchesPropertyFilter({ extra: {} }, { key: "", value: "" }), true);
+});
+
+test("buildPropertyRows reports option usage counts across events", () => {
+  const rows = buildPropertyRows([tagsColumn], events);
+  const tags = rows.find((row) => row.key === "tags");
+  assert.equal(tags.isOption, true);
+  assert.equal(tags.options.find((option) => option.value === "war").count, 1);
+  assert.equal(tags.options.find((option) => option.value === "politics").count, 1);
+  assert.equal(tags.options.find((option) => option.value === "reform").count, 1);
 });

@@ -26,3 +26,14 @@ const TAG_COLOR_MAP = Object.fromEntries(
 export function getTagColor(tag) {
   return TAG_COLOR_MAP[tag] || "var(--accent)";
 }
+
+// Palette tokens cycled when a brand-new option is created in the OptionPicker.
+export const OPTION_PALETTE = [
+  "var(--t-war)",
+  "var(--t-politics)",
+  "var(--t-culture)",
+  "var(--t-science)",
+  "var(--t-reform)",
+  "var(--t-diplomacy)",
+  "var(--t-economy)",
+];

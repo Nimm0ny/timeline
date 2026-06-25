@@ -1,15 +1,18 @@
-import { getTagColor, getTagLabel } from "../constants/tags.js";
 import { CONTENT_LIMITS } from "../constants/contentLimits.js";
 import { plainTextFromMarkdown } from "./markdownPreview.js";
 
-const BUILTIN_COLUMN_DEFAULTS = {
-  type: true,
-  tags: true,
-};
-
-const RESERVED_COLUMN_KEYS = new Set(["title", "time", "type", "tags"]);
+// Unified property model: every column is a property. Only the two structural
+// columns (date + headline) are reserved; type/tags are ordinary, deletable
+// properties seeded by default. Option-typed properties (select/multiselect)
+// carry their own options; their values live in event.extra by option id.
+const RESERVED_COLUMN_KEYS = new Set(["title", "time"]);
 const COLUMN_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
-const COLUMN_TYPES = new Set(["text", "number", "date", "select"]);
+const COLUMN_TYPES = new Set(["text", "number", "date", "select", "multiselect"]);
+const OPTION_COLUMN_TYPES = new Set(["select", "multiselect"]);
+
+export function isOptionColumn(column) {
+  return OPTION_COLUMN_TYPES.has(column?.type);
+}
 
 function extractYearLabel(isoDate) {
   const match = String(isoDate || "").match(/^-?\d+/);
@@ -61,6 +64,23 @@ function normalizeColumnLabel(label) {
   return String(label || "").trim().slice(0, 24);
 }
 
+function normalizeColumnOptions(options, type) {
+  if (!OPTION_COLUMN_TYPES.has(type) || !Array.isArray(options)) return [];
+  const seen = new Set();
+  const normalized = [];
+  for (const option of options) {
+    const id = String(option?.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({
+      id: id.slice(0, 48),
+      label: (String(option?.label || "").trim() || id).slice(0, 24),
+      color: String(option?.color || "").trim().slice(0, 32),
+    });
+  }
+  return normalized;
+}
+
 export function compareTimelineEvents(left, right) {
   const leftKey = left?.era === "更早" ? Number.MAX_SAFE_INTEGER + (left?.dateKey || 0) : left?.dateKey || 0;
   const rightKey = right?.era === "更早" ? Number.MAX_SAFE_INTEGER + (right?.dateKey || 0) : right?.dateKey || 0;
@@ -104,44 +124,13 @@ export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText)
   return `${text.slice(0, maxLength).trim()}...`;
 }
 
-export function collectEventTags(event) {
-  const baseTags =
-    Array.isArray(event?.tags) && event.tags.length
-      ? event.tags.map((tag) => String(tag || "").trim())
-      : (event?.items || []).map((item) => String(item?.tag || "").trim());
-  const seen = new Set();
-  return baseTags
-    .filter(Boolean)
-    .filter((tag) => {
-      if (seen.has(tag)) return false;
-      seen.add(tag);
-      return true;
-    })
-    .map((tag) => ({
-      value: tag,
-      label: getTagLabel(tag),
-      color: getTagColor(tag),
-    }));
-}
-
-export function normalizeTagValues(tags) {
-  const seen = new Set();
-  return (tags || [])
-    .map((tag) => String(tag || "").trim())
-    .filter(Boolean)
-    .filter((tag) => {
-      if (seen.has(tag)) return false;
-      seen.add(tag);
-      return true;
-    });
-}
-
 export function normalizeTopicColumns(columns) {
   const seen = new Set();
   return (Array.isArray(columns) ? columns : [])
     .map((column, index) => {
       const key = String(column?.key || "").trim();
       const type = String(column?.type || "text").trim();
+      const normalizedType = COLUMN_TYPES.has(type) ? type : "text";
       const label = normalizeColumnLabel(column?.label);
       if (!COLUMN_KEY_PATTERN.test(key) || RESERVED_COLUMN_KEYS.has(key) || seen.has(key) || !label) {
         return null;
@@ -150,68 +139,126 @@ export function normalizeTopicColumns(columns) {
       return {
         key,
         label,
-        type: COLUMN_TYPES.has(type) ? type : "text",
+        type: normalizedType,
         width: normalizeColumnWidth(column?.width, 96),
         order: normalizeColumnOrder(column?.order, index),
         visible: column?.visible !== false,
+        options: normalizeColumnOptions(column?.options, normalizedType),
       };
     })
     .filter(Boolean)
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
 }
 
-export function normalizeBuiltinColumns(raw) {
-  return {
-    type: raw?.type !== false && BUILTIN_COLUMN_DEFAULTS.type,
-    tags: raw?.tags !== false && BUILTIN_COLUMN_DEFAULTS.tags,
-  };
-}
-
-export function buildVisibleTimelineColumns(columns, builtinState) {
-  const builtins = normalizeBuiltinColumns(builtinState);
-  const customColumns = normalizeTopicColumns(columns).filter((column) => column.visible);
-  const visible = [
-    { key: "time", label: "时间", width: 96, builtIn: true, locked: true },
-    { key: "title", label: "事件", width: null, builtIn: true, locked: true },
+export function buildVisibleTimelineColumns(columns) {
+  const properties = normalizeTopicColumns(columns).filter((column) => column.visible);
+  return [
+    { key: "time", label: "时间", width: 96, builtIn: true, locked: true, type: "time" },
+    { key: "title", label: "事件", width: null, builtIn: true, locked: true, type: "title" },
+    ...properties,
   ];
-  if (builtins.type) {
-    visible.push({ key: "type", label: "类型", width: 72, builtIn: true });
-  }
-  visible.push(...customColumns);
-  if (builtins.tags) {
-    visible.push({ key: "tags", label: "标签", width: 150, builtIn: true });
-  }
-  return visible;
 }
 
-export function buildTimelineGridTemplate(columns, builtinState) {
-  return ["28px", ...buildVisibleTimelineColumns(columns, builtinState).map((column) => column.width ? `${column.width}px` : "minmax(0,1fr)"), "30px"].join(" ");
+export function buildTimelineGridTemplate(columns) {
+  return [
+    "28px",
+    ...buildVisibleTimelineColumns(columns).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
+    "30px",
+  ].join(" ");
 }
 
-export function normalizeEventExtra(extra, columns = []) {
-  const allowed = new Set(normalizeTopicColumns(columns).map((column) => column.key));
-  const source = extra && typeof extra === "object" ? extra : {};
-  const normalized = {};
-  for (const [key, value] of Object.entries(source)) {
-    if (!allowed.has(key)) continue;
-    normalized[key] = value == null ? "" : String(value);
-  }
-  return normalized;
+export function optionMeta(column, id) {
+  const found = (column?.options || []).find((option) => option.id === id);
+  return found || { id, label: id, color: "var(--accent)" };
 }
 
-export function typeLabelFromEvent(event) {
-  const firstTag = collectEventTags(event)[0];
-  return firstTag?.label || "—";
+// Resolve an event's value(s) for a select/multiselect property into renderable
+// chips. Unknown ids fall back to showing the raw id (no fabricated label).
+export function resolvePropertyChips(event, column) {
+  if (!isOptionColumn(column)) return [];
+  const raw = event?.extra?.[column.key];
+  const ids = column.type === "multiselect" ? (Array.isArray(raw) ? raw : []) : raw ? [raw] : [];
+  return ids
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .map((id) => {
+      const meta = optionMeta(column, id);
+      return { value: id, label: meta.label, color: meta.color || "var(--accent)" };
+    });
+}
+
+// Tag chips for an event. With a column, labels/colors come from its options;
+// without one (e.g. export layout that lacks column context) the option id is
+// used as the label. Reads the unified `extra.tags` location.
+export function collectEventTags(event, column = null) {
+  if (column) return resolvePropertyChips(event, column);
+  const raw = event?.extra?.tags;
+  const ids = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return ids
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .map((id) => ({ value: id, label: id, color: "var(--accent)" }));
 }
 
 export function eventColumnValue(event, column) {
   if (!column) return "—";
   if (column.key === "time") return formatEventDate(event);
   if (column.key === "title") return event?.headline || event?.displayLabel || "未命名事件";
-  if (column.key === "type") return typeLabelFromEvent(event);
-  if (column.key === "tags") return collectEventTags(event).slice(0, 2);
-  const value = normalizeEventExtra(event?.extra, [column])[column.key];
+  if (isOptionColumn(column)) {
+    const chips = resolvePropertyChips(event, column);
+    return chips.length ? chips.map((chip) => chip.label).join("、") : "—";
+  }
+  const value = event?.extra?.[column.key];
   return value ? String(value) : "—";
+}
+
+// Per-property option rows (with usage counts) for the left "属性" tab.
+export function buildPropertyRows(columns, events) {
+  return normalizeTopicColumns(columns).map((column) => {
+    const counts = new Map();
+    if (isOptionColumn(column)) {
+      for (const event of events || []) {
+        for (const chip of resolvePropertyChips(event, column)) {
+          counts.set(chip.value, (counts.get(chip.value) || 0) + 1);
+        }
+      }
+    }
+    const options = (column.options || []).map((option) => ({
+      value: option.id,
+      label: option.label,
+      color: option.color || "var(--accent)",
+      count: counts.get(option.id) || 0,
+    }));
+    return {
+      key: column.key,
+      label: column.label,
+      type: column.type,
+      isOption: isOptionColumn(column),
+      options,
+    };
+  });
+}
+
+export function normalizeEventExtra(extra, columns = []) {
+  const byKey = new Map(normalizeTopicColumns(columns).map((column) => [column.key, column]));
+  const source = extra && typeof extra === "object" ? extra : {};
+  const normalized = {};
+  for (const [key, value] of Object.entries(source)) {
+    const column = byKey.get(key);
+    if (!column) continue;
+    if (column.type === "multiselect") {
+      const valid = new Set((column.options || []).map((option) => option.id));
+      const list = Array.isArray(value) ? value : value ? [value] : [];
+      normalized[key] = [...new Set(list.map((item) => String(item)).filter((item) => valid.has(item)))];
+    } else if (column.type === "select") {
+      const valid = new Set((column.options || []).map((option) => option.id));
+      const single = String(value ?? "");
+      normalized[key] = valid.has(single) ? single : "";
+    } else {
+      normalized[key] = value == null ? "" : String(value);
+    }
+  }
+  return normalized;
 }
 
 function hasReadableAttachment(attachment = {}) {
@@ -234,37 +281,48 @@ function hasReadableRelatedEvent(event = {}) {
 
 export function buildReadableDetailGroups(event) {
   return {
-    tags: normalizeTagValues(Array.isArray(event?.tags) ? event.tags : []),
     attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment),
     relatedEvents: (Array.isArray(event?.relatedEvents) ? event.relatedEvents : []).filter(hasReadableRelatedEvent),
   };
 }
 
-export function matchesEventSearch(event, query) {
+export function matchesEventSearch(event, query, columns = []) {
   const normalized = String(query || "").trim().toLowerCase();
   if (!normalized) return true;
-  const tagText = collectEventTags(event)
-    .flatMap((tag) => [tag.value, tag.label])
+  const propertyText = normalizeTopicColumns(columns)
+    .flatMap((column) => {
+      if (isOptionColumn(column)) {
+        return resolvePropertyChips(event, column).flatMap((chip) => [chip.value, chip.label]);
+      }
+      const value = event?.extra?.[column.key];
+      return value ? [String(value)] : [];
+    })
     .join(" ");
   const attachmentText = (event?.attachments || [])
     .map((item) => `${item?.name || ""} ${item?.filename || ""}`)
     .join(" ");
-  const extraText = Object.values(event?.extra || {}).join(" ");
   const haystack = [
     event?.headline,
     event?.displayLabel,
     event?.era,
     event?.legacyYear,
     event?.bodyMarkdown,
-    tagText,
+    propertyText,
     attachmentText,
-    extraText,
-    ...(event?.items || []).flatMap((item) => [item?.tag, item?.text]),
+    ...(event?.items || []).map((item) => item?.text),
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
   return haystack.includes(normalized);
+}
+
+// True when the event matches a property=value filter (`{ key, value }`).
+export function matchesPropertyFilter(event, filter) {
+  if (!filter || !filter.key) return true;
+  const raw = event?.extra?.[filter.key];
+  if (Array.isArray(raw)) return raw.map((item) => String(item)).includes(String(filter.value));
+  return String(raw ?? "") === String(filter.value);
 }
 
 function buildEraSubtitle(items) {
@@ -277,8 +335,10 @@ function buildEraSubtitle(items) {
   return `${minYear === maxYear ? minYear : `${minYear}–${maxYear}`} · ${items.length} 条`;
 }
 
-export function groupTimelineEvents(events, groupBy = "era", searchQuery = "") {
-  const filtered = [...(events || [])].sort(compareTimelineEvents).filter((event) => matchesEventSearch(event, searchQuery));
+export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", columns = []) {
+  const filtered = [...(events || [])]
+    .sort(compareTimelineEvents)
+    .filter((event) => matchesEventSearch(event, searchQuery, columns));
 
   if (groupBy === "year" || groupBy === "month") {
     const buckets = new Map();
@@ -326,9 +386,21 @@ export function groupTimelineEvents(events, groupBy = "era", searchQuery = "") {
 }
 
 export function buildEditorDraft(event, columns = []) {
+  const cols = normalizeTopicColumns(columns);
   const today = new Date();
   const parts = event?.dateParts || {};
   const bodyMarkdown = event?.bodyMarkdown || defaultBodyFromItems(event?.items || []);
+
+  // Seed a value slot for every property so inline editors bind cleanly.
+  const existingExtra = normalizeEventExtra(event?.extra, cols);
+  const extra = {};
+  for (const column of cols) {
+    if (column.type === "multiselect") {
+      extra[column.key] = Array.isArray(existingExtra[column.key]) ? [...existingExtra[column.key]] : [];
+    } else {
+      extra[column.key] = existingExtra[column.key] ?? "";
+    }
+  }
 
   return {
     id: event?.id || null,
@@ -340,17 +412,16 @@ export function buildEditorDraft(event, columns = []) {
     bodyMarkdown,
     image: event?.image || "",
     imageUrl: event?.imageUrl || "",
-    tags: Array.isArray(event?.tags) ? normalizeTagValues(event.tags) : collectEventTags(event).map((tag) => tag.value),
     attachments: Array.isArray(event?.attachments) ? event.attachments.map((item) => ({ ...item })) : [],
     relatedEventIds: Array.isArray(event?.relatedEventIds) ? [...event.relatedEventIds] : [],
     relatedEvents: Array.isArray(event?.relatedEvents) ? event.relatedEvents.map((item) => ({ ...item })) : [],
     favorite: Boolean(event?.favorite),
     deletedAt: event?.deletedAt || null,
-    items: (event?.items || [{ tag: "politics", text: bodyMarkdown || "" }]).map((item) => ({
-      tag: item.tag || "politics",
+    items: (event?.items || [{ tag: "note", text: bodyMarkdown || "" }]).map((item) => ({
+      tag: item.tag || "note",
       text: item.text || "",
     })),
-    extra: normalizeEventExtra(event?.extra, columns),
+    extra,
   };
 }
 

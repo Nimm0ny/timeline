@@ -60,7 +60,6 @@ class TimelineEvent(Base):
     headline: Mapped[str | None] = mapped_column(String(255), nullable=True)
     era: Mapped[str] = mapped_column(String(255), nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    tags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     related_event_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)

@@ -4,15 +4,17 @@ import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
+import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
   buildEditorDraft,
   buildReadableDetailGroups,
   formatEventDate,
   formatEventDisplayDate,
+  isOptionColumn,
   normalizeEventExtra,
-  normalizeTagValues,
   normalizeTopicColumns,
+  resolvePropertyChips,
 } from "@/utils/timelineNotes";
 import { renderMarkdownToHtml } from "@/utils/markdownPreview";
 import {
@@ -67,6 +69,7 @@ const emit = defineEmits([
   "toggle-favorite",
   "dirty-change",
   "preview-change",
+  "create-option",
 ]);
 
 const bodyEditableRef = ref(null);
@@ -76,8 +79,6 @@ const sessionUploads = ref([]);
 const pendingDeleteImages = ref([]);
 const relatedSearchQuery = ref("");
 const showRelatedSearch = ref(false);
-const showTagEditor = ref(false);
-const tagInputRef = ref(null);
 const relatedSearchInputRef = ref(null);
 const modalAttachment = ref(null);
 const dragActive = ref(false);
@@ -91,12 +92,23 @@ const isDeleted = computed(() => Boolean(props.event?.deletedAt || draft.deleted
 const topicColumns = computed(() => normalizeTopicColumns(props.topicColumns));
 const readableGroups = computed(() => buildReadableDetailGroups(props.event));
 const renderedBody = computed(() => renderMarkdownToHtml(props.event?.bodyMarkdown || ""));
-const tagText = computed({
-  get: () => draft.tags.join(", "),
-  set: (value) => {
-    draft.tags = normalizeTagValues(String(value || "").split(/[,，]/)).slice(0, CONTENT_LIMITS.tagsVisible);
-  },
-});
+
+// Unified property section: option-typed properties edit via OptionPicker, free
+// ones via inline inputs. In read mode only properties that hold a value show.
+function chipsFor(column) {
+  return resolvePropertyChips(props.event, column);
+}
+
+function hasPropertyValue(column) {
+  if (isOptionColumn(column)) return chipsFor(column).length > 0;
+  return Boolean(String(props.event?.extra?.[column.key] || "").trim());
+}
+
+const hasAnyPropertyValue = computed(() => topicColumns.value.some((column) => hasPropertyValue(column)));
+
+function onCreateOption(payload) {
+  emit("create-option", payload);
+}
 
 const selectedRelatedEvents = computed(() => {
   const lookup = new Map(
@@ -129,21 +141,15 @@ const draftDisplayDate = computed(() => {
 
 // Editor-first detail pane: tag / attachment / related sections only render when
 // they hold content (or, in edit mode, once their toolbar add-button is used).
-const hasTags = computed(() => (inEditMode.value ? draft.tags : readableGroups.value.tags).length > 0);
 const hasAttachments = computed(
   () => (inEditMode.value ? draft.attachments : readableGroups.value.attachments).length > 0
 );
 const hasRelated = computed(
   () => (inEditMode.value ? selectedRelatedEvents.value : readableGroups.value.relatedEvents).length > 0
 );
-const showTagSection = computed(() => hasTags.value || (inEditMode.value && showTagEditor.value));
+const showPropertySection = computed(() => topicColumns.value.length > 0 && (inEditMode.value || hasAnyPropertyValue.value));
 const showAttachmentSection = computed(() => hasAttachments.value);
 const showRelatedSection = computed(() => hasRelated.value || (inEditMode.value && showRelatedSearch.value));
-
-function revealTagEditor() {
-  showTagEditor.value = true;
-  nextTick(() => tagInputRef.value?.focus());
-}
 
 function revealRelatedEditor() {
   showRelatedSearch.value = true;
@@ -285,7 +291,6 @@ function snapshotDraft() {
     era: draft.era || "",
     bodyMarkdown: draft.bodyMarkdown || "",
     image: draft.image || "",
-    tags: draft.tags,
     attachments: draft.attachments,
     relatedEventIds: draft.relatedEventIds,
     favorite: Boolean(draft.favorite),
@@ -307,7 +312,6 @@ function applyDraft(sourceEvent) {
   draft.bodyMarkdown = next.bodyMarkdown;
   draft.image = next.image;
   draft.imageUrl = next.imageUrl;
-  draft.tags = next.tags;
   draft.attachments = next.attachments;
   draft.relatedEventIds = next.relatedEventIds;
   draft.relatedEvents = next.relatedEvents;
@@ -317,7 +321,6 @@ function applyDraft(sourceEvent) {
   draft.extra = next.extra;
   relatedSearchQuery.value = "";
   showRelatedSearch.value = false;
-  showTagEditor.value = false;
   closeMetaEditors();
   nextTick(() => {
     syncEditableBody(draft.bodyMarkdown);
@@ -465,7 +468,6 @@ function submit() {
   const headline = String(draft.headline || "").trim().slice(0, CONTENT_LIMITS.cardTitle);
   const era = String(draft.era || "").trim().slice(0, CONTENT_LIMITS.eraLabel);
   const bodyMarkdown = String(draft.bodyMarkdown || "").trim().slice(0, CONTENT_LIMITS.bodyMarkdown);
-  const tags = draft.tags.slice(0, CONTENT_LIMITS.tagsVisible);
   const attachments = draft.attachments.slice(0, CONTENT_LIMITS.attachmentsVisible).map((item) => ({
     id: item.id ?? null,
     name: item.name,
@@ -489,7 +491,6 @@ function submit() {
       era,
       image: draft.image || null,
       bodyMarkdown,
-      tags,
       attachments,
       relatedEventIds: draft.relatedEventIds,
       favorite: Boolean(draft.favorite),
@@ -520,7 +521,7 @@ watch(isDirty, (value) => emit("dirty-change", value), { immediate: true });
 watch(livePreview, (value) => emit("preview-change", value), { immediate: true });
 
 watch(
-  () => [props.mode, props.event?.id, JSON.stringify(topicColumns.value)],
+  () => [props.mode, props.event?.id],
   async ([mode, eventId], previous = []) => {
     const [prevMode, prevEventId] = previous;
     const switchingEditorContext = (prevMode === "edit" || prevMode === "create") && (mode !== prevMode || eventId !== prevEventId);
@@ -537,6 +538,23 @@ watch(
     modalAttachment.value = null;
   },
   { immediate: true }
+);
+
+// When the property set changes mid-edit (e.g. creating a new option does an
+// optimistic topic-columns update, or a column is added/removed), only reconcile
+// the draft.extra slots. Never rebuild the draft here — that would discard the
+// user's unsaved body / title / field edits and the option they just picked.
+watch(
+  () => topicColumns.value,
+  (columns) => {
+    if (!inEditMode.value) return;
+    for (const column of columns) {
+      if (!(column.key in draft.extra)) {
+        draft.extra[column.key] = column.type === "multiselect" ? [] : "";
+      }
+    }
+  },
+  { deep: true }
 );
 
 watch(
@@ -580,9 +598,6 @@ onBeforeUnmount(() => {
       <div class="actionbar">
         <span class="spacer"></span>
         <template v-if="inEditMode">
-          <button type="button" class="iconbtn" title="添加标签" @click="revealTagEditor">
-            <TimelineLucideIcon name="hash" :stroke-width="1.8" />
-          </button>
           <label class="iconbtn" title="添加附件">
             <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
             <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
@@ -696,40 +711,50 @@ onBeforeUnmount(() => {
           ></div>
         </section>
 
-        <div v-if="topicColumns.length" class="pane-sec">
+        <div v-if="showPropertySection" class="pane-sec">
           <div class="pane-sec-head">
-            <h3>字段</h3>
+            <h3>属性</h3>
           </div>
-          <div class="detail-field-list">
-            <label v-for="column in topicColumns" :key="column.key" class="detail-field-item">
-              <span>{{ column.label }}</span>
-              <input
-                v-if="inEditMode"
-                v-model="draft.extra[column.key]"
-                :type="column.type === 'number' ? 'number' : 'text'"
-                :placeholder="column.label"
-              />
-              <strong v-else>{{ props.event?.extra?.[column.key] || "—" }}</strong>
-            </label>
-          </div>
-        </div>
-
-        <div v-if="showTagSection" class="pane-sec">
-          <div class="pane-sec-head">
-            <h3>标签</h3>
-          </div>
-          <input
-            v-if="inEditMode"
-            ref="tagInputRef"
-            v-model="tagText"
-            class="detail-inline-input"
-            type="text"
-            placeholder="战争, 政治, 改革"
-          />
-          <div v-if="(inEditMode ? draft.tags : readableGroups.tags).length" class="pane-tags">
-            <span v-for="tag in (inEditMode ? draft.tags : readableGroups.tags)" :key="tag" class="ptag">
-              <i></i>{{ tag }}
-            </span>
+          <div class="detail-prop-list">
+            <div
+              v-for="column in topicColumns"
+              v-show="inEditMode || hasPropertyValue(column)"
+              :key="column.key"
+              class="detail-prop-item"
+            >
+              <span class="detail-prop-label">{{ column.label }}</span>
+              <div class="detail-prop-value">
+                <template v-if="isOptionColumn(column)">
+                  <OptionPicker
+                    v-if="inEditMode"
+                    :column="column"
+                    v-model="draft.extra[column.key]"
+                    :placeholder="`选择${column.label}`"
+                    @create-option="onCreateOption"
+                  />
+                  <div v-else class="pane-tags">
+                    <span
+                      v-for="chip in chipsFor(column)"
+                      :key="chip.value"
+                      class="ptag"
+                      :style="{ '--dot': chip.color }"
+                    >
+                      <i></i>{{ chip.label }}
+                    </span>
+                  </div>
+                </template>
+                <template v-else>
+                  <input
+                    v-if="inEditMode"
+                    v-model="draft.extra[column.key]"
+                    class="detail-inline-input"
+                    :type="column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'"
+                    :placeholder="column.label"
+                  />
+                  <strong v-else>{{ props.event?.extra?.[column.key] || "—" }}</strong>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
 
