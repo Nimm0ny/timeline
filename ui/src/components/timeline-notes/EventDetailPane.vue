@@ -379,10 +379,29 @@ async function cancelEdit() {
   emit("cancel");
 }
 
+function parseStrictInteger(value, { allowNegative = false } = {}) {
+  const raw = String(value ?? "").trim();
+  const pattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
+  if (!pattern.test(raw)) return Number.NaN;
+  return Number.parseInt(raw, 10);
+}
+
+function hasValidDraftDate(year, month, day) {
+  return (
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    Number.isInteger(day) &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= 31
+  );
+}
+
 function submit() {
-  const dateYear = Number.parseInt(draft.dateYear, 10);
-  const dateMonth = Number.parseInt(draft.dateMonth, 10);
-  const dateDay = Number.parseInt(draft.dateDay, 10);
+  const dateYear = parseStrictInteger(draft.dateYear, { allowNegative: true });
+  const dateMonth = parseStrictInteger(draft.dateMonth);
+  const dateDay = parseStrictInteger(draft.dateDay);
   const headline = String(draft.headline || "").trim().slice(0, CONTENT_LIMITS.cardTitle);
   const era = String(draft.era || "").trim().slice(0, CONTENT_LIMITS.eraLabel);
   const bodyMarkdown = String(draft.bodyMarkdown || "").trim().slice(0, CONTENT_LIMITS.bodyMarkdown);
@@ -395,9 +414,7 @@ function submit() {
   }));
 
   if (
-    Number.isNaN(dateYear) ||
-    Number.isNaN(dateMonth) ||
-    Number.isNaN(dateDay) ||
+    !hasValidDraftDate(dateYear, dateMonth, dateDay) ||
     !headline ||
     !era ||
     !bodyMarkdown
@@ -513,7 +530,25 @@ defineExpose({ submit, discardDraft, markSaved });
           />
         </label>
         <h3 v-else class="timeline-pane-title">{{ panelHeading }}</h3>
-        <div class="timeline-event-meta-line" aria-label="时间和标签">
+        <div v-if="inEditMode" class="timeline-edit-meta-row" aria-label="日期和专题">
+          <label>
+            <span>年份</span>
+            <input v-model="draft.dateYear" type="text" inputmode="numeric" maxlength="8" placeholder="年份" />
+          </label>
+          <label>
+            <span>月份</span>
+            <input v-model="draft.dateMonth" type="text" inputmode="numeric" maxlength="2" placeholder="月" />
+          </label>
+          <label>
+            <span>日期</span>
+            <input v-model="draft.dateDay" type="text" inputmode="numeric" maxlength="2" placeholder="日" />
+          </label>
+          <label class="timeline-era-field">
+            <span>专题</span>
+            <input v-model="draft.era" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="专题" />
+          </label>
+        </div>
+        <div v-else class="timeline-event-meta-line" aria-label="时间和标签">
           <span class="timeline-event-meta-item">
             <TimelineLucideIcon name="calendar" :stroke-width="1.7" />
             <span>{{ metaDateLabel }}</span>

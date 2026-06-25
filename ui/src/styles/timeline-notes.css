@@ -1139,6 +1139,26 @@ button {
   background: rgba(226, 211, 192, 0.18);
 }
 
+.timeline-markdown-surface.is-editing {
+  box-sizing: border-box;
+  border: 1px solid var(--tn-line);
+  border-radius: 8px;
+  background: rgba(255, 253, 249, 0.72);
+}
+
+.timeline-markdown-surface.is-editing .timeline-markdown-editor {
+  padding: 12px 12px 62px;
+}
+
+.timeline-markdown-surface.is-editing .timeline-markdown-toolbar {
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: auto;
+  padding: 0 10px;
+  border-top: 1px solid var(--tn-line);
+}
+
 .timeline-edit-head {
   min-height: 102px;
   padding: 13px 19px 0 25px;
