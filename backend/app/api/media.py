@@ -18,15 +18,6 @@ async def upload_media(
     return await store_uploaded_image(db, file, user.id)
 
 
-@router.post("/api/upload")
-async def compat_upload_media(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    return await store_uploaded_image(db, file, user.id)
-
-
 @router.delete("/api/media/by-filename/{filename}")
 def delete_media_by_filename(
     filename: str,

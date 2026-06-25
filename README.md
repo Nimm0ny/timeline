@@ -278,25 +278,7 @@ Vite 开发服务器默认监听 `0.0.0.0:5173`，并将以下路径代理到后
 - `POST /api/media/upload`
 - `DELETE /api/media/by-filename/{filename}`
 
-### 兼容接口
-
-后端仍保留一组兼容接口，供旧数据流或历史调用使用。当前前端 API 封装已转向新版 REST 路由。
-
-- `GET /api/data-files`
-- `POST /api/data-files`
-- `DELETE /api/data-files/{topicId}`
-- `GET /api/data-meta?topicId=...`
-- `PUT /api/data-meta?topicId=...`
-- `GET /api/events?topicId=...`
-- `POST /api/events?topicId=...`
-- `GET /api/export?topicId=...`
-- `POST /api/upload`
-- `DELETE /api/images/{filename}`
-
-说明：
-
-- 后端已经提供新版 REST 风格接口
-- 当前主前端不再直接依赖这些兼容接口；旧命名的前端方法只转发到新版 API
+说明：旧版兼容接口（`/api/data-files`、`/api/data-meta`、`/api/events?topicId=`、`/api/export`、`/api/upload`、`/api/images/{filename}`）已移除，统一走上述新版 REST 路由；旧 JSON 数据仍由启动时的自动迁移导入，不依赖这些接口。
 
 ## 常用命令
 
@@ -359,7 +341,6 @@ python -m compileall backend/app backend/server.py
 - 公网 host 已有投产流程，但不是通用云部署方案；具体环境以 `docs/production-deployment-runbook.md` 为准
 - 默认管理员密码为固定初始化值，安全性有限
 - 主题变量仍存储在 `theme/*.css`，尚未纳入数据库
-- 后端兼容接口仍保留，后续可视情况收敛或删除
 - 目前未提供完善的用户管理、审计日志和更细粒度权限模型
 
 ## 关键入口文件
@@ -376,5 +357,4 @@ python -m compileall backend/app backend/server.py
 
 1. 增加管理员修改密码功能
 2. 扩展前端交互 smoke 测试和视觉 QA 自动化记录
-3. 逐步清理后端兼容接口并统一 API 风格
-4. 将主题变量与更多系统配置纳入数据库管理
+3. 将主题变量与更多系统配置纳入数据库管理

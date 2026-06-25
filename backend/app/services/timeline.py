@@ -326,18 +326,6 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
     }
 
 
-def event_to_legacy_dict(event: TimelineEvent) -> dict:
-    payload = event_to_dict(event)
-    return {
-        "id": payload["id"],
-        "year": payload["displayLabel"],
-        "sortKey": payload["dateKey"],
-        "era": payload["era"],
-        "image": payload["image"],
-        "events": payload["items"],
-    }
-
-
 def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[int, dict]:
     related_ids = set()
     for event in event_rows:
@@ -369,9 +357,7 @@ def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[i
     return lookup
 
 
-def serialize_event_rows(db: Session, rows: list[TimelineEvent], *, legacy: bool = False) -> list[dict]:
-    if legacy:
-        return [event_to_legacy_dict(event) for event in rows]
+def serialize_event_rows(db: Session, rows: list[TimelineEvent]) -> list[dict]:
     related_lookup = build_related_lookup(db, rows)
     return [event_to_dict(event, related_lookup) for event in rows]
 
@@ -501,10 +487,10 @@ def build_event_query(db: Session, topic_id: int):
     )
 
 
-def list_topic_events(db: Session, topic_id: int, *, legacy: bool = False) -> list[dict]:
+def list_topic_events(db: Session, topic_id: int) -> list[dict]:
     get_topic_or_404(db, topic_id)
     events = build_event_query(db, topic_id).order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc()).all()
-    return serialize_event_rows(db, events, legacy=legacy)
+    return serialize_event_rows(db, events)
 
 
 def query_topic_events(
@@ -515,7 +501,6 @@ def query_topic_events(
     to_key: int | None = None,
     cursor: tuple[int, int | None] | None = None,
     limit: int | None = None,
-    legacy: bool = False,
 ) -> dict:
     get_topic_or_404(db, topic_id)
     bounds = build_topic_bounds(db, topic_id)
@@ -554,7 +539,7 @@ def query_topic_events(
         next_cursor = f"{last_row.date_key}:{last_row.id}"
 
     return {
-        "items": serialize_event_rows(db, rows, legacy=legacy),
+        "items": serialize_event_rows(db, rows),
         "bounds": bounds,
         "range": {
             "from": from_key,
@@ -795,7 +780,7 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
         event.deleted_at = data["deletedAt"]
 
 
-def create_event(db: Session, topic_id: int, payload: dict, user: User | None, *, legacy: bool = False) -> dict:
+def create_event(db: Session, topic_id: int, payload: dict, user: User | None) -> dict:
     topic = get_topic_or_404(db, topic_id)
     data = normalize_event_payload(payload, topic=topic)
     image = resolve_image(db, data["image"])
@@ -810,10 +795,10 @@ def create_event(db: Session, topic_id: int, payload: dict, user: User | None, *
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     db.commit()
     db.refresh(event)
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)], legacy=legacy)[0]
+    return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
 
 
-def update_event(db: Session, event_id: int, payload: dict, *, legacy: bool = False) -> dict:
+def update_event(db: Session, event_id: int, payload: dict) -> dict:
     event = get_event_or_404(db, event_id)
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
@@ -823,7 +808,7 @@ def update_event(db: Session, event_id: int, payload: dict, *, legacy: bool = Fa
             raise HTTPException(status_code=409, detail="Deleted events can only be restored")
         apply_event_state(event, payload)
         db.commit()
-        return serialize_event_rows(db, [get_event_or_404(db, event.id)], legacy=legacy)[0]
+        return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
 
     if event.deleted_at:
         raise HTTPException(status_code=409, detail="Deleted events cannot be edited")
@@ -841,7 +826,7 @@ def update_event(db: Session, event_id: int, payload: dict, *, legacy: bool = Fa
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)], legacy=legacy)[0]
+    return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
 
 
 def delete_event(db: Session, event_id: int, *, permanent: bool = False):

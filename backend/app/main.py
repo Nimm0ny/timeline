@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.auth import router as auth_router
-from backend.app.api.compat import router as compat_router
 from backend.app.api.config import router as config_router
 from backend.app.api.frontend import router as frontend_router
 from backend.app.api.media import router as media_router
@@ -35,7 +34,6 @@ def create_app() -> FastAPI:
     app.include_router(topics_router)
     app.include_router(media_router)
     app.include_router(themes_router)
-    app.include_router(compat_router)
     app.include_router(frontend_router)
     return app
 

@@ -14,7 +14,7 @@
 - 启动行为：
   - 应用启动时会执行 legacy migration
 - 兼容面：
-  - 仍保留 compat / summary / 导出等旧 surface，但不纳入本轮设计范围
+  - 旧 compat HTTP surface（data-files / data-meta / events?topicId= / export / upload / images 别名）已移除；导出统一走 `/api/topics/{id}/export`，启动期 legacy 数据迁移仍保留
 
 现状判断：
 - 后端已经具备 timeline 事件的基础 CRUD。
@@ -272,7 +272,7 @@ type EventStatePatch = {
   ```
   - 现状说明：
     - 当前主路由已统一返回上面的包装对象
-    - 旧的裸数组形态只保留在 compat surface 中
+    - 旧的裸数组（legacy）形态曾由已移除的 compat surface 提供，现已无对应路由
 
 ### Write
 
@@ -305,8 +305,8 @@ type EventStatePatch = {
 - `DELETE /api/media/by-filename/:filename`
   - 用途：删除未被引用的临时图片
   - 现状说明：
-    - `/api/images/:filename` 仍存在兼容别名
-    - web 端正式契约应以 `/api/media/by-filename/:filename` 为准
+    - 旧 `/api/images/:filename` 兼容别名已移除
+    - web 端正式契约以 `/api/media/by-filename/:filename` 为准
 
 ## 5.1 关联笔记显示 / 选择约束
 
