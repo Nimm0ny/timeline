@@ -81,7 +81,7 @@
 - `--tn-line-width = 1px`
 - `--tn-stage-width = 1920px`
 - `--tn-stage-height = 1080px`
-- `--tn-stage-scale = min(viewportWidth / 1920, viewportHeight / 1080)`，由运行时写入 CSS 变量
+- 不使用 `--tn-stage-scale` 或外层 `transform: scale()` 承载布局；运行时通过栏宽、卡宽、rail、年份列和 composer 等响应式变量重算布局
 - `--tn-font = "TimelinePrototypeFont"`，由 `ui/src/assets/fonts/timeline-prototype-regular.ttc` 与 `ui/src/assets/fonts/timeline-prototype-bold.ttc` 提供，不使用系统字体栈回退
 - `--tn-serif = "TimelinePrototypeFont"`，保持与原型实际落到的 Microsoft YaHei 一致，不切换到宋体/衬线字体
 - `--tn-icon-button-size = 28px / 32px / 36px / 40px`，按原型场景使用
@@ -140,14 +140,18 @@
 文件：
 - [TimelineEventCard.vue](/C:/py_pj/cursor/clown/timeline/ui/src/components/timeline-notes/TimelineEventCard.vue:1)
 
-元素上限 `N = 4`：
+内容元素上限 `N = 3`：
 - 标题
-- 时间
 - 一行摘要
 - 标签行
 
+日期信息由左侧年份/月轨道承担，不进入事件卡内容行。
+
+当前允许加入的操作按钮不计入内容元素上限：
+- 星标图标按钮
+- 更多操作按钮
+
 当前不允许加入：
-- 图标按钮
 - 收藏数 / 评论数 / 阅读数
 - 多行 meta 区
 - 次级操作行

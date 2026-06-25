@@ -1,5 +1,7 @@
 # 原型减法审查
 
+> 历史参考：本文档记录早期减法判断，不作为当前实施或验收依据。当前已经确认保留设置入口、底部 composer、事件卡星标/更多按钮和右栏阅读/编辑切换；当前硬约束以 `AGENTS.md` 与 `docs/agent-frontend-hardness.md` 为准。
+
 参考原型：
 - [product prototype reference](C:/Users/clown/AppData/Local/Temp/codex-clipboard-99b66e2a-feed-4cca-9802-de9840bad871.png)
 

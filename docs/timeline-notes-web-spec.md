@@ -1,5 +1,7 @@
 # 时间线笔记 Web 端设计规范
 
+> 历史参考：本文档记录早期 Web 端减法规范，不作为当前实施或验收依据。当前前端硬约束以 `AGENTS.md` 和 `docs/agent-frontend-hardness.md` 为准；视觉基准以 `docs/00-mandatory-readonly-design-brief.md` 与 `timeline_notes_pixel_perfect_1920x1080_one_view.html` 为准。
+
 ## 目标
 
 - 产品定位：自用历史事件 timeline 笔记，不是研究后台，不是 CMS。

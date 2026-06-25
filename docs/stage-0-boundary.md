@@ -63,7 +63,11 @@
 - `attachments_json`: string | null
 - `related_event_ids_json`: string | null
 - `image_id`: number | null
+- `created_by`: number | null
+- `created_at`: datetime
 - `updated_at`: datetime
+- `favorite`: boolean
+- `deleted_at`: datetime | null
 
 保留的兼容字段：
 - `year`
@@ -182,6 +186,10 @@ type TimelineEventDto = {
     headline: string;
     displayLabel: string;
   }>;
+  createdAt: string;
+  updatedAt: string;
+  favorite: boolean;
+  deletedAt: string | null;
   items: Array<{
     tag: string;
     text: string;
@@ -210,12 +218,25 @@ type SaveEventDto = {
     mimeType: string | null;
   }>;
   relatedEventIds: number[];
+  favorite?: boolean;
+  deletedAt?: string | null;
   items: Array<{
     tag: string;
     text: string;
   }>;
 };
 ```
+
+状态更新可以使用窄 payload：
+
+```ts
+type EventStatePatch = {
+  favorite?: boolean;
+  deletedAt?: string | null;
+};
+```
+
+删除事件后只允许恢复或永久删除；回收站内不允许编辑正文、标签、附件、关联项或收藏状态。
 
 ## 4. API 契约
 
@@ -265,7 +286,7 @@ type SaveEventDto = {
 
 - `PUT /api/events/:eventId`
   - 用途：更新事件
-  - 请求：`SaveEventDto`
+  - 请求：`SaveEventDto | EventStatePatch`
 
 - `POST /api/media/upload`
   - 用途：上传图片或一般附件
@@ -333,7 +354,7 @@ web 首版约束：
 ### 明确不做
 
 - 不改用户模型
-- 不改导入导出 JSON 结构
+- 不新增第三种导入导出结构；当前仅兼容 legacy array 和 v2 object，导出为 `schemaVersion: 2` 结构化 payload
 - 不改主题系统
 - 不新增或改造 summary / analytics 接口
 - 保留现有 `/api/topics/:topicId/summary` 作为 legacy surface，不纳入本轮 web 端主流程

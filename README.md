@@ -4,13 +4,13 @@
 
 ## 功能概览
 
-- 支持横向与纵向两种时间轴布局
-- 支持节点悬停预览、点击查看详情
-- 支持专题切换、专题创建与删除
-- 支持时间节点新增、编辑、删除
-- 支持节点图片上传与旧图片清理
-- 支持 JSON 导入、导出
-- 支持主题切换与主题变量编辑
+- 支持三栏时间线笔记界面：左栏分类，中栏时间线，右栏详情/编辑
+- 支持专题切换、专题创建与删除，以及全部、今天、本周、收藏、回收站筛选
+- 支持标签自动聚合、搜索、时间定位和底部快速记录入口
+- 支持时间点新增、Markdown 编辑、收藏、软删除、恢复和永久删除
+- 支持附件上传、正文插入和关联时间点选择
+- 支持 legacy JSON 导入与 `schemaVersion: 2` 结构化导出
+- 支持主题变量接口和基础站点配置
 - 支持管理员登录后执行受保护写操作
 
 ## 技术栈
@@ -47,11 +47,12 @@
 前端页面启动后的主要数据流如下：
 
 1. 读取站点配置 `GET /api/config`
-2. 读取专题列表 `GET /api/data-files`
-3. 根据 URL 中的 `topic` 参数选择当前专题
-4. 加载专题信息与节点数据
-5. 写操作通过 API 提交到后端
-6. 后端将主数据写入 `data/timeline.db`
+2. 读取专题列表 `GET /api/topics`
+3. 根据 URL 中的 `topic / event / mode / filter / tag / date` 参数恢复当前工作区
+4. 加载专题信息 `GET /api/topics/{topicId}/meta`
+5. 加载事件列表 `GET /api/topics/{topicId}/events`
+6. 写操作通过新版 REST API 提交到后端
+7. 后端将主数据写入 `data/timeline.db`
 
 ## 目录结构
 
@@ -85,19 +86,15 @@ timeline/
 
 ### 时间轴页 `/`
 
-- 展示当前专题的时间轴内容
-- 支持横向/纵向布局切换
-- 支持节点悬停预览与点击详情
-- 支持编辑模式下新增、编辑、删除节点
-- 支持导入、导出、主题编辑、站点设置
+- 展示当前专题的三栏时间线笔记工作区
+- 左栏提供专题、主筛选、标签和设置入口
+- 中栏提供搜索、时间定位、纵向事件流和底部 composer
+- 右栏提供阅读态、Markdown 编辑态、附件、标签和关联时间点
+- 支持导入、导出、收藏、回收站、恢复和永久删除
 
-### 编辑器页 `/editor`
+### 兼容重定向 `/editor`
 
-- 管理专题列表
-- 编辑站点展示文案
-- 编辑专题标题与副标题
-- 维护节点列表
-- 执行导入 JSON、导出 JSON、图片上传等操作
+`/editor` 当前作为历史入口保留，并重定向到 `/`。编辑能力已并入右栏详情/编辑面板，不再维护独立 `EditorPage.vue`。
 
 ## 快速启动
 
@@ -119,7 +116,7 @@ run.bat
 启动后访问：
 
 - 时间轴页面：`http://localhost:8000`
-- 数据编辑器：`http://localhost:8000/editor`
+- `/editor` 历史入口会重定向到时间轴页面
 
 ### 方式二：手动启动
 
@@ -259,13 +256,11 @@ Vite 开发服务器默认监听 `0.0.0.0:5173`，并将以下路径代理到后
 - `GET /api/themes/{name}/vars`
 - `PUT /api/themes/{name}/vars`
 - `POST /api/media/upload`
-- `POST /api/upload`
 - `DELETE /api/media/by-filename/{filename}`
-- `DELETE /api/images/{filename}`
 
 ### 兼容接口
 
-当前前端仍在使用一组兼容接口，主要包括：
+后端仍保留一组兼容接口，供旧数据流或历史调用使用。当前前端 API 封装已转向新版 REST 路由。
 
 - `GET /api/data-files`
 - `POST /api/data-files`
@@ -275,11 +270,13 @@ Vite 开发服务器默认监听 `0.0.0.0:5173`，并将以下路径代理到后
 - `GET /api/events?topicId=...`
 - `POST /api/events?topicId=...`
 - `GET /api/export?topicId=...`
+- `POST /api/upload`
+- `DELETE /api/images/{filename}`
 
 说明：
 
 - 后端已经提供新版 REST 风格接口
-- 但为了兼容现有前端，部分旧接口仍在保留并实际使用
+- 当前主前端不再直接依赖这些兼容接口；旧命名的前端方法只转发到新版 API
 
 ## 常用命令
 
@@ -328,26 +325,21 @@ python -m compileall backend/app backend/server.py
 
 ## 测试现状
 
-当前仓库中未发现成体系的自动化测试配置或测试目录。
+当前仓库已有轻量自动化验收入口：
 
-因此目前更准确的说法是：
+- `cmd /c npm run agent:check`
+- `cmd /c npm run build`
+- `cmd /c npm run test:ui`
+- `python -m pytest tests/test_timeline_api.py tests/test_date_utils.py`
 
-- 已提供基础运行方式
-- 可执行前端构建与后端语法检查
-- 主要依赖人工功能验证
-
-如果后续继续演进，建议补充：
-
-- FastAPI 接口测试
-- 前端基础 smoke 测试
-- 核心数据流的回归测试
+其中 `test:ui` 使用 Node 内置测试运行 `ui/tests/*.test.js`，后端测试覆盖 timeline API、导入导出、日期工具和事件状态契约。
 
 ## 已知限制
 
 - 更适合本地或局域网部署，当前没有完整的公网部署方案
 - 默认管理员密码为固定初始化值，安全性有限
 - 主题变量仍存储在 `theme/*.css`，尚未纳入数据库
-- 当前兼容接口仍在使用，后续可逐步收敛到新版 REST 接口
+- 后端兼容接口仍保留，后续可视情况收敛或删除
 - 目前未提供完善的用户管理、审计日志和更细粒度权限模型
 
 ## 关键入口文件
@@ -355,7 +347,6 @@ python -m compileall backend/app backend/server.py
 - 前端源码入口：`ui/src/main.js`
 - 前端路由入口：`ui/src/router/index.js`
 - 时间轴页面：`ui/src/pages/TimelinePage.vue`
-- 编辑器页面：`ui/src/pages/EditorPage.vue`
 - FastAPI 应用入口：`backend/app/main.py`
 - 服务启动入口：`backend/server.py`
 
@@ -364,6 +355,6 @@ python -m compileall backend/app backend/server.py
 如果你准备继续迭代，建议优先考虑以下方向：
 
 1. 增加管理员修改密码功能
-2. 为前端和后端补充自动化测试
-3. 逐步清理兼容接口并统一 API 风格
+2. 扩展前端交互 smoke 测试和视觉 QA 自动化记录
+3. 逐步清理后端兼容接口并统一 API 风格
 4. 将主题变量与更多系统配置纳入数据库管理
