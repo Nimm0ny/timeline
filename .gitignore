@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+frontend/
+dist/
+
+# Python / test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local QA and browser profiles
+.tmp-qa/
+.agents/
+
+# Runtime data and secrets
+data/timeline.db
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/.auth_secret
+data/images/
+
+# Logs and local environment files
+*.log
+.env
+.env.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

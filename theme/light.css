@@ -1,0 +1,41 @@
+:root {
+  --bg-primary: #f0f0f8;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #ffffff;
+  --nav-bg: rgba(240, 240, 248, 0.92);
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --overlay-bg: rgba(0, 0, 0, 0.35);
+
+  --text-primary: #1c1c32;
+  --text-secondary: #65658a;
+  --text-muted: rgba(101, 101, 138, 0.55);
+
+  --accent: #6c63ff;
+  --accent-hover: #5a50e8;
+  --accent-glow: rgba(108, 99, 255, 0.22);
+  --accent-alt: #00b4d8;
+
+  --border: rgba(108, 99, 255, 0.14);
+  --border-hover: rgba(108, 99, 255, 0.3);
+  --line-color: rgba(108, 99, 255, 0.28);
+  --divider: rgba(0, 0, 0, 0.06);
+  --scrollbar-thumb: rgba(108, 99, 255, 0.22);
+
+  --popup-bg: rgba(255, 255, 255, 0.97);
+  --popup-shadow: 0 8px 32px rgba(80, 70, 160, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --modal-shadow: 0 16px 48px rgba(80, 70, 160, 0.14);
+
+  --danger: #e53935;
+  --danger-subtle: rgba(229, 57, 53, 0.1);
+  --success-bg: rgba(0, 140, 70, 0.92);
+  --error-bg: rgba(200, 40, 40, 0.92);
+}
+
+.tag-war       { background: rgba(255, 82, 82, 0.12);  color: #d32f2f; }
+.tag-politics  { background: rgba(255, 160, 0, 0.12);  color: #e68a00; }
+.tag-culture   { background: rgba(0, 180, 216, 0.1);   color: #0090a8; }
+.tag-science   { background: rgba(0, 180, 90, 0.1);    color: #00804a; }
+.tag-explore   { background: rgba(140, 60, 220, 0.1);  color: #7b2cbf; }
+.tag-disaster  { background: rgba(230, 100, 0, 0.1);   color: #c55a00; }

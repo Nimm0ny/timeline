@@ -1,0 +1,1455 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>时间线笔记产品原型</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f3ec;
+        --bg-soft: #fbf8f2;
+        --surface: #fffdf8;
+        --surface-muted: #f0e7da;
+        --ink: #201914;
+        --muted: #73675d;
+        --faint: #a79888;
+        --line: #e2d5c5;
+        --line-strong: #cdb79f;
+        --red: #b32925;
+        --red-dark: #8f211f;
+        --green: #2f7a65;
+        --green-soft: #dcebe2;
+        --brass: #a76d1f;
+        --brass-soft: #efe0c1;
+        --blue: #45728a;
+        --purple: #7660a8;
+        --shadow: 0 18px 44px rgba(59, 42, 28, 0.12);
+        --small-shadow: 0 8px 24px rgba(59, 42, 28, 0.09);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 0;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(90deg, rgba(32, 25, 20, 0.025) 1px, transparent 1px) 0 0 / 22px 22px,
+          linear-gradient(0deg, rgba(32, 25, 20, 0.018) 1px, transparent 1px) 0 0 / 22px 22px,
+          var(--bg);
+        color: var(--ink);
+        font-family:
+          "Microsoft YaHei",
+          "PingFang SC",
+          "Noto Sans CJK SC",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        cursor: pointer;
+      }
+
+      .app-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 264px minmax(440px, 1fr) 430px;
+      }
+
+      .sidebar {
+        min-width: 0;
+        background: rgba(255, 253, 248, 0.72);
+        border-right: 1px solid var(--line);
+        padding: 18px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        height: 38px;
+      }
+
+      .brand-main {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+        background: var(--red);
+        color: #fffaf6;
+        display: grid;
+        place-items: center;
+        box-shadow: 0 10px 22px rgba(179, 41, 37, 0.22);
+      }
+
+      .brand-mark svg,
+      .icon svg {
+        width: 17px;
+        height: 17px;
+      }
+
+      .brand-title {
+        display: block;
+        font-size: 18px;
+        font-weight: 850;
+        line-height: 1.1;
+      }
+
+      .brand-caption {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      .icon-button {
+        width: 34px;
+        height: 34px;
+        border-radius: 7px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .icon-button:hover {
+        border-color: var(--line);
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .quick-record {
+        width: 100%;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-radius: var(--radius);
+        padding: 0 13px;
+        background: var(--red);
+        color: #fffaf6;
+        font-weight: 800;
+        box-shadow: 0 14px 30px rgba(179, 41, 37, 0.2);
+      }
+
+      .quick-record span {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .nav-section {
+        display: grid;
+        gap: 8px;
+      }
+
+      .section-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 850;
+        padding: 0 4px;
+      }
+
+      .nav-item,
+      .notebook-item,
+      .tag-item {
+        width: 100%;
+        min-height: 36px;
+        display: grid;
+        grid-template-columns: 20px 1fr auto;
+        align-items: center;
+        gap: 9px;
+        border-radius: 7px;
+        padding: 8px 9px;
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+        font-size: 13px;
+      }
+
+      .nav-item.active,
+      .notebook-item.active {
+        background: rgba(255, 253, 248, 0.92);
+        color: var(--ink);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+
+      .nav-item strong,
+      .notebook-item strong,
+      .tag-item strong {
+        color: inherit;
+        font-weight: 750;
+      }
+
+      .count {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        background: var(--line-strong);
+      }
+
+      .dot.green {
+        background: var(--green);
+      }
+
+      .dot.brass {
+        background: var(--brass);
+      }
+
+      .dot.blue {
+        background: var(--blue);
+      }
+
+      .dot.purple {
+        background: var(--purple);
+      }
+
+      .calendar {
+        margin-top: auto;
+        border-top: 1px solid var(--line);
+        padding-top: 15px;
+      }
+
+      .calendar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 11px;
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+        color: var(--muted);
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .calendar-grid span {
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border-radius: 99px;
+      }
+
+      .calendar-grid .today {
+        background: var(--red);
+        color: #fffaf6;
+        font-weight: 800;
+      }
+
+      .workspace {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 64px 54px minmax(0, 1fr) auto;
+        border-right: 1px solid var(--line);
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: minmax(260px, 620px) auto;
+        gap: 16px;
+        align-items: center;
+        padding: 12px 24px 10px;
+      }
+
+      .search {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        background: rgba(255, 253, 248, 0.84);
+        border-radius: var(--radius);
+        box-shadow: 0 4px 16px rgba(59, 42, 28, 0.04);
+      }
+
+      .search svg {
+        width: 17px;
+        height: 17px;
+        color: var(--faint);
+        flex: 0 0 auto;
+      }
+
+      .search input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 9px;
+      }
+
+      .btn {
+        height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 13px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 760;
+        white-space: nowrap;
+      }
+
+      .btn svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .btn.primary {
+        background: var(--red);
+        border-color: var(--red);
+        color: #fffaf6;
+      }
+
+      .viewbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 0 24px;
+      }
+
+      .scope-title h1 {
+        margin: 0;
+        font-size: 21px;
+        line-height: 1.2;
+      }
+
+      .scope-title p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-auto-flow: column;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 7px;
+        background: var(--surface-muted);
+      }
+
+      .segmented button {
+        min-width: 58px;
+        height: 30px;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .segmented button.active {
+        background: var(--surface);
+        color: var(--ink);
+        box-shadow: 0 2px 8px rgba(59, 42, 28, 0.09);
+      }
+
+      .timeline-feed {
+        min-width: 0;
+        overflow: auto;
+        padding: 16px 24px 120px;
+      }
+
+      .feed-inner {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+
+      .date-group {
+        display: grid;
+        grid-template-columns: 96px 34px minmax(0, 1fr);
+        gap: 0;
+        position: relative;
+      }
+
+      .date-group + .date-group {
+        margin-top: 30px;
+      }
+
+      .date-label {
+        padding-top: 8px;
+        color: var(--red-dark);
+      }
+
+      .date-label strong {
+        display: block;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .date-label span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .rail {
+        position: relative;
+      }
+
+      .rail::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: -30px;
+        left: 16px;
+        width: 1px;
+        background: var(--line-strong);
+      }
+
+      .date-group:last-child .rail::before {
+        bottom: 40px;
+      }
+
+      .pin {
+        position: sticky;
+        top: 12px;
+        width: 13px;
+        height: 13px;
+        margin: 15px 0 0 10px;
+        border-radius: 99px;
+        background: var(--red);
+        border: 3px solid var(--bg-soft);
+        box-shadow: 0 0 0 1px var(--red);
+        z-index: 2;
+      }
+
+      .note-stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .note-card {
+        width: 100%;
+        display: block;
+        padding: 18px 18px 15px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(255, 253, 248, 0.92);
+        color: var(--ink);
+        text-align: left;
+        box-shadow: var(--small-shadow);
+      }
+
+      .note-card.active {
+        border-color: rgba(179, 41, 37, 0.42);
+        box-shadow: 0 16px 42px rgba(179, 41, 37, 0.14);
+      }
+
+      .note-card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .note-card h2 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.25;
+      }
+
+      .note-time {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+        margin-top: 4px;
+      }
+
+      .note-card p {
+        margin: 11px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .note-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .tag-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .tag {
+        min-height: 25px;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 99px;
+        padding: 3px 9px;
+        background: var(--surface-muted);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 740;
+      }
+
+      .tag.green {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .tag.brass {
+        background: var(--brass-soft);
+        color: #7a4d16;
+      }
+
+      .tag.red {
+        background: #f2dcd6;
+        color: var(--red-dark);
+      }
+
+      .tag.blue {
+        background: #dce9ee;
+        color: var(--blue);
+      }
+
+      .card-actions {
+        display: flex;
+        gap: 7px;
+        color: var(--muted);
+      }
+
+      .floating-composer {
+        position: sticky;
+        bottom: 0;
+        z-index: 8;
+        padding: 0 24px 18px;
+        pointer-events: none;
+      }
+
+      .composer-box {
+        max-width: 760px;
+        height: 72px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: rgba(255, 253, 248, 0.94);
+        box-shadow: var(--shadow);
+        pointer-events: auto;
+      }
+
+      .composer-box input {
+        min-width: 0;
+        height: 42px;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .composer-tools {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .send {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border-radius: 99px;
+        background: var(--red);
+        color: #fffaf6;
+      }
+
+      .editor {
+        min-width: 0;
+        background: rgba(255, 253, 248, 0.78);
+        display: grid;
+        grid-template-rows: 64px minmax(0, 1fr);
+      }
+
+      .editor-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .editor-nav,
+      .editor-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .editor-body {
+        overflow: auto;
+        padding: 22px 24px 36px;
+      }
+
+      .editor-title {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 30px;
+        font-weight: 850;
+        line-height: 1.2;
+        margin-bottom: 12px;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 13px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .editor-card {
+        margin-top: 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .formatbar {
+        height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(247, 243, 236, 0.76);
+      }
+
+      .formatbar button {
+        width: 31px;
+        height: 30px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .formatbar button:hover {
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .editor-text {
+        width: 100%;
+        min-height: 310px;
+        resize: vertical;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        padding: 18px;
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.8;
+      }
+
+      .side-section {
+        margin-top: 20px;
+      }
+
+      .side-section h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+
+      .attachment-list,
+      .related-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .attachment,
+      .related-date {
+        min-height: 42px;
+        display: grid;
+        grid-template-columns: 26px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .attachment span,
+      .related-date span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .file-icon {
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .saved-state {
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      @media (max-width: 1200px) {
+        .app-shell {
+          grid-template-columns: 228px minmax(0, 1fr);
+        }
+
+        .editor {
+          grid-column: 1 / -1;
+          border-top: 1px solid var(--line);
+          grid-template-rows: 58px auto;
+        }
+
+        .editor-body {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+          gap: 20px;
+        }
+
+        .editor-main {
+          min-width: 0;
+        }
+      }
+
+      @media (max-width: 820px) {
+        .app-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          padding: 12px 14px;
+          gap: 10px;
+          background: rgba(255, 253, 248, 0.94);
+          backdrop-filter: blur(10px);
+        }
+
+        .sidebar > nav.nav-section {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 2px;
+        }
+
+        .sidebar > section.nav-section {
+          display: none;
+        }
+
+        .nav-item {
+          min-width: 118px;
+          grid-template-columns: 18px 1fr auto;
+          padding: 8px;
+        }
+
+        .quick-record {
+          height: 38px;
+        }
+
+        .calendar {
+          display: none;
+        }
+
+        .workspace {
+          border-right: 0;
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
+        }
+
+        .topbar,
+        .viewbar {
+          grid-template-columns: 1fr;
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+
+        .topbar {
+          display: grid;
+        }
+
+        .actions,
+        .viewbar {
+          justify-content: start;
+        }
+
+        .timeline-feed {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+
+        .date-group {
+          grid-template-columns: 70px 26px minmax(0, 1fr);
+        }
+
+        .date-label strong {
+          font-size: 18px;
+        }
+
+        .note-card h2 {
+          font-size: 18px;
+        }
+
+        .floating-composer {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+
+        .composer-box {
+          grid-template-columns: 1fr auto;
+          height: auto;
+        }
+
+        .composer-tools {
+          grid-column: 1 / -1;
+          justify-content: space-between;
+        }
+
+        .editor-body {
+          display: block;
+          padding: 18px 16px 30px;
+        }
+
+        .editor-title {
+          font-size: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <header class="brand">
+          <div class="brand-main">
+            <div class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 6h10M7 12h10M7 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </div>
+            <div>
+              <span class="brand-title">时间线笔记</span>
+              <span class="brand-caption">按时间整理想法和事件</span>
+            </div>
+          </div>
+          <button class="icon-button" type="button" aria-label="菜单">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </header>
+
+        <button class="quick-record" type="button" id="quickRecord">
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            快速记录
+          </span>
+          <span>Ctrl N</span>
+        </button>
+
+        <nav class="nav-section" aria-label="主要筛选">
+          <button class="nav-item active" type="button" data-filter="全部笔记">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /></svg>
+            </span>
+            <strong>全部笔记</strong>
+            <span class="count">128</span>
+          </button>
+          <button class="nav-item" type="button" data-filter="今天">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 3v3m10-3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+            </span>
+            <strong>今天</strong>
+            <span class="count">8</span>
+          </button>
+          <button class="nav-item" type="button" data-filter="本周">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M8 3v4m8-4v4M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm3 8h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+            </span>
+            <strong>本周</strong>
+            <span class="count">26</span>
+          </button>
+          <button class="nav-item" type="button" data-filter="收藏">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" fill="none"><path d="m12 4 2.3 4.7 5.2.8-3.8 3.7.9 5.2-4.6-2.5-4.6 2.5.9-5.2-3.8-3.7 5.2-.8L12 4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /></svg>
+            </span>
+            <strong>收藏</strong>
+            <span class="count">12</span>
+          </button>
+        </nav>
+
+        <section class="nav-section">
+          <div class="section-heading">
+            <span>笔记本</span>
+            <button class="icon-button" type="button" aria-label="新建笔记本">+</button>
+          </div>
+          <button class="notebook-item active" type="button" data-notebook="历史学习">
+            <span class="dot green"></span>
+            <strong>历史学习</strong>
+            <span class="count">48</span>
+          </button>
+          <button class="notebook-item" type="button" data-notebook="项目日志">
+            <span class="dot brass"></span>
+            <strong>项目日志</strong>
+            <span class="count">36</span>
+          </button>
+          <button class="notebook-item" type="button" data-notebook="阅读笔记">
+            <span class="dot blue"></span>
+            <strong>阅读笔记</strong>
+            <span class="count">22</span>
+          </button>
+          <button class="notebook-item" type="button" data-notebook="生活记录">
+            <span class="dot purple"></span>
+            <strong>生活记录</strong>
+            <span class="count">15</span>
+          </button>
+        </section>
+
+        <section class="nav-section">
+          <div class="section-heading">
+            <span>标签</span>
+            <button class="icon-button" type="button" aria-label="新建标签">+</button>
+          </div>
+          <button class="tag-item" type="button">
+            <span class="dot red"></span>
+            <strong>事件</strong>
+            <span class="count">45</span>
+          </button>
+          <button class="tag-item" type="button">
+            <span class="dot green"></span>
+            <strong>学习</strong>
+            <span class="count">31</span>
+          </button>
+          <button class="tag-item" type="button">
+            <span class="dot brass"></span>
+            <strong>里程碑</strong>
+            <span class="count">18</span>
+          </button>
+        </section>
+
+        <section class="calendar" aria-label="日历">
+          <div class="calendar-head">
+            <button class="icon-button" type="button" aria-label="上个月">‹</button>
+            <span>2024 年 5 月</span>
+            <button class="icon-button" type="button" aria-label="下个月">›</button>
+          </div>
+          <div class="calendar-grid">
+            <strong>日</strong><strong>一</strong><strong>二</strong><strong>三</strong><strong>四</strong><strong>五</strong><strong>六</strong>
+            <span>28</span><span>29</span><span>30</span><span>1</span><span>2</span><span>3</span><span>4</span>
+            <span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span>
+            <span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span>
+            <span>19</span><span class="today">20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <label class="search" aria-label="搜索笔记">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m21 21-4.2-4.2m1.2-5.3a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <input id="searchInput" type="search" placeholder="搜索笔记、年份、标签或关键词" />
+          </label>
+          <div class="actions">
+            <button class="btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 3v3m10-3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+              今天
+            </button>
+            <button class="btn primary" type="button" id="addPoint">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+              添加时间点
+            </button>
+          </div>
+        </header>
+
+        <section class="viewbar">
+          <div class="scope-title">
+            <h1 id="scopeTitle">历史学习</h1>
+            <p id="scopeSubtitle">按时间回看笔记、事件和阶段性想法</p>
+          </div>
+          <div class="segmented" role="group" aria-label="时间线视图">
+            <button type="button" class="active" data-view="年">年</button>
+            <button type="button" data-view="月">月</button>
+            <button type="button" data-view="日">日</button>
+            <button type="button" data-view="列表">列表</button>
+          </div>
+        </section>
+
+        <section class="timeline-feed" aria-label="时间线笔记流">
+          <div class="feed-inner" id="feed">
+            <article class="date-group">
+              <div class="date-label">
+                <strong>1840</strong>
+                <span>6 月</span>
+              </div>
+              <div class="rail"><div class="pin"></div></div>
+              <div class="note-stack">
+                <button class="note-card active" type="button" data-note="0">
+                  <span class="note-card-head">
+                    <span>
+                      <h2>1840 鸦片战争</h2>
+                      <span class="note-time">1840 年 6 月 - 1842 年 8 月</span>
+                    </span>
+                    <span class="card-actions">☆ ⋯</span>
+                  </span>
+                  <p>记录战争背景、关键节点和《南京条约》影响，作为近代史学习的起点。</p>
+                  <span class="note-footer">
+                    <span class="tag-list">
+                      <span class="tag green">历史学习</span>
+                      <span class="tag red">事件</span>
+                    </span>
+                    <span class="count">2 个附件</span>
+                  </span>
+                </button>
+              </div>
+            </article>
+
+            <article class="date-group">
+              <div class="date-label">
+                <strong>1911</strong>
+                <span>10 月</span>
+              </div>
+              <div class="rail"><div class="pin"></div></div>
+              <div class="note-stack">
+                <button class="note-card" type="button" data-note="1">
+                  <span class="note-card-head">
+                    <span>
+                      <h2>1911 辛亥革命</h2>
+                      <span class="note-time">1911 年 10 月 10 日</span>
+                    </span>
+                    <span class="card-actions">★ ⋯</span>
+                  </span>
+                  <p>梳理武昌起义、清朝终结和共和制度建立，补充课堂提纲与人物关系。</p>
+                  <span class="note-footer">
+                    <span class="tag-list">
+                      <span class="tag green">历史学习</span>
+                      <span class="tag brass">里程碑</span>
+                    </span>
+                    <span class="count">已收藏</span>
+                  </span>
+                </button>
+              </div>
+            </article>
+
+            <article class="date-group">
+              <div class="date-label">
+                <strong>1949</strong>
+                <span>10 月</span>
+              </div>
+              <div class="rail"><div class="pin"></div></div>
+              <div class="note-stack">
+                <button class="note-card" type="button" data-note="2">
+                  <span class="note-card-head">
+                    <span>
+                      <h2>1949 新中国成立</h2>
+                      <span class="note-time">1949 年 10 月 1 日</span>
+                    </span>
+                    <span class="card-actions">☆ ⋯</span>
+                  </span>
+                  <p>记录开国大典、政权建立和中国社会进入新阶段的核心结论。</p>
+                  <span class="note-footer">
+                    <span class="tag-list">
+                      <span class="tag green">历史学习</span>
+                      <span class="tag brass">里程碑</span>
+                    </span>
+                    <span class="count">3 条关联</span>
+                  </span>
+                </button>
+              </div>
+            </article>
+
+            <article class="date-group">
+              <div class="date-label">
+                <strong>今天</strong>
+                <span>09:30</span>
+              </div>
+              <div class="rail"><div class="pin"></div></div>
+              <div class="note-stack">
+                <button class="note-card" type="button" data-note="3">
+                  <span class="note-card-head">
+                    <span>
+                      <h2>项目日志：时间线笔记原型</h2>
+                      <span class="note-time">2024 年 5 月 20 日 09:30</span>
+                    </span>
+                    <span class="card-actions">☆ ⋯</span>
+                  </span>
+                  <p>把新增、编辑、标签和时间浏览收拢到同一个页面，减少页面切换。</p>
+                  <span class="note-footer">
+                    <span class="tag-list">
+                      <span class="tag brass">项目日志</span>
+                      <span class="tag blue">产品</span>
+                    </span>
+                    <span class="count">待整理</span>
+                  </span>
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="floating-composer" aria-label="快速记录">
+          <div class="composer-box">
+            <button class="icon-button" type="button" aria-label="添加">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+            </button>
+            <input id="composerInput" type="text" placeholder="记录一个想法、事件或里程碑..." />
+            <div class="composer-tools">
+              <button class="icon-button" type="button" aria-label="选择日期">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M7 3v3m10-3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+              </button>
+              <button class="icon-button" type="button" aria-label="添加图片">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm4 10 3-3 2 2 3-4 4 5M8 8h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
+              <button class="send" type="button" id="sendComposer" aria-label="发送">
+                <svg viewBox="0 0 24 24" fill="none" width="17" height="17"><path d="m5 12 14-7-4 14-3-6-7-1Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="editor" aria-label="笔记详情编辑">
+        <header class="editor-toolbar">
+          <div class="editor-nav">
+            <button class="icon-button" type="button" aria-label="上一条">‹</button>
+            <button class="icon-button" type="button" aria-label="下一条">›</button>
+          </div>
+          <div class="editor-actions">
+            <span class="saved-state" id="savedState">已保存</span>
+            <button class="icon-button" type="button" aria-label="收藏">☆</button>
+            <button class="btn primary" type="button" id="saveButton">保存</button>
+          </div>
+        </header>
+
+        <div class="editor-body">
+          <div class="editor-main">
+            <input class="editor-title" id="editorTitle" value="1840 鸦片战争" aria-label="笔记标题" />
+            <div class="meta-row">
+              <span class="meta-item">
+                <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M7 3v3m10-3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                <span id="editorDate">1840 年 6 月 - 1842 年 8 月</span>
+              </span>
+              <span class="meta-item">
+                <span class="dot green"></span>
+                <span id="editorNotebook">历史学习</span>
+              </span>
+            </div>
+
+            <div class="editor-card">
+              <div class="formatbar" aria-label="格式工具">
+                <button type="button">B</button>
+                <button type="button"><i>I</i></button>
+                <button type="button">H</button>
+                <button type="button">•</button>
+                <button type="button">1.</button>
+                <button type="button">/</button>
+                <button type="button">“”</button>
+                <button type="button">#</button>
+              </div>
+              <textarea class="editor-text" id="editorText">## 事件背景
+19 世纪上半叶，英国为了扭转对华贸易逆差，大量向中国输入鸦片，导致白银外流，社会矛盾加剧。
+
+## 事件经过
+- 1839 年，林则徐虎门销烟
+- 1840 年，英国舰队入侵中国沿海
+- 1842 年，清政府战败，签订《南京条约》
+
+## 我的思考
+鸦片战争是理解近代中国变化的起点，需要和条约体系、通商口岸一起复习。</textarea>
+            </div>
+          </div>
+
+          <div class="editor-side">
+            <section class="side-section">
+              <h3>标签</h3>
+              <div class="tag-list" id="editorTags">
+                <span class="tag green">历史学习</span>
+                <span class="tag red">事件</span>
+                <span class="tag">+ 标签</span>
+              </div>
+            </section>
+
+            <section class="side-section">
+              <h3>附件</h3>
+              <div class="attachment-list" id="attachments">
+                <div class="attachment">
+                  <span class="file-icon">P</span>
+                  <strong>鸦片战争背景资料.pdf</strong>
+                  <span>1.2 MB</span>
+                </div>
+                <div class="attachment">
+                  <span class="file-icon">I</span>
+                  <strong>虎门销烟图.jpg</strong>
+                  <span>860 KB</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="side-section">
+              <h3>相关时间点</h3>
+              <div class="related-list" id="relatedDates">
+                <div class="related-date">
+                  <span class="file-icon">↗</span>
+                  <strong>1839 虎门销烟</strong>
+                  <span>关联</span>
+                </div>
+                <div class="related-date">
+                  <span class="file-icon">↗</span>
+                  <strong>1842 《南京条约》签订</strong>
+                  <span>关联</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      const notes = [
+        {
+          title: "1840 鸦片战争",
+          date: "1840 年 6 月 - 1842 年 8 月",
+          notebook: "历史学习",
+          tags: [["历史学习", "green"], ["事件", "red"]],
+          text: `## 事件背景
+19 世纪上半叶，英国为了扭转对华贸易逆差，大量向中国输入鸦片，导致白银外流，社会矛盾加剧。
+
+## 事件经过
+- 1839 年，林则徐虎门销烟
+- 1840 年，英国舰队入侵中国沿海
+- 1842 年，清政府战败，签订《南京条约》
+
+## 我的思考
+鸦片战争是理解近代中国变化的起点，需要和条约体系、通商口岸一起复习。`,
+          attachments: [["P", "鸦片战争背景资料.pdf", "1.2 MB"], ["I", "虎门销烟图.jpg", "860 KB"]],
+          related: ["1839 虎门销烟", "1842 《南京条约》签订"],
+        },
+        {
+          title: "1911 辛亥革命",
+          date: "1911 年 10 月 10 日",
+          notebook: "历史学习",
+          tags: [["历史学习", "green"], ["里程碑", "brass"]],
+          text: `## 核心结论
+辛亥革命推翻了清朝统治，结束了中国两千多年的君主专制制度。
+
+## 需要记住
+- 武昌起义是重要起点
+- 革命后建立中华民国
+- 共和观念开始进入制度实践`,
+          attachments: [["N", "辛亥革命课堂提纲.md", "24 KB"]],
+          related: ["1912 中华民国成立", "1905 中国同盟会成立"],
+        },
+        {
+          title: "1949 新中国成立",
+          date: "1949 年 10 月 1 日",
+          notebook: "历史学习",
+          tags: [["历史学习", "green"], ["里程碑", "brass"]],
+          text: `## 时间点
+1949 年 10 月 1 日，中华人民共和国中央人民政府成立。
+
+## 意义
+中国历史进入新阶段，社会制度和国家建设展开新的进程。`,
+          attachments: [["I", "开国大典照片.jpg", "920 KB"]],
+          related: ["1949 中国人民政治协商会议", "1954 第一届全国人大"],
+        },
+        {
+          title: "项目日志：时间线笔记原型",
+          date: "2024 年 5 月 20 日 09:30",
+          notebook: "项目日志",
+          tags: [["项目日志", "brass"], ["产品", "blue"]],
+          text: `## 调整方向
+产品应该更像按时间组织的笔记工具，而不是研究工作台。
+
+## 下一步
+- 统一新增和编辑体验
+- 优化移动端笔记流
+- 复用当前时间线数据结构`,
+          attachments: [["N", "原型需求.md", "18 KB"]],
+          related: ["2024-05-19 旧版时间线页面", "2024-05-20 新版原型"],
+        },
+      ];
+
+      const tagHtml = (tags) =>
+        tags.map(([name, type]) => `<span class="tag ${type || ""}">${name}</span>`).join("") + `<span class="tag">+ 标签</span>`;
+
+      const attachmentHtml = (items) =>
+        items
+          .map(
+            ([type, name, size]) => `<div class="attachment"><span class="file-icon">${type}</span><strong>${name}</strong><span>${size}</span></div>`
+          )
+          .join("");
+
+      const relatedHtml = (items) =>
+        items
+          .map((name) => `<div class="related-date"><span class="file-icon">↗</span><strong>${name}</strong><span>关联</span></div>`)
+          .join("");
+
+      function selectNote(index) {
+        const note = notes[index];
+        document.querySelectorAll(".note-card").forEach((card) => card.classList.remove("active"));
+        const card = document.querySelector(`[data-note="${index}"]`);
+        if (card) card.classList.add("active");
+        document.querySelector("#editorTitle").value = note.title;
+        document.querySelector("#editorDate").textContent = note.date;
+        document.querySelector("#editorNotebook").textContent = note.notebook;
+        document.querySelector("#editorTags").innerHTML = tagHtml(note.tags);
+        document.querySelector("#editorText").value = note.text;
+        document.querySelector("#attachments").innerHTML = attachmentHtml(note.attachments);
+        document.querySelector("#relatedDates").innerHTML = relatedHtml(note.related);
+        document.querySelector("#savedState").textContent = "已保存";
+      }
+
+      document.querySelectorAll("[data-note]").forEach((button) => {
+        button.addEventListener("click", () => selectNote(Number(button.dataset.note)));
+      });
+
+      document.querySelectorAll("[data-notebook]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-notebook]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          document.querySelector("#scopeTitle").textContent = button.dataset.notebook;
+          document.querySelector("#scopeSubtitle").textContent =
+            button.dataset.notebook === "项目日志" ? "按时间记录项目推进和关键决定" : "按时间回看笔记、事件和阶段性想法";
+        });
+      });
+
+      document.querySelectorAll("[data-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-filter]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          document.querySelector("#scopeTitle").textContent = button.dataset.filter;
+        });
+      });
+
+      document.querySelectorAll("[data-view]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-view]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+        });
+      });
+
+      document.querySelector("#editorText").addEventListener("input", () => {
+        document.querySelector("#savedState").textContent = "有改动";
+      });
+
+      document.querySelector("#saveButton").addEventListener("click", () => {
+        document.querySelector("#savedState").textContent = "已保存";
+      });
+
+      document.querySelector("#quickRecord").addEventListener("click", () => {
+        document.querySelector("#composerInput").focus();
+      });
+
+      document.querySelector("#addPoint").addEventListener("click", () => {
+        document.querySelector("#composerInput").focus();
+      });
+
+      document.querySelector("#sendComposer").addEventListener("click", () => {
+        const input = document.querySelector("#composerInput");
+        if (!input.value.trim()) {
+          input.focus();
+          return;
+        }
+        document.querySelector("#savedState").textContent = "新笔记已暂存";
+        input.value = "";
+      });
+    </script>
+  </body>
+</html>
