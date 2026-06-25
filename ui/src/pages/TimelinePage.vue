@@ -475,6 +475,7 @@ async function saveEvent(payload) {
       : await api.createTopicEvent(state.activeTopicId, payload.data);
 
     await cleanupDeletedImages(payload.imageOps, payload.data.image);
+    detailPaneRef.value?.markSaved?.();
     state.detailDirty = false;
     await loadWorkspace({
       preferredTopicId: state.activeTopicId,

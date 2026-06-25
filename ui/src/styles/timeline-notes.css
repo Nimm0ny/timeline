@@ -367,6 +367,7 @@ button {
 .timeline-topic-create input,
 .timeline-field input,
 .timeline-related-select,
+.timeline-related-search input,
 .timeline-edit-meta-row input,
 .timeline-title-field input {
   height: 34px;
@@ -1064,6 +1065,7 @@ button {
 }
 
 .timeline-detail-head {
+  min-height: 102px;
   padding: 18px 25px 0;
 }
 
@@ -1122,6 +1124,21 @@ button {
   border: 0;
 }
 
+.timeline-markdown-surface {
+  position: relative;
+  width: var(--tn-detail-content-width, 508px);
+  height: 412px;
+  margin: 0 19px 0 25px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.timeline-markdown-surface.is-dragging {
+  background: rgba(226, 211, 192, 0.18);
+}
+
 .timeline-edit-head {
   min-height: 102px;
   padding: 13px 19px 0 25px;
@@ -1148,6 +1165,7 @@ button {
 .timeline-edit-meta-row input:focus,
 .timeline-markdown-editor:focus,
 .timeline-field input:focus,
+.timeline-related-search input:focus,
 .timeline-related-select:focus {
   outline: none;
   border-color: var(--tn-accent);
@@ -1188,12 +1206,17 @@ button {
 }
 
 .timeline-markdown-toolbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 47px;
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 11px;
-  border-bottom: 1px solid var(--tn-line);
+  padding: 0;
+  border: 0;
+  background: rgba(251, 250, 247, 0.92);
 }
 
 .timeline-markdown-toolbar button,
@@ -1211,23 +1234,36 @@ button {
 
 .timeline-markdown-editor {
   width: 100%;
-  height: 365px;
+  height: 100%;
   display: block;
   resize: none;
   border: 0;
-  background: rgba(255, 253, 249, 0.72);
+  outline: 0;
+  background: transparent;
   color: #2a211b;
-  padding: 15px 15px 18px;
+  padding: 0 0 62px;
   font-family: var(--tn-serif);
   font-size: 16px;
   line-height: 1.75;
 }
 
+.timeline-markdown-editor:focus,
+.timeline-markdown-editor:focus-visible {
+  border: 0;
+  outline: 0;
+}
+
 .timeline-markdown-body {
+  height: 100%;
+  overflow-y: auto;
   color: #2a211b;
   font-family: var(--tn-serif);
   font-size: 16px;
   line-height: 1.78;
+}
+
+.timeline-markdown-empty {
+  margin: 0;
 }
 
 .timeline-markdown-body > * {
@@ -1339,16 +1375,37 @@ button {
   border-bottom: 0;
 }
 
-.timeline-file-badge {
-  width: 22px;
-  height: 22px;
+.timeline-file-badge,
+.timeline-file-preview {
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
-  border-radius: 4px;
-  background: #bd2f27;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--tn-surface-soft);
+  color: #6b5444;
 }
 
-.timeline-file-badge.image {
-  background: #6aa575;
+.timeline-file-preview.kind-image {
+  background: var(--tn-green);
+}
+
+.timeline-file-preview.kind-pdf {
+  color: var(--tn-accent);
+}
+
+.timeline-file-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.timeline-file-preview svg {
+  width: 18px;
+  height: 18px;
 }
 
 .timeline-support-main {
@@ -1375,6 +1432,7 @@ button {
 
 .timeline-row-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
 }
 
@@ -1384,13 +1442,78 @@ button {
   font-size: 12px;
 }
 
+.timeline-text-btn.danger {
+  color: var(--tn-accent);
+}
+
 .timeline-related-picker {
+  display: grid;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
 .timeline-related-select {
   min-width: 0;
   flex: 1;
+}
+
+.timeline-related-search {
+  position: relative;
+  display: block;
+}
+
+.timeline-related-search svg {
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--tn-faint);
+}
+
+.timeline-related-search input {
+  width: 100%;
+  padding-left: 34px;
+}
+
+.timeline-related-results {
+  display: grid;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--tn-line);
+  border-radius: 7px;
+  background: rgba(255, 253, 249, 0.66);
+}
+
+.timeline-related-result {
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--tn-line);
+  background: transparent;
+  color: var(--tn-ink);
+  text-align: left;
+}
+
+.timeline-related-result:last-child {
+  border-bottom: 0;
+}
+
+.timeline-related-result strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-related-result span {
+  overflow: hidden;
+  color: var(--tn-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .timeline-detail-empty {
