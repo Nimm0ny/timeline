@@ -1,10 +1,14 @@
-# 必读只读设计文档
+# 必读只读设计文档（已被 Obsidian 改版取代）
+
+> **已取代（superseded）**：本文档描述的是旧 `1920×1080` 像素基准（红色、卡片流、底部 composer、有边框编辑器）。
+> 当前实现基准已切换为「编年」Obsidian 改版：`docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html`。
+> 本文档仅作历史参考；与新基准冲突一律以新基准为准。
 
 状态：
 
-- `frozen`
-- `read-only`
-- 后续 Web 端实现必须遵守本文档
+- `superseded`（历史参考）
+- 原 `frozen / read-only`
+- 后续实现遵循新基准，不再以本文档为准
 
 适用范围：
 

@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-accent="violet" data-preview="on">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="prototype-status" content="visual-exploration; not production baseline" />
+    <title>编年 Chronicle · 时间线笔记（Obsidian Minimal）</title>
+    <style>
+      /* ============================================================
+         编年 Chronicle — Obsidian Minimal · 单页自适应原型 v2
+         中栏：列表 + 左侧关联时间线（预览）；右栏：点击行展开的详情
+         仅供视觉拍板，非生产基线。图标全部 Lucide（内联 sprite）。
+         ============================================================ */
+      :root {
+        --left-w: 268px; --right-w: 412px;
+        --accent: #7b68d9; --accent-hover: #6a56cf; --accent-contrast: #ffffff;
+        --accent-soft: rgba(123,104,217,0.10); --accent-soft-2: rgba(123,104,217,0.16); --accent-line: rgba(123,104,217,0.34);
+        --radius-lg: 12px; --radius: 8px; --radius-sm: 6px; --radius-pill: 999px;
+        --font: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+        --font-num: "Segoe UI", "Microsoft YaHei", sans-serif;
+        --ease: cubic-bezier(0.32, 0.08, 0.24, 1);
+        --t-war:#c05a52; --t-politics:#5f78c2; --t-culture:#b0863e; --t-reform:#4f9488; --t-diplomacy:#8a6bc2; --t-economy:#6f9a4d; --t-science:#4d8f9a;
+      }
+      :root[data-accent="slate"] { --accent:#5a76b8; --accent-hover:#4d68a8; --accent-soft:rgba(90,118,184,0.10); --accent-soft-2:rgba(90,118,184,0.16); --accent-line:rgba(90,118,184,0.34); }
+      :root[data-accent="moss"]  { --accent:#5a8a6b; --accent-hover:#4c7a5c; --accent-soft:rgba(90,138,107,0.11); --accent-soft-2:rgba(90,138,107,0.17); --accent-line:rgba(90,138,107,0.36); }
+      :root[data-theme="light"] {
+        --bg-app:#efeeec; --bg-sidebar:#f3f2f0; --bg-timeline:#faf9f8; --bg-detail:#ffffff;
+        --bg-surface:#ffffff; --bg-surface-2:#f5f4f2; --bg-hover:rgba(20,18,14,0.045);
+        --border:#e5e2dc; --border-soft:#edeae4; --border-strong:#d8d4cc;
+        --text:#2b2824; --text-strong:#1d1b18; --text-muted:#6f6a62; --text-faint:#a59f95; --rail:#d8d2c8;
+        --shadow-pop:0 10px 34px rgba(30,24,14,0.14),0 1px 0 rgba(0,0,0,0.02); --scrim:rgba(40,34,24,0.34);
+      }
+      :root[data-theme="dark"] {
+        --bg-app:#1a1a18; --bg-sidebar:#1c1c1a; --bg-timeline:#1f1f1d; --bg-detail:#232321;
+        --bg-surface:#262623; --bg-surface-2:#201f1d; --bg-hover:rgba(255,255,255,0.05);
+        --border:#302f2b; --border-soft:#2a2926; --border-strong:#3d3b36;
+        --text:#d8d4cc; --text-strong:#ece8e0; --text-muted:#9a948a; --text-faint:#6b665d; --rail:#3a3833;
+        --accent:#8b7cf0; --accent-hover:#9c8ef5; --accent-soft:rgba(139,124,240,0.13); --accent-soft-2:rgba(139,124,240,0.2); --accent-line:rgba(139,124,240,0.4);
+        --shadow-pop:0 12px 36px rgba(0,0,0,0.5); --scrim:rgba(0,0,0,0.5);
+      }
+      :root[data-theme="dark"][data-accent="slate"] { --accent:#7b93d8; --accent-hover:#8aa1e0; --accent-soft:rgba(123,147,216,0.14); --accent-soft-2:rgba(123,147,216,0.22); --accent-line:rgba(123,147,216,0.4); }
+      :root[data-theme="dark"][data-accent="moss"]  { --accent:#79ad8b; --accent-hover:#88bb99; --accent-soft:rgba(121,173,139,0.14); --accent-soft-2:rgba(121,173,139,0.22); --accent-line:rgba(121,173,139,0.4); }
+
+      *, *::before, *::after { box-sizing: border-box; }
+      * { scrollbar-width: none; -ms-overflow-style: none; }
+      *::-webkit-scrollbar { width: 0; height: 0; display: none; }
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      body { background: var(--bg-app); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+      button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+      input, textarea { font: inherit; }
+
+      .ic { width: 18px; height: 18px; display: block; flex: none; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+      .ic-16 { width: 16px; height: 16px; } .ic-15 { width: 15px; height: 15px; } .ic-14 { width: 14px; height: 14px; }
+      .sprite { position: absolute; width: 0; height: 0; }
+      .iconbtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: var(--radius-sm); color: var(--text-muted); transition: background .12s var(--ease), color .12s var(--ease); }
+      .iconbtn:hover { background: var(--bg-hover); color: var(--text); }
+      .iconbtn.on { color: var(--accent); background: var(--accent-soft); }
+      .iconbtn.primary { background: var(--accent); color: var(--accent-contrast); }
+      .iconbtn.primary:hover { background: var(--accent-hover); }
+      .iconbtn.sm { width: 26px; height: 26px; } .iconbtn.lg { width: 34px; height: 34px; }
+
+      /* ===================== 自适应 + 可调三栏 ===================== */
+      .app { position: fixed; inset: 0; display: grid;
+        grid-template-columns: var(--left-w) minmax(0,1fr) var(--right-w);
+        background: var(--bg-timeline); transition: grid-template-columns .22s var(--ease); }
+      .app.right-closed { grid-template-columns: var(--left-w) minmax(0,1fr) 0; }
+      .col { height: 100vh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+      .scroll { flex: 1; overflow-y: auto; }
+
+      .resizer { position: absolute; top: 0; bottom: 0; width: 10px; transform: translateX(-50%); z-index: 30; cursor: col-resize; }
+      .resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-50%); background: transparent; transition: background .12s; }
+      .resizer:hover::after, .resizer.active::after { background: var(--accent); }
+      #rzLeft { left: var(--left-w); }
+      #rzRight { left: calc(100% - var(--right-w)); }
+      .app.right-closed #rzRight { display: none; }
+
+      /* ===================== 左栏：Obsidian 风格（ribbon + 文件树 + 底栏） ===================== */
+      .sidebar { display: grid; grid-template-columns: 44px minmax(0,1fr); background: var(--bg-sidebar); border-right: 1px solid var(--border); overflow: hidden; }
+      .ribbon { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: var(--bg-app); border-right: 1px solid var(--border-soft); }
+      .ribbon .sp { flex: 1; }
+      .rb { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--text-faint); transition: color .12s, background .12s; }
+      .rb:hover { color: var(--text); background: var(--bg-hover); }
+      .rb.active { color: var(--accent); background: var(--accent-soft); }
+      .rb .ic { width: 18px; height: 18px; }
+      .rb.brand { color: var(--accent-contrast); background: var(--accent); margin-bottom: 6px; }
+      .rb.brand:hover { background: var(--accent-hover); }
+
+      .pane { min-width: 0; display: flex; flex-direction: column; }
+      .pane-head { height: 44px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border-soft); }
+      .pane-head .ph-title { flex: 1; font-size: 13px; font-weight: 700; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pane-head .iconbtn { width: 27px; height: 27px; color: var(--text-faint); }
+      .pane-head .iconbtn:hover { color: var(--text); }
+      .pane-scroll { flex: 1; overflow-y: auto; padding: 5px 6px 8px; }
+
+      .tg { margin-bottom: 1px; }
+      .tg-head { display: flex; align-items: center; gap: 3px; height: 26px; padding: 0 4px 0 2px; border-radius: var(--radius-sm); color: var(--text-faint); user-select: none; }
+      .tg-head:hover { background: var(--bg-hover); }
+      .tg-chev { width: 16px; height: 16px; display: grid; place-items: center; flex: none; transition: transform .15s var(--ease); }
+      .tg-chev .ic { width: 13px; height: 13px; }
+      .tg.collapsed .tg-chev { transform: rotate(-90deg); }
+      .tg-name { flex: 1; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+      .tg-head .iconbtn { width: 22px; height: 22px; opacity: 0; color: var(--text-faint); }
+      .tg:hover .tg-head .iconbtn { opacity: .8; }
+      .tg-head .iconbtn:hover { opacity: 1; color: var(--text); }
+      .tg-body { padding: 1px 0 3px; }
+      .tg.collapsed .tg-body { display: none; }
+
+      .ti { display: grid; grid-template-columns: 16px 18px minmax(0,1fr) auto; align-items: center; gap: 4px; min-height: 27px; padding: 0 8px 0 calc(2px + var(--depth, 0) * 17px); border-radius: var(--radius-sm); width: 100%; text-align: left; color: var(--text); position: relative; transition: background .1s; }
+      .ti:hover { background: var(--bg-hover); }
+      .ti.active { background: var(--accent-soft-2); }
+      .ti.active .ti-name { color: var(--text-strong); font-weight: 600; }
+      .ti-chev { width: 16px; height: 16px; display: grid; place-items: center; color: var(--text-faint); transition: transform .15s var(--ease); }
+      .ti-chev .ic { width: 13px; height: 13px; }
+      .ti.collapsed .ti-chev { transform: rotate(-90deg); }
+      .ti.leaf .ti-chev { visibility: hidden; }
+      .ti-ic { display: grid; place-items: center; color: var(--text-muted); }
+      .ti-ic .ic { width: 15px; height: 15px; }
+      .ti.active .ti-ic { color: var(--accent); }
+      .ti-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--dot, var(--accent)); justify-self: center; }
+      .ti-name { min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ti-cnt { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+      .ti.active .ti-cnt { color: var(--accent); }
+      .ti-kids[hidden] { display: none; }
+      /* 缩进引导线 */
+      .ti-kids { position: relative; }
+      .ti-kids::before { content: ""; position: absolute; left: calc(10px + var(--pdepth, 0) * 17px); top: 0; bottom: 2px; width: 1px; background: var(--border); }
+
+      .mini-stats { display: flex; gap: 6px; padding: 3px 4px 2px; }
+      .ms-cell { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); }
+      .ms-num { font-family: var(--font-num); font-size: 17px; font-weight: 700; color: var(--text-strong); line-height: 1; font-variant-numeric: tabular-nums; }
+      .ms-num.accent { color: var(--accent); }
+      .ms-cap { margin-top: 3px; font-size: 10.5px; color: var(--text-faint); }
+
+      .pane-foot { height: 42px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 8px; border-top: 1px solid var(--border-soft); }
+      .vault-switch { flex: 1; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 8px; border-radius: var(--radius-sm); color: var(--text); }
+      .vault-switch:hover { background: var(--bg-hover); }
+      .vault-switch .ic { width: 14px; height: 14px; color: var(--text-faint); flex: none; }
+      .vault-switch b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pane-foot .iconbtn { width: 28px; height: 28px; color: var(--text-faint); }
+
+      /* ===================== 中栏：列表 + 关联时间线 ===================== */
+      .timeline { background: var(--bg-timeline); }
+      .tl-bar { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 22px; border-bottom: 1px solid var(--border-soft); }
+      .tl-bar h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-strong); }
+      .tl-count { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+      .tl-bar .spacer { flex: 1; }
+      .searchbox { width: 0; opacity: 0; height: 33px; display: flex; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); overflow: hidden; transition: width .22s var(--ease), opacity .18s var(--ease); }
+      .searchbox.open { width: 260px; opacity: 1; }
+      .searchbox .ic { color: var(--text-faint); }
+      .searchbox input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font-size: 13px; }
+
+      .feed { flex: 1; overflow-y: auto; position: relative; }
+      .feed-inner { max-width: 1180px; margin: 0 auto; padding: 0 26px 80px; }
+      .tl-cols { position: sticky; top: 0; z-index: 3; display: grid; align-items: center; grid-template-columns: var(--rowgrid); height: 32px; padding-right: 6px; background: var(--bg-timeline); border-bottom: 1px solid var(--border-soft); }
+      .tl-cols span { font-size: 11px; color: var(--text-faint); letter-spacing: .4px; }
+
+      .era { position: relative; }
+      .era-head { position: relative; display: grid; grid-template-columns: 28px 1fr; align-items: center; padding: 13px 0 5px; }
+      .era-head .era-main { white-space: nowrap; }
+      .era-head .era-main b { font-size: 12.5px; font-weight: 700; color: var(--text); letter-spacing: .3px; }
+      .era-head .era-main span { margin-left: 9px; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+      .era::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 0; width: 1.5px; background: var(--rail); transform: translateX(-50%); }
+      .era:first-child::before { top: 22px; }
+      .era:last-child::before { bottom: auto; height: calc(100% - 18px); }
+      .rdot { width: 7px; height: 7px; border-radius: 50%; background: var(--bg-timeline); border: 1.5px solid var(--rail); justify-self: center; align-self: center; position: relative; z-index: 1; }
+      .era-head .rdot { width: 9px; height: 9px; background: var(--accent); border-color: var(--accent); }
+
+      /* 行高固定（= 不显示预览时的紧凑间距），显示预览不改变行高 */
+      .row { position: relative; display: grid; grid-template-columns: var(--rowgrid); align-items: center; min-height: 33px; padding: 1px 6px 1px 0; width: 100%; text-align: left; border-radius: 7px; transition: background .1s var(--ease); }
+      .row::after { content: ""; position: absolute; left: 28px; right: 6px; bottom: 0; height: 1px; background: var(--border-soft); opacity: .65; }
+      .row:last-child::after { display: none; }
+      .row:hover { background: var(--bg-hover); }
+      .row:hover .rdot { border-color: var(--accent); }
+      .row.active { background: var(--accent-soft); }
+      .row.active::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 2px; border-radius: 2px; background: var(--accent); }
+      .row.active .rdot { background: var(--accent); border-color: var(--accent); }
+      .row.active::after { display: none; }
+      .c-time { font-family: var(--font-num); font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .row.active .c-time { color: var(--accent); }
+      .c-title { min-width: 0; display: flex; align-items: baseline; gap: 8px; padding-right: 16px; }
+      .ev-name { font-size: 13.5px; font-weight: 500; color: var(--text-strong); white-space: nowrap; flex: none; }
+      .row.active .ev-name { color: var(--accent-hover); font-weight: 600; }
+      .ev-sum { min-width: 0; flex: 1; font-size: 12.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      :root[data-preview="off"] .ev-sum { display: none; }
+      .clip { color: var(--text-faint); flex: none; align-self: center; }
+      .clip .ic { width: 13px; height: 13px; }
+      .c-type, .c-place, .c-source { font-size: 12px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .c-empty { color: var(--border-strong); }
+      .c-tags { display: flex; align-items: center; gap: 10px; overflow: hidden; }
+      .td { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+      .td i { width: 7px; height: 7px; border-radius: 2px; background: var(--dot, var(--accent)); flex: none; }
+      .c-star { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; color: var(--text-faint); justify-self: center; opacity: 0; transition: opacity .1s, color .1s; }
+      .row:hover .c-star, .row.active .c-star { opacity: 1; }
+      .c-star.on { opacity: 1; color: var(--t-culture); }
+      .c-star .ic { width: 15px; height: 15px; }
+
+      /* 列设置浮层 */
+      .popover { position: absolute; z-index: 25; width: 200px; padding: 8px; background: var(--bg-detail); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); }
+      .popover[hidden] { display: none; }
+      .pop-title { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); padding: 4px 8px 8px; }
+      .pop-item { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border-radius: var(--radius-sm); width: 100%; text-align: left; color: var(--text); }
+      .pop-item:hover { background: var(--bg-hover); }
+      .pop-check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; color: transparent; flex: none; }
+      .pop-item.on .pop-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .pop-item .lbl { flex: 1; font-size: 13px; }
+      .pop-item .lock { font-size: 11px; color: var(--text-faint); }
+      .pop-note { font-size: 11px; color: var(--text-faint); line-height: 1.5; padding: 6px 8px 2px; border-top: 1px solid var(--border-soft); margin-top: 4px; }
+
+      /* ===================== 右栏：详情 / 编辑 ===================== */
+      .detail { background: var(--bg-detail); border-left: 1px solid var(--border); }
+      .actionbar { height: 52px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); }
+      .actionbar .spacer { flex: 1; }
+      .divider { width: 1px; height: 20px; background: var(--border); margin: 0 5px; }
+      .detail-scroll { flex: 1; overflow-y: auto; padding: 24px 26px 60px; }
+      .detail-title { font-size: 24px; font-weight: 800; color: var(--text-strong); line-height: 1.3; letter-spacing: -.2px; border: 0; background: none; width: 100%; padding: 0; outline: 0; }
+      .meta-row { display: flex; align-items: center; gap: 8px 16px; margin-top: 12px; flex-wrap: wrap; }
+      .meta { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-muted); }
+      .meta .ic { color: var(--text-faint); }
+      .meta button { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); padding: 3px 7px; border-radius: var(--radius-sm); }
+      .meta button:hover { background: var(--bg-hover); color: var(--text); }
+
+      .body { margin-top: 20px; color: var(--text); font-size: 15px; line-height: 1.85; }
+      .body h2 { font-size: 16px; font-weight: 700; color: var(--text-strong); margin: 22px 0 9px; }
+      .body p { margin: 0 0 13px; text-wrap: pretty; }
+      .body blockquote { margin: 15px 0; padding: 4px 15px; border-left: 3px solid var(--accent-line); color: var(--text-muted); background: var(--accent-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+      .body ul { margin: 0 0 13px; padding-left: 20px; }
+      .body li { margin: 4px 0; } .body li::marker { color: var(--accent); }
+      .body code { font-family: var(--font-num); background: var(--bg-surface-2); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+      .bodyfig { margin: 16px 0; cursor: zoom-in; }
+      .bodyfig figcaption { margin-top: 7px; font-size: 12px; color: var(--text-faint); text-align: center; }
+
+      /* 图片占位（无真实素材时的体面占位） */
+      .imgph { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-soft);
+        background: linear-gradient(135deg, var(--accent-soft) 0%, var(--bg-surface-2) 60%); display: grid; place-items: center; }
+      .imgph::after { content: attr(data-label); position: absolute; bottom: 8px; left: 10px; font-size: 11px; color: var(--text-faint); }
+      .imgph .ic { width: 30px; height: 30px; color: var(--accent); opacity: .7; }
+
+      /* Obsidian 式无感编辑：阅读 / 编辑同一排版，无边框、无工具栏、尺寸不变 */
+      .detail-title:focus, .body:focus { outline: none; }
+      .detail[data-mode="edit"] .detail-title, .detail[data-mode="edit"] .body { cursor: text; caret-color: var(--accent); }
+      .detail[data-mode="edit"] .body :is(h2, p, li):hover { background: var(--bg-hover); border-radius: 4px; }
+      .detail-title:empty::before { content: "无标题"; color: var(--text-faint); }
+
+      .pane-sec { margin-top: 22px; padding-top: 15px; border-top: 1px solid var(--border-soft); }
+      .pane-sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+      .pane-sec-head h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint); }
+      .pane-tags { display: flex; flex-wrap: wrap; gap: 7px; }
+      .ptag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px 0 9px; border-radius: var(--radius-pill); background: var(--bg-surface-2); border: 1px solid var(--border-soft); font-size: 12.5px; color: var(--text-muted); }
+      .ptag i { width: 7px; height: 7px; border-radius: 2px; background: var(--dot, var(--accent)); }
+
+      .row-list { display: grid; gap: 6px; }
+      .lrow { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 11px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--bg-surface); width: 100%; text-align: left; transition: border-color .12s, background .12s; }
+      .lrow:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+      .lrow-ic { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--bg-surface-2); color: var(--accent); }
+      .lrow-ic .ic { width: 16px; height: 16px; }
+      .lrow-main { min-width: 0; }
+      .lrow-main b { display: block; font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lrow-main span { font-size: 11.5px; color: var(--text-faint); }
+      .lrow .lrow-act { color: var(--text-faint); display: grid; place-items: center; width: 26px; height: 26px; }
+      .lrow:hover .lrow-act { color: var(--accent); }
+
+      /* ===================== Modal ===================== */
+      .modal { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 40px; }
+      .modal.open { display: flex; }
+      .modal-scrim { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); }
+      .modal-card { position: relative; width: min(760px, 92vw); max-height: 86vh; display: flex; flex-direction: column; background: var(--bg-detail); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); overflow: hidden; }
+      .modal-head { height: 50px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--border-soft); }
+      .modal-head b { flex: 1; font-size: 14px; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .modal-head .meta-min { font-size: 12px; color: var(--text-faint); }
+      .modal-body { padding: 18px; overflow: auto; }
+      .modal-body .imgph { aspect-ratio: 16 / 10; }
+      .filepreview { font-family: var(--font-num); font-size: 13px; line-height: 1.9; color: var(--text-muted); white-space: pre-wrap; background: var(--bg-surface-2); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 14px 16px; }
+
+    </style>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a3 3 0 0 1 3-3h6V5H6a3 3 0 0 0-3 3z"/><path d="M21 18a3 3 0 0 0-3-3h-6V5h6a3 3 0 0 1 3 3z"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>
+      <symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
+      <symbol id="i-notebook" viewBox="0 0 24 24"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+      <symbol id="i-plus-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></symbol>
+      <symbol id="i-arrow-up-down" viewBox="0 0 24 24"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></symbol>
+      <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+      <symbol id="i-align-left" viewBox="0 0 24 24"><path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+      <symbol id="i-calendar-search" viewBox="0 0 24 24"><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M21 11.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><circle cx="18" cy="18" r="3"/><path d="m22 22-1.5-1.5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.83 0L6 21"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></symbol>
+      <symbol id="i-maximize" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+      <symbol id="i-panel-left" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+      <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3 14 21"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+      <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+      <symbol id="i-square-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+      <symbol id="i-fold" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/></symbol>
+      <symbol id="i-chevrons-up-down" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+      <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></symbol>
+    </svg>
+
+    <div class="app right-closed" id="app">
+      <!-- ===================== 左栏 ===================== -->
+      <aside class="col sidebar">
+        <div class="ribbon">
+          <button class="rb brand" title="编年 Chronicle"><svg class="ic"><use href="#i-book"/></svg></button>
+          <button class="rb active" data-rb="files" title="笔记本"><svg class="ic"><use href="#i-folder"/></svg></button>
+          <button class="rb" data-rb="search" title="搜索"><svg class="ic"><use href="#i-search"/></svg></button>
+          <button class="rb" data-rb="star" title="收藏"><svg class="ic"><use href="#i-star"/></svg></button>
+          <button class="rb" data-rb="tags" title="标签"><svg class="ic"><use href="#i-hash"/></svg></button>
+          <button class="rb" data-rb="stats" title="统计"><svg class="ic"><use href="#i-bar"/></svg></button>
+          <span class="sp"></span>
+          <button class="rb" data-rb="trash" title="回收站"><svg class="ic"><use href="#i-trash"/></svg></button>
+        </div>
+
+        <div class="pane">
+          <div class="pane-head">
+            <span class="ph-title">笔记本</span>
+            <button class="iconbtn" title="新建笔记"><svg class="ic ic-16"><use href="#i-square-pen"/></svg></button>
+            <button class="iconbtn" title="新建笔记本"><svg class="ic ic-16"><use href="#i-folder-plus"/></svg></button>
+            <button class="iconbtn" title="排序"><svg class="ic ic-16"><use href="#i-arrow-up-down"/></svg></button>
+            <button class="iconbtn" id="foldAll" title="全部折叠"><svg class="ic ic-16"><use href="#i-fold"/></svg></button>
+          </div>
+          <div class="pane-scroll scroll">
+            <div class="tg" data-tg>
+              <div class="tg-head"><span class="tg-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="tg-name">视图</span></div>
+              <div class="tg-body">
+                <button class="ti leaf active" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-library"/></svg></span><span class="ti-name">全部笔记</span><span class="ti-cnt">46</span></button>
+                <button class="ti leaf" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-calendar"/></svg></span><span class="ti-name">今天</span><span class="ti-cnt">2</span></button>
+                <button class="ti leaf" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-clock"/></svg></span><span class="ti-name">本周</span><span class="ti-cnt">3</span></button>
+                <button class="ti leaf" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-star"/></svg></span><span class="ti-name">收藏</span><span class="ti-cnt">5</span></button>
+                <button class="ti leaf" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-trash"/></svg></span><span class="ti-name">回收站</span><span class="ti-cnt">1</span></button>
+              </div>
+            </div>
+
+            <div class="tg" data-tg>
+              <div class="tg-head"><span class="tg-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="tg-name">笔记本</span><button class="iconbtn" title="新建笔记本"><svg class="ic ic-14"><use href="#i-folder-plus"/></svg></button></div>
+              <div class="tg-body">
+                <button class="ti folder" style="--depth:0" data-folder data-kids="kids-jindai"><span class="ti-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="ti-ic"><svg class="ic"><use href="#i-folder"/></svg></span><span class="ti-name">近代史</span><span class="ti-cnt">46</span></button>
+                <div class="ti-kids" id="kids-jindai" style="--pdepth:0">
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">近代中国</span><span class="ti-cnt">5</span></button>
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">晚清自强</span><span class="ti-cnt">2</span></button>
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">民族危机加深</span><span class="ti-cnt">4</span></button>
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">维新与革命</span><span class="ti-cnt">3</span></button>
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">民国初创</span><span class="ti-cnt">3</span></button>
+                  <button class="ti leaf" style="--depth:1" data-sel><span class="ti-chev"></span><span class="ti-ic"><svg class="ic"><use href="#i-notebook"/></svg></span><span class="ti-name">新民主主义革命</span><span class="ti-cnt">4</span></button>
+                </div>
+                <button class="ti folder collapsed" style="--depth:0" data-folder data-kids="kids-gudai"><span class="ti-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="ti-ic"><svg class="ic"><use href="#i-folder"/></svg></span><span class="ti-name">古代史</span><span class="ti-cnt">106</span></button>
+                <div class="ti-kids" id="kids-gudai" hidden></div>
+                <button class="ti folder collapsed" style="--depth:0" data-folder data-kids="kids-dang"><span class="ti-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="ti-ic"><svg class="ic"><use href="#i-folder"/></svg></span><span class="ti-name">党史</span><span class="ti-cnt">56</span></button>
+                <div class="ti-kids" id="kids-dang" hidden></div>
+              </div>
+            </div>
+
+            <div class="tg" data-tg>
+              <div class="tg-head"><span class="tg-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="tg-name">标签</span><button class="iconbtn" title="新建标签"><svg class="ic ic-14"><use href="#i-plus"/></svg></button></div>
+              <div class="tg-body">
+                <button class="ti leaf tag" data-sel><span class="ti-chev"></span><span class="ti-dot" style="--dot:var(--t-war)"></span><span class="ti-name">战争</span><span class="ti-cnt">23</span></button>
+                <button class="ti leaf tag" data-sel><span class="ti-chev"></span><span class="ti-dot" style="--dot:var(--t-politics)"></span><span class="ti-name">政治</span><span class="ti-cnt">15</span></button>
+                <button class="ti leaf tag" data-sel><span class="ti-chev"></span><span class="ti-dot" style="--dot:var(--t-reform)"></span><span class="ti-name">改革</span><span class="ti-cnt">3</span></button>
+                <button class="ti leaf tag" data-sel><span class="ti-chev"></span><span class="ti-dot" style="--dot:var(--t-diplomacy)"></span><span class="ti-name">外交</span><span class="ti-cnt">3</span></button>
+                <button class="ti leaf tag" data-sel><span class="ti-chev"></span><span class="ti-dot" style="--dot:var(--t-culture)"></span><span class="ti-name">文化</span><span class="ti-cnt">2</span></button>
+              </div>
+            </div>
+
+            <div class="tg" data-tg>
+              <div class="tg-head"><span class="tg-chev"><svg class="ic"><use href="#i-chevron-down"/></svg></span><span class="tg-name">统计</span></div>
+              <div class="tg-body">
+                <div class="mini-stats">
+                  <div class="ms-cell"><div class="ms-num">46</div><div class="ms-cap">笔记</div></div>
+                  <div class="ms-cell"><div class="ms-num accent">+3</div><div class="ms-cap">本周</div></div>
+                  <div class="ms-cell"><div class="ms-num">5</div><div class="ms-cap">收藏</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pane-foot">
+            <button class="vault-switch" title="切换知识库"><svg class="ic"><use href="#i-chevrons-up-down"/></svg><b>编年 Chronicle</b></button>
+            <button class="iconbtn" title="帮助"><svg class="ic ic-16"><use href="#i-help"/></svg></button>
+            <button class="iconbtn" title="设置"><svg class="ic ic-16"><use href="#i-settings"/></svg></button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ===================== 中栏 ===================== -->
+      <section class="col timeline">
+        <div class="tl-bar">
+          <h2>历史事件</h2>
+          <span class="tl-count">时间线 · 共 <b id="evCount">21</b> 条</span>
+          <span class="spacer"></span>
+          <div class="searchbox" id="searchbox"><svg class="ic ic-16"><use href="#i-search"/></svg><input placeholder="搜索标题、正文、标签…" /></div>
+          <button class="iconbtn lg" id="searchBtn" title="搜索"><svg class="ic"><use href="#i-search"/></svg></button>
+          <button class="iconbtn lg" title="时间定位"><svg class="ic"><use href="#i-calendar-search"/></svg></button>
+          <button class="iconbtn lg" title="筛选"><svg class="ic"><use href="#i-filter"/></svg></button>
+          <button class="iconbtn lg" id="colBtn" title="列设置"><svg class="ic"><use href="#i-columns"/></svg></button>
+          <button class="iconbtn lg on" id="previewBtn" title="显示预览"><svg class="ic"><use href="#i-align-left"/></svg></button>
+          <button class="iconbtn lg primary" title="新建时间点"><svg class="ic"><use href="#i-plus-circle"/></svg></button>
+        </div>
+        <div class="feed scroll">
+          <div class="feed-inner" id="feedInner">
+            <div class="tl-cols" id="tlCols"></div>
+            <div id="feed"></div>
+          </div>
+          <div class="popover" id="colPop" hidden></div>
+        </div>
+      </section>
+
+      <!-- ===================== 右栏 ===================== -->
+      <aside class="col detail" id="detail" data-mode="read">
+        <div class="actionbar">
+          <span class="spacer"></span>
+          <button class="iconbtn" id="detailStar" title="收藏"><svg class="ic ic-16"><use href="#i-star"/></svg></button>
+          <button class="iconbtn" title="置顶"><svg class="ic ic-16"><use href="#i-pin"/></svg></button>
+          <button class="iconbtn" title="移入回收站"><svg class="ic ic-16"><use href="#i-trash"/></svg></button>
+          <button class="iconbtn primary" id="saveBtn" title="保存"><svg class="ic ic-16"><use href="#i-save"/></svg></button>
+          <span class="divider"></span>
+          <button class="iconbtn" id="modeBtn" title="切换阅读 / 编辑"><svg class="ic ic-16" id="modeIcon"><use href="#i-pencil"/></svg></button>
+          <button class="iconbtn" id="closeBtn" title="关闭详情"><svg class="ic ic-16"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="detail-scroll scroll">
+          <h1 class="detail-title" id="dTitle">鸦片战争爆发</h1>
+          <div class="meta-row">
+            <span class="meta"><svg class="ic ic-15"><use href="#i-calendar"/></svg><span id="dDate">1840 年 6 月 1 日</span></span>
+            <button class="meta"><svg class="ic ic-15"><use href="#i-leaf"/></svg><span id="dEra">近代史 · 近代中国</span><svg class="ic ic-14"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <div class="body" id="dBody"></div>
+
+          <div class="pane-sec">
+            <div class="pane-sec-head"><h3>标签</h3><button class="iconbtn sm" title="添加标签"><svg class="ic ic-15"><use href="#i-plus"/></svg></button></div>
+            <div class="pane-tags" id="dTags"></div>
+          </div>
+          <div class="pane-sec">
+            <div class="pane-sec-head"><h3>附件 · 2</h3><button class="iconbtn sm" title="添加附件"><svg class="ic ic-15"><use href="#i-paperclip"/></svg></button></div>
+            <div class="row-list">
+              <button class="lrow" data-att="image" data-name="南京条约·签订场景.jpg"><span class="lrow-ic"><svg class="ic"><use href="#i-image"/></svg></span><div class="lrow-main"><b>南京条约·签订场景.jpg</b><span>1.2 MB · 图片 · 点击查看</span></div><span class="lrow-act"><svg class="ic ic-16"><use href="#i-maximize"/></svg></span></button>
+              <button class="lrow" data-att="text" data-name="条约原文·摘录.txt"><span class="lrow-ic"><svg class="ic"><use href="#i-file"/></svg></span><div class="lrow-main"><b>条约原文·摘录.txt</b><span>18 KB · 文本 · 点击查看</span></div><span class="lrow-act"><svg class="ic ic-16"><use href="#i-maximize"/></svg></span></button>
+            </div>
+          </div>
+          <div class="pane-sec">
+            <div class="pane-sec-head"><h3>关联事件 · <span id="relCount">3</span></h3><button class="iconbtn sm" title="关联"><svg class="ic ic-15"><use href="#i-link"/></svg></button></div>
+            <div class="row-list" id="dRelated"></div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="resizer" id="rzLeft"></div>
+      <div class="resizer" id="rzRight"></div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal" id="modal">
+      <div class="modal-scrim" data-close></div>
+      <div class="modal-card">
+        <div class="modal-head"><b id="modalTitle">附件</b><span class="meta-min" id="modalMeta"></span><button class="iconbtn" data-close title="关闭"><svg class="ic ic-16"><use href="#i-x"/></svg></button></div>
+        <div class="modal-body" id="modalBody"></div>
+      </div>
+    </div>
+
+    <script>
+      const TAGS = { war:{label:"战争",color:"var(--t-war)"}, politics:{label:"政治",color:"var(--t-politics)"}, culture:{label:"文化",color:"var(--t-culture)"}, reform:{label:"改革",color:"var(--t-reform)"}, diplomacy:{label:"外交",color:"var(--t-diplomacy)"}, science:{label:"科技",color:"var(--t-science)"} };
+      const TYPE = { war:"军事", politics:"政治", culture:"文化", reform:"改革", diplomacy:"外交", science:"科技" };
+      const ERA_ORDER = ["近代中国","晚清自强","民族危机加深","维新与革命","民国初创","新民主主义革命"];
+
+      const EVENTS = [
+        {id:1,year:1840,dkey:"1840-06-01",date:"1840 年 6 月 1 日",era:"近代中国",tags:["war"],fav:false,clip:false,img:false,title:"鸦片战争爆发",summary:"英国以武力打开中国国门，清朝在军事和外交上的被动局面由此全面暴露。",body:"<p>英国以武力打开中国国门，清朝在军事和外交上的被动局面由此全面暴露，<strong>中国近代史开端</strong>通常由此算起。</p><blockquote>中国被迫卷入近代资本主义列强主导的国际体系，传统朝贡秩序受到猛烈冲击。</blockquote><h2>影响</h2><ul><li>东南沿海门户洞开</li><li>战费与赔款拖累清廷财政</li><li>“师夷长技”的反思由此萌芽</li></ul>"},
+        {id:2,year:1842,dkey:"1842-08-29",date:"1842 年 8 月 29 日",era:"近代中国",tags:["politics","diplomacy"],fav:true,clip:true,img:true,title:"《南京条约》签订",summary:"近代第一个不平等条约，割让香港岛并开放五口通商。",body:"<p>清政府被迫签订近代<strong>第一个不平等条约</strong>，割让香港岛并开放 <code>广州 · 厦门 · 福州 · 宁波 · 上海</code> 五口通商。</p><figure class='bodyfig' data-img='《南京条约》签订场景'><div class='imgph' data-label='示意图 · 占位 1280×720'><svg class='ic'><use href='#i-image'/></svg></div><figcaption>《南京条约》签订场景 · 示意图（点击放大）</figcaption></figure><p>通商口岸开放、赔款和割地，使中国开始陷入半殖民地化进程。</p>"},
+        {id:3,year:1851,dkey:"1851-01-11",date:"1851 年 1 月 11 日",era:"近代中国",tags:["war"],fav:false,clip:false,img:false,title:"太平天国运动爆发",summary:"金田起义掀起大规模农民战争，严重冲击清王朝统治。",body:"<p>金田起义掀起大规模农民战争，严重冲击清王朝统治，也深刻改变晚清政治与地方军事格局。</p><p>持续十余年的战争重创清朝统治，推动地方武装与区域权力上升。</p>"},
+        {id:4,year:1856,dkey:"1856-10-01",date:"1856 年 10 月 1 日",era:"近代中国",tags:["war","diplomacy"],fav:false,clip:false,img:false,title:"第二次鸦片战争爆发",summary:"英法联军再次对华开战，清朝进一步丧失外交主动权。",body:"<p>英法联军再次对华开战，清朝进一步丧失外交主动权，列强侵略加深。</p>"},
+        {id:5,year:1860,dkey:"1860-10-18",date:"1860 年 10 月 18 日",era:"近代中国",tags:["war","culture"],fav:false,clip:false,img:false,title:"英法联军火烧圆明园",summary:"英法联军攻入北京并焚毁圆明园，清廷威信大受打击。",body:"<p>英法联军攻入北京并焚毁圆明园，清廷威信大受打击，中国遭受严重<strong>文化与政治创伤</strong>。</p><blockquote>这一事件成为列强侵略暴行的象征，清廷威信与国防弱点暴露无遗。</blockquote>"},
+        {id:6,year:1861,dkey:"1861",date:"1861 年",era:"晚清自强",tags:["reform","science"],fav:true,clip:false,img:false,title:"洋务运动兴起",summary:"提出“自强”“求富”，兴办近代军事工业、民用企业和新式学堂。",body:"<p>清朝统治集团中的部分官员提出<strong>“自强”“求富”</strong>，兴办近代军事工业、民用企业和新式学堂。</p>"},
+        {id:7,year:1888,dkey:"1888",date:"1888 年",era:"晚清自强",tags:["reform","science"],fav:false,clip:false,img:false,title:"北洋水师成立",summary:"清政府建立近代化海军北洋水师，洋务自强的军事成果集中体现。",body:"<p>清政府正式建立近代化海军<strong>北洋水师</strong>，是洋务运动军事建设的集中体现。</p>"},
+        {id:8,year:1894,dkey:"1894-07",date:"1894 年 7 月",era:"民族危机加深",tags:["war"],fav:false,clip:false,img:false,title:"甲午中日战争",summary:"清军惨败，洋务自强成果遭到沉重打击。",body:"<p>中日甲午战争清军惨败，北洋水师覆没，<strong>洋务自强</strong>的成果遭到沉重打击。</p>"},
+        {id:9,year:1895,dkey:"1895-04",date:"1895 年 4 月",era:"民族危机加深",tags:["diplomacy","politics"],fav:false,clip:false,img:false,title:"《马关条约》签订",summary:"割让台湾、澎湖，赔款两亿两，民族危机空前加深。",body:"<p>中日 <code>《马关条约》</code> 割让台湾、澎湖列岛，赔款两亿两白银，<strong>民族危机空前加深</strong>。</p>"},
+        {id:10,year:1900,dkey:"1900",date:"1900 年",era:"民族危机加深",tags:["war"],fav:false,clip:false,img:false,title:"八国联军侵华",summary:"八国联军以镇压义和团为名攻入北京，清廷再遭重创。",body:"<p>八国联军以镇压义和团为名攻入北京，烧杀劫掠，清廷再遭重创。</p>"},
+        {id:11,year:1901,dkey:"1901-09",date:"1901 年 9 月",era:"民族危机加深",tags:["diplomacy"],fav:false,clip:false,img:false,title:"《辛丑条约》签订",summary:"赔款 4.5 亿两白银，中国半殖民地化程度大大加深。",body:"<p>清政府签订 <code>《辛丑条约》</code>，赔款本息合计约 9.8 亿两白银，<strong>中国半殖民地化程度大大加深</strong>。</p>"},
+        {id:12,year:1898,dkey:"1898-06",date:"1898 年 6 月",era:"维新与革命",tags:["reform","politics"],fav:false,clip:false,img:false,title:"戊戌变法",summary:"维新派推动制度变革，百日维新昙花一现。",body:"<p>维新派推动制度变革，<strong>百日维新</strong>昙花一现，旧势力反扑使改革迅速失败。</p>"},
+        {id:13,year:1905,dkey:"1905-08",date:"1905 年 8 月",era:"维新与革命",tags:["politics"],fav:false,clip:false,img:false,title:"中国同盟会成立",summary:"孙中山在东京成立同盟会，提出民族民主革命纲领。",body:"<p>孙中山在东京成立<strong>中国同盟会</strong>，提出“驱除鞑虏，恢复中华，创立民国，平均地权”的革命纲领。</p>"},
+        {id:14,year:1911,dkey:"1911-10-10",date:"1911 年 10 月 10 日",era:"维新与革命",tags:["politics","war"],fav:true,clip:false,img:false,title:"辛亥革命",summary:"武昌起义爆发，统治两千余年的君主专制走向终结。",body:"<p>武昌起义爆发，各省纷纷响应，统治中国<strong>两千余年的君主专制制度</strong>走向终结。</p><h2>意义</h2><ul><li>推翻清王朝统治</li><li>建立亚洲第一个共和政体</li><li>民主共和观念深入人心</li></ul>"},
+        {id:15,year:1912,dkey:"1912-01-01",date:"1912 年 1 月 1 日",era:"民国初创",tags:["politics"],fav:false,clip:false,img:false,title:"中华民国成立",summary:"南京临时政府成立，孙中山就任临时大总统。",body:"<p>南京临时政府成立，孙中山就任<strong>临时大总统</strong>，亚洲第一个共和国诞生。</p>"},
+        {id:16,year:1915,dkey:"1915-09",date:"1915 年 9 月",era:"民国初创",tags:["culture"],fav:false,clip:false,img:false,title:"新文化运动兴起",summary:"《青年杂志》创刊，民主与科学思潮激荡。",body:"<p>《青年杂志》创刊，<strong>民主与科学</strong>思潮激荡，猛烈冲击旧礼教与旧思想。</p>"},
+        {id:17,year:1919,dkey:"1919-05-04",date:"1919 年 5 月 4 日",era:"民国初创",tags:["culture","politics"],fav:false,clip:false,img:false,title:"五四运动",summary:"反帝爱国运动席卷全国，新思潮加速传播。",body:"<p>反帝爱国运动席卷全国，<strong>新文化与新思潮</strong>加速传播，深刻影响近代中国走向。</p>"},
+        {id:18,year:1921,dkey:"1921-07",date:"1921 年 7 月",era:"新民主主义革命",tags:["politics"],fav:false,clip:false,img:false,title:"中国共产党成立",summary:"中共一大召开，中国革命面貌焕然一新。",body:"<p>中共一大召开，<strong>中国共产党</strong>登上历史舞台，中国革命的面貌焕然一新。</p>"},
+        {id:19,year:1937,dkey:"1937-07-07",date:"1937 年 7 月 7 日",era:"新民主主义革命",tags:["war"],fav:false,clip:false,img:false,title:"全民族抗战爆发",summary:"卢沟桥事变后，中华民族进入全面抗战。",body:"<p>卢沟桥事变后，中华民族进入<strong>全面抗战</strong>，抗日民族统一战线正式形成。</p>"},
+        {id:20,year:1945,dkey:"1945-08-15",date:"1945 年 8 月 15 日",era:"新民主主义革命",tags:["war"],fav:true,clip:false,img:false,title:"抗日战争胜利",summary:"日本宣布无条件投降，反侵略战争取得完全胜利。",body:"<p>日本宣布无条件投降，中国人民取得近代以来<strong>反侵略战争的完全胜利</strong>。</p>"},
+        {id:21,year:1949,dkey:"1949-10-01",date:"1949 年 10 月 1 日",era:"新民主主义革命",tags:["politics"],fav:true,clip:false,img:false,title:"新中国成立",summary:"中华人民共和国成立，开启全新的历史阶段。",body:"<p>中华人民共和国成立，中国近代以来的屈辱史告一段落，开启<strong>全新的历史阶段</strong>。</p>"},
+      ];
+
+      const $ = (s, r = document) => r.querySelector(s);
+      const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+      const root = document.documentElement, app = $("#app");
+      const td = (t) => `<span class="td" style="--dot:${TAGS[t].color}"><i></i>${TAGS[t].label}</span>`;
+      const state = { active: null };
+
+      /* ---------- 列配置（可自定义；地点/来源默认关闭、占位） ---------- */
+      const COLS = {
+        time:   { label:"时间", w:"96px",  on:true,  lock:true },
+        place:  { label:"地点", w:"78px",  on:false, optional:true },
+        type:   { label:"类型", w:"60px",  on:true },
+        source: { label:"来源", w:"96px",  on:false, optional:true },
+        tags:   { label:"标签", w:"150px", on:true },
+      };
+      const MID = ["place","type","source"]; // 介于 标题 与 标签 之间
+
+      function gridTemplate() {
+        let p = ["28px", COLS.time.w, "minmax(0,1fr)"];
+        MID.forEach((k) => { if (COLS[k].on) p.push(COLS[k].w); });
+        if (COLS.tags.on) p.push(COLS.tags.w);
+        p.push("30px");
+        return p.join(" ");
+      }
+      function colHeaderHTML() {
+        let cells = ['<span></span>', `<span>${COLS.time.label}</span>`, '<span>事件</span>'];
+        MID.forEach((k) => { if (COLS[k].on) cells.push(`<span>${COLS[k].label}</span>`); });
+        if (COLS.tags.on) cells.push(`<span>${COLS.tags.label}</span>`);
+        cells.push('<span></span>');
+        return cells.join("");
+      }
+      function rowHTML(e) {
+        let mid = "";
+        if (COLS.place.on)  mid += `<span class="c-place c-empty">—</span>`;
+        if (COLS.type.on)   mid += `<span class="c-type">${TYPE[e.tags[0]]}</span>`;
+        if (COLS.source.on) mid += `<span class="c-source c-empty">—</span>`;
+        const tags = COLS.tags.on ? `<span class="c-tags">${e.tags.slice(0, 2).map(td).join("")}</span>` : "";
+        return `<button class="row${e.id === state.active ? " active" : ""}" data-id="${e.id}">
+          <span class="rdot"></span>
+          <span class="c-time">${e.dkey}</span>
+          <span class="c-title"><b class="ev-name">${e.title}</b>${e.clip ? '<span class="clip"><svg class="ic"><use href="#i-paperclip"/></svg></span>' : ""}<span class="ev-sum">${e.summary}</span></span>
+          ${mid}${tags}
+          <span class="c-star${e.fav ? " on" : ""}" data-star><svg class="ic"><use href="#i-star"/></svg></span>
+        </button>`;
+      }
+      function renderFeed() {
+        $("#feedInner").style.setProperty("--rowgrid", gridTemplate());
+        $("#tlCols").innerHTML = colHeaderHTML();
+        const groups = ERA_ORDER.map((era) => ({ era, items: EVENTS.filter((e) => e.era === era) })).filter((g) => g.items.length);
+        $("#feed").innerHTML = groups.map((g) => {
+          const ys = g.items.map((e) => e.year); const a = Math.min(...ys), b = Math.max(...ys);
+          return `<section class="era"><div class="era-head"><span class="rdot"></span><div class="era-main"><b>${g.era}</b><span>${a === b ? a : a + "–" + b} · ${g.items.length} 条</span></div></div>${g.items.map(rowHTML).join("")}</section>`;
+        }).join("");
+        $("#evCount").textContent = EVENTS.length;
+        $$(".row").forEach((r) => r.addEventListener("click", (ev) => {
+          if (ev.target.closest("[data-star]")) { toggleFav(+r.dataset.id); return; }
+          selectEvent(+r.dataset.id);
+        }));
+      }
+
+      function toggleFav(id) { const e = EVENTS.find((x) => x.id === id); e.fav = !e.fav; renderFeed(); if (id === state.active) syncStar(e); }
+      function syncStar(e) { $("#detailStar").classList.toggle("on", e.fav); $("#detailStar").style.color = e.fav ? "var(--t-culture)" : ""; }
+
+      function fillDetail(id) {
+        const e = EVENTS.find((x) => x.id === id);
+        $("#dTitle").textContent = e.title;
+        $("#dDate").textContent = e.date;
+        $("#dEra").textContent = "近代史 · " + e.era;
+        $("#dBody").innerHTML = e.body;
+        $("#dTags").innerHTML = e.tags.map((t) => `<span class="ptag" style="--dot:${TAGS[t].color}"><i></i>${TAGS[t].label}</span>`).join("");
+        syncStar(e);
+        const rel = EVENTS.filter((x) => x.era === e.era && x.id !== id).slice(0, 3);
+        $("#relCount").textContent = rel.length;
+        $("#dRelated").innerHTML = rel.map((r) => `<button class="lrow" data-jump="${r.id}"><span class="lrow-ic"><svg class="ic"><use href="#i-calendar"/></svg></span><div class="lrow-main"><b>${r.title}</b><span>${r.dkey} · ${r.era}</span></div><span class="lrow-act"><svg class="ic ic-16"><use href="#i-arrow-right"/></svg></span></button>`).join("");
+        $$("#dRelated [data-jump]").forEach((b) => b.addEventListener("click", () => selectEvent(+b.dataset.jump)));
+        $$(".bodyfig").forEach((f) => f.addEventListener("click", () => openModal("image", f.dataset.img)));
+      }
+      function selectEvent(id) {
+        state.active = id; fillDetail(id); app.classList.remove("right-closed");
+        $$(".row").forEach((c) => c.classList.toggle("active", +c.dataset.id === id));
+      }
+
+      /* ---------- 左栏：Obsidian 文件树交互 ---------- */
+      function setActiveTi(el) { $$(".pane-scroll .ti").forEach((x) => x.classList.remove("active")); el.classList.add("active"); }
+      function initSidebar() {
+        $$(".ribbon .rb[data-rb]").forEach((b) => b.addEventListener("click", () => {
+          $$(".ribbon .rb[data-rb]").forEach((x) => x.classList.remove("active")); b.classList.add("active");
+          if (b.dataset.rb === "search") { const s = $("#searchbox"); s.classList.add("open"); $("input", s).focus(); }
+        }));
+        $$(".tg-head").forEach((h) => h.addEventListener("click", (e) => { if (e.target.closest(".iconbtn")) return; h.closest(".tg").classList.toggle("collapsed"); }));
+        $$(".ti.folder").forEach((f) => f.addEventListener("click", () => {
+          f.classList.toggle("collapsed");
+          const kids = document.getElementById(f.dataset.kids);
+          if (kids) kids.hidden = f.classList.contains("collapsed");
+          setActiveTi(f);
+        }));
+        $$(".ti[data-sel]").forEach((it) => it.addEventListener("click", () => setActiveTi(it)));
+        $("#foldAll").addEventListener("click", () => $$(".pane-scroll .tg").forEach((g) => g.classList.add("collapsed")));
+      }
+
+      /* ---------- 列设置浮层 ---------- */
+      function renderColPop() {
+        const items = ["time", ...MID, "tags"].map((k) => {
+          const c = COLS[k];
+          return `<button class="pop-item${c.on ? " on" : ""}" data-col="${k}"${c.lock ? " disabled" : ""}>
+            <span class="pop-check"><svg class="ic ic-14"><use href="#i-check"/></svg></span>
+            <span class="lbl">${c.label}</span>${c.lock ? '<span class="lock">必选</span>' : c.optional ? '<span class="lock">需数据</span>' : ""}</button>`;
+        }).join("");
+        $("#colPop").innerHTML = `<div class="pop-title">列设置 · 可自定义</div>${items}<div class="pop-note">地点 / 来源 为可选列，需补充事件字段；当前以占位“—”展示。</div>`;
+        $$("#colPop .pop-item").forEach((b) => b.addEventListener("click", () => {
+          const k = b.dataset.col; if (COLS[k].lock) return;
+          COLS[k].on = !COLS[k].on; renderFeed(); renderColPop();
+        }));
+      }
+
+      /* ---------- 三栏拖拽（带 min/max） ---------- */
+      let drag = null;
+      function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+      $("#rzLeft").addEventListener("mousedown", (e) => { drag = "left"; $("#rzLeft").classList.add("active"); e.preventDefault(); });
+      $("#rzRight").addEventListener("mousedown", (e) => { drag = "right"; $("#rzRight").classList.add("active"); e.preventDefault(); });
+      document.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        if (drag === "left") root.style.setProperty("--left-w", clamp(e.clientX, 220, 360) + "px");
+        else root.style.setProperty("--right-w", clamp(window.innerWidth - e.clientX, 360, 560) + "px");
+      });
+      document.addEventListener("mouseup", () => { if (drag) { $("#rzLeft").classList.remove("active"); $("#rzRight").classList.remove("active"); drag = null; } });
+
+      /* ---------- Modal ---------- */
+      function openModal(kind, name) {
+        $("#modalTitle").textContent = name || "附件";
+        if (kind === "image") { $("#modalMeta").textContent = "图片 · 示意占位"; $("#modalBody").innerHTML = `<div class="imgph" data-label="示意图 · 占位 1280×720"><svg class="ic"><use href="#i-image"/></svg></div>`; }
+        else { $("#modalMeta").textContent = "文本 · 18 KB"; $("#modalBody").innerHTML = `<div class="filepreview">《南京条约》节录\n\n一、嗣后大清大皇帝、大英君主永存平和……\n二、广州、厦门、福州、宁波、上海等五处港口，准许英人贸易通商无碍。\n三、今大皇帝准将香港一岛给予大英国君主……\n\n（占位文本，仅用于演示附件查看）</div>`; }
+        $("#modal").classList.add("open");
+      }
+      function closeModal() { $("#modal").classList.remove("open"); }
+      $$("#modal [data-close]").forEach((b) => b.addEventListener("click", closeModal));
+      $$(".lrow[data-att]").forEach((b) => b.addEventListener("click", () => openModal(b.dataset.att, b.dataset.name)));
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); } });
+
+      /* ---------- 其它交互 ---------- */
+      $("#searchBtn").addEventListener("click", () => { const b = $("#searchbox"); b.classList.toggle("open"); if (b.classList.contains("open")) $("input", b).focus(); });
+      $("#previewBtn").addEventListener("click", () => { const on = root.dataset.preview === "on"; root.dataset.preview = on ? "off" : "on"; $("#previewBtn").classList.toggle("on", !on); });
+      $("#colBtn").addEventListener("click", (e) => { const p = $("#colPop"); p.hidden = !p.hidden; if (!p.hidden) { p.style.right = "14px"; p.style.top = "8px"; } e.stopPropagation(); });
+      document.addEventListener("click", (e) => { if (!e.target.closest("#colPop") && !e.target.closest("#colBtn")) $("#colPop").hidden = true; });
+      $("#modeBtn").addEventListener("click", () => {
+        const d = $("#detail"); const edit = d.dataset.mode === "read"; d.dataset.mode = edit ? "edit" : "read";
+        $("#dBody").contentEditable = edit ? "true" : "false";
+        $("#dTitle").contentEditable = edit ? "true" : "false";
+        $("#modeIcon use").setAttribute("href", edit ? "#i-eye" : "#i-pencil");
+        $("#modeBtn").classList.toggle("on", edit);
+        $("#modeBtn").title = edit ? "完成编辑（阅读视图）" : "编辑";
+        if (edit) $("#dBody").focus();
+      });
+      $("#detailStar").addEventListener("click", () => state.active && toggleFav(state.active));
+      $("#closeBtn").addEventListener("click", () => { app.classList.add("right-closed"); state.active = null; $$(".row").forEach((c) => c.classList.remove("active")); });
+
+      initSidebar();
+      renderColPop();
+      renderFeed();
+      fillDetail(1); // 预填内容；默认右栏关闭，点击行才展开
+    </script>
+  </body>
+</html>

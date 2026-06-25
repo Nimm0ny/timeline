@@ -2,6 +2,9 @@
 
 本文件只在任务涉及 `visual`、`interaction`、`data-contract` 或三栏时间线 UI 时必读。普通文档、后端小修和脚本任务不需要加载本文件。
 
+> **基准切换（重要）**：当前实现基准已切到「编年」Obsidian 改版，以 `docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html` 为准。本文中**与旧 1920 基准绑定的条目不再适用**，被新基准覆盖：§2 视觉基准（1920 / 293·1075·552）、§3·§4 旧 fixture 与热点坐标、§7 红色强调、§8.2 底部 composer + 卡片流、§8.3 有边框编辑器 + 工具栏。这些一律以新基准重写：单页自适应、紫色、列表+关联时间线、无感编辑（无边框无工具栏）、默认两栏点击展开右栏。
+> 仍然有效（通用前端纪律）：§5 真实 DOM/SVG、§6 字体、§9 数据契约（见下方 `extra` 补充）、§10 禁止项、§11 实施要求、§12 `agent:check` 拦截项与视觉 QA 流程（视口与 fixture 改用新基准）。
+
 ## 1. 前端项目事实
 
 - 前端：Vue 3 + Vite。
@@ -161,13 +164,15 @@
 - 事件 DTO 必须支持：
   - `bodyMarkdown`
   - `tags`
-  - `attachments`
+  - `attachments`（含 `url` / `imageUrl`，供右栏内联图片与附件 Modal）
   - `relatedEventIds`
   - `createdAt`
   - `updatedAt`
   - `favorite`
   - `deletedAt`
+  - `extra`（用户自定义列值；键白名单 = 该专题 `columns_json`，见实现 spec §8.2）
   - legacy `items[]`
+- 专题(meta) DTO 增加 `columns`（用户自定义列定义数组）。自定义列只走 `Topic.columns_json + TimelineEvent.extra_json`，不为单个业务列硬编码字段。
 - 删除进入回收站：设置 `deletedAt = now`。
 - 恢复：设置 `deletedAt = null`。
 - 回收站内只允许查看、恢复、永久删除。

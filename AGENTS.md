@@ -10,7 +10,7 @@
 - 根文件必读：`AGENTS.md`、用户当前请求、`git status --short`。
 - 不要为普通任务自动读取全部 `docs/`；按任务分类加载最小必要上下文。
 - `visual`、`interaction`、`data-contract` 或三栏时间线 UI 任务：必须额外读取 `docs/agent-frontend-hardness.md`。
-- 前端视觉/像素还原任务：还必须读取 `docs/00-mandatory-readonly-design-brief.md` 和 `timeline_notes_pixel_perfect_1920x1080_one_view.html`。
+- 前端视觉/三栏 UI 落地任务：还必须读取 `docs/obsidian-minimal-implementation-spec.md`（实现基准）和 `prototypes/timeline-obsidian-minimal.html`（像素与交互真相），并遵守本文件第 9 节硬约束。
 - 后端/API/数据契约任务：读取 `docs/stage-0-boundary.md`、相关后端入口和 API 调用方。
 - 投产/部署任务：读取 `docs/production-deployment-runbook.md`，以该文档记录的真实 host 流程为准。
 - 纯文档任务：只读取被修改文档及其直接引用的依据文件。
@@ -62,24 +62,24 @@
 
 ## 4. 项目事实和文档优先级
 
+- 产品名：**编年（Chronicle）**；代码/仓库技术名沿用 `timeline`。旧称「历史长河」仅为占位，UI 与文档统一用「编年」。
 - 前端：Vue 3 + Vite。
 - 后端：FastAPI + SQLAlchemy + SQLite。
-- 当前核心页面：三栏时间线笔记界面，左栏分类，中栏时间线，右栏详情/编辑。
-- 当前视觉阶段：桌面端、亮色模式、`1920×1080`、one-view 像素级还原。
-- 前端细则、视觉热点、三栏行为、API 字段、fixture 和禁止项见 `docs/agent-frontend-hardness.md`。
+- 当前核心页面：三栏时间线笔记界面，左栏分类/标签/统计，中栏列表式时间线，右栏详情/无感编辑。
+- 当前视觉阶段：桌面端、亮色、**单页自适应 Obsidian 改版**，已取代旧 `1920` 像素基准。实现基准见 `docs/obsidian-minimal-implementation-spec.md` 与 `prototypes/timeline-obsidian-minimal.html`；前端硬约束见第 9 节。
+- 前端细则、三栏行为、数据契约、fixture 见 `docs/agent-frontend-hardness.md`。
 
 发生冲突时按以下顺序裁决：
 
 1. 用户当前明确要求。
-2. 本 `AGENTS.md` 的工程流程和禁止项。
-3. `docs/agent-frontend-hardness.md` 的前端/数据契约硬约束。
-4. `docs/00-mandatory-readonly-design-brief.md` 的视觉与交互裁决。
-5. `timeline_notes_pixel_perfect_1920x1080_one_view.html` 的原型事实。
-6. 其他 `docs/` 文档。
-7. 现有代码实现。
+2. 本 `AGENTS.md` 的工程流程、禁止项与第 9 节实现硬约束。
+3. `docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html`（当前实现基准）。
+4. `docs/agent-frontend-hardness.md` 的前端/数据契约硬约束。
+5. 其他 `docs/` 文档。
+6. 现有代码实现。
 
-旧设计文档、旧截图、旧 `1536` 方案只作为历史参考。只要与当前 one-view 原型或必读设计文档冲突，一律不采用。
-`README.md` 只作为启动和背景参考；如与本文件、当前代码或测试脚本冲突，以本文件和当前代码为准。
+旧 `docs/00-mandatory-readonly-design-brief.md`、`timeline_notes_pixel_perfect_1920x1080_one_view.html`、旧截图与 `1536` 方案只作历史参考；与当前 Obsidian 改版基准冲突一律不采用。
+`README.md` 只作启动和背景参考；冲突以本文件、当前基准和代码为准。
 
 ## 5. 验收入口
 
@@ -132,3 +132,19 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - 相关测试或构建已运行；未运行时说明原因。
 - 如第 3 节 review gate 被触发，已完成 subagent review，且阻断问题已修复或已获得用户确认。
 - 已执行收尾流程，最终回复明确列出改动文件、验证结果和剩余风险。
+
+## 9. 「编年」Obsidian 改版 · 实现代理硬约束（含 Codex，前端落地必读）
+
+实现基准（baseline of record）= `docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html`，优先级高于旧 1920 文档。涉及本改版前端落地，除常规流程外强制遵守（细则与分阶段/自检清单见 spec 第 14 节，前端通则见 `docs/agent-frontend-hardness.md`）：
+
+- 原型即像素与交互真相：照原型 1:1 还原；不确定一律照原型，并在回复列出存疑点，**禁止自由发挥视觉**。
+- 必读：实现 spec 全文（尤其 §14 分阶段落地 + 提交前自检）、原型文件、`docs/agent-frontend-hardness.md`。
+- 分阶段落地（外壳→左→中→右→后端→联调），逐阶段对照原型验证后再继续；任一阶段不符先修复，**禁止带病推进**。
+- 令牌纪律：颜色/间距/圆角/字号只能取自 spec §1 令牌或 `timeline-notes.css` 既有变量；禁止散落魔法值或新造色。
+- 图标纪律：每个功能按键都是纯图标，经 `TimelineLucideIcon.vue`，名称取自 spec §4；禁止文字按钮、散写 `<svg>`、emoji。
+- 组件归属：业务判断在页面/composable，展示组件只收 props/emit；按 spec §9 文件映射改对应文件，禁止把逻辑堆错层。
+- 不变量（须显式保证并截图验证）：自适应且无 `transform:scale()` 承载布局、全局禁滚动条、默认两栏点击行展开右栏、三栏拖拽带 min/max、中栏行高固定且「显示预览」不改行高、右栏阅读↔编辑零位移且无边框无工具栏、编辑器内图片内联。
+- 数据契约：自定义列只用 `Topic.columns_json + TimelineEvent.extra_json`（spec §8.2）；改字段必须前后端 + 测试同步；未定义列键后端丢弃；无值显示 `—`，**禁止臆造数据**。
+- 依赖：除 `CodeMirror 6`（无感编辑）外不新增依赖；不改 `package-lock.json`（除非确有依赖变更）；不做无关重构/格式化。
+- 提交前逐条过 spec §14.2 自检清单；视觉改动按 `docs/agent-frontend-hardness.md` 做 QA 并归档截图；未达标不得 commit。
+- 禁止恢复旧基准元素：红色主强调、卡片流、底部 composer、有边框编辑器 + 工具栏、右栏上一条/下一条箭头、右栏用户栏、左栏日历；禁止新增暗色模式、移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。
