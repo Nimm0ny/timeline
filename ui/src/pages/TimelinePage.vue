@@ -97,6 +97,7 @@ const state = reactive({
   menuEvent: null,
   settingsOpen: false,
   confirmDeleteTopics: null,
+  confirmPurgeIds: null,
   rightOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
@@ -599,6 +600,57 @@ function togglePreview() {
   writeStorage(PREVIEW_KEY, state.showPreview ? "on" : "off");
 }
 
+// Note-level batch ops: run the existing per-event state patches over the
+// selected ids, then reconcile the view. Each is resilient to partial failure.
+async function runBatch(ids, perEvent, doneLabel) {
+  const targets = state.events.filter((event) => ids.includes(event.id));
+  if (!targets.length) return;
+  let done = 0;
+  try {
+    for (const event of targets) {
+      // perEvent returns false for a no-op skip (e.g. already in target state),
+      // so the toast counts only events actually changed.
+      const ran = await perEvent(event);
+      if (ran !== false) done += 1;
+    }
+    pushToast(`${doneLabel} ${done} 条`);
+  } catch (error) {
+    pushToast(done ? `已处理 ${done} 条，其余失败：${error.message}` : `操作失败：${error.message}`, "error");
+  } finally {
+    await loadWorkspace({ preferredTopicId: state.activeTopicId, preferredEventId: null, preferredMode: "view", openDetail: false });
+    state.rightOpen = false;
+    await syncRouteState({ eventId: null });
+  }
+}
+
+function batchFavoriteEvents(ids) {
+  return runBatch(ids, (event) => (event.favorite ? false : api.updateEventFavorite(event.id, true)), "已收藏");
+}
+
+function batchTrashEvents(ids) {
+  return runBatch(ids, (event) => (event.deletedAt ? false : api.softDeleteEvent(event.id)), "已移入回收站");
+}
+
+function batchRestoreEvents(ids) {
+  return runBatch(ids, (event) => (event.deletedAt ? api.restoreEvent(event.id) : false), "已恢复");
+}
+
+// Permanent batch delete is irreversible — gate it behind an in-app confirm.
+function requestBatchPurge(ids) {
+  const targets = (ids || []).filter((id) => state.events.some((event) => event.id === id));
+  if (targets.length) state.confirmPurgeIds = targets;
+}
+
+function closeBatchPurge() {
+  state.confirmPurgeIds = null;
+}
+
+async function confirmBatchPurgeNow() {
+  const ids = state.confirmPurgeIds;
+  state.confirmPurgeIds = null;
+  if (ids?.length) await runBatch(ids, (event) => api.permanentlyDeleteEvent(event.id), "已永久删除");
+}
+
 function focusFeedSearch() {
   state.searchRequestKey += 1;
 }
@@ -775,6 +827,7 @@ watch(
       :column-saving="state.columnSaving"
       :show-preview="state.showPreview"
       :search-request-key="state.searchRequestKey"
+      :trash-view="state.sidebarFilter === 'trash'"
       @create-event="startCreateEvent"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
@@ -782,6 +835,10 @@ watch(
       @toggle-favorite="toggleFavorite"
       @toggle-preview="togglePreview"
       @update:searchQuery="updateSearchQuery"
+      @batch-favorite="batchFavoriteEvents"
+      @batch-trash="batchTrashEvents"
+      @batch-restore="batchRestoreEvents"
+      @batch-permanent-delete="requestBatchPurge"
     />
 
     <EventDetailPane
@@ -842,6 +899,17 @@ watch(
         <div class="timeline-confirm-actions">
           <button type="button" class="timeline-primary-btn danger" @click="confirmDeleteTopicNow">删除</button>
           <button type="button" class="timeline-secondary-btn" @click="closeDeleteTopic">取消</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="state.confirmPurgeIds" class="timeline-modal-backdrop">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="永久删除">
+        <h3>永久删除 {{ state.confirmPurgeIds.length }} 条</h3>
+        <p>将永久删除所选 {{ state.confirmPurgeIds.length }} 条时间点，无法恢复。</p>
+        <div class="timeline-confirm-actions">
+          <button type="button" class="timeline-primary-btn danger" @click="confirmBatchPurgeNow">永久删除</button>
+          <button type="button" class="timeline-secondary-btn" @click="closeBatchPurge">取消</button>
         </div>
       </section>
     </div>

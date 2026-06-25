@@ -2469,3 +2469,8 @@ select:focus-visible {
 .spark-bar.on {
   background: var(--accent);
 }
+
+/* Note-level batch multi-select: selected row highlight (reuses .batch-bar/.tcheck). */
+.row.selected {
+  background: var(--accent-soft);
+}

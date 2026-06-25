@@ -69,6 +69,10 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
+  trashView: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -79,6 +83,10 @@ const emit = defineEmits([
   "toggle-favorite",
   "toggle-preview",
   "save-columns",
+  "batch-favorite",
+  "batch-trash",
+  "batch-restore",
+  "batch-permanent-delete",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -89,6 +97,45 @@ const searchOpen = ref(false);
 const searchInputRef = ref(null);
 const feedRef = ref(null);
 const rowRefs = new Map();
+
+// Note-level batch multi-select: a toolbar toggle reveals row checkboxes; row
+// clicks then toggle selection instead of opening the detail pane. Batch actions
+// reuse the existing per-event state-patch endpoints (favorite/soft-delete/
+// restore/permanent), so no full-payload reconstruction is needed.
+const selectMode = ref(false);
+const selectedIds = ref([]);
+
+function isRowSelected(id) {
+  return selectedIds.value.includes(id);
+}
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) selectedIds.value = [];
+}
+
+function toggleRowSelection(id) {
+  selectedIds.value = isRowSelected(id) ? selectedIds.value.filter((value) => value !== id) : [...selectedIds.value, id];
+}
+
+function onRowClick(id) {
+  if (selectMode.value) toggleRowSelection(id);
+  else emit("select-event", id);
+}
+
+function submitBatch(action) {
+  if (selectedIds.value.length) emit(action, [...selectedIds.value]);
+}
+
+// Drop selected ids that are no longer in the visible list (filter/search change).
+watch(
+  () => props.groups,
+  () => {
+    const visible = new Set(props.groups.flatMap((group) => group.items.map((event) => event.id)));
+    selectedIds.value = selectedIds.value.filter((id) => visible.has(id));
+  },
+  { deep: true }
+);
 
 function togglePopover(name) {
   activePopover.value = activePopover.value === name ? "" : name;
@@ -278,6 +325,16 @@ onBeforeUnmount(() => {
         >
           <TimelineLucideIcon name="alignLeft" :stroke-width="1.8" />
         </button>
+
+        <button
+          type="button"
+          class="iconbtn lg"
+          :class="{ on: selectMode }"
+          :title="selectMode ? '退出多选' : '多选'"
+          @click.stop="toggleSelectMode"
+        >
+          <TimelineLucideIcon name="listChecks" :stroke-width="1.8" />
+        </button>
       </div>
 
       <span class="tl-divider" aria-hidden="true"></span>
@@ -309,6 +366,29 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div v-if="selectMode" class="batch-bar">
+      <span class="batch-cnt">已选 {{ selectedIds.length }} 条</span>
+      <template v-if="props.trashView">
+        <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量恢复" @click="submitBatch('batch-restore')">
+          <TimelineLucideIcon name="restore" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量永久删除" @click="submitBatch('batch-permanent-delete')">
+          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+        </button>
+      </template>
+      <template v-else>
+        <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量收藏" @click="submitBatch('batch-favorite')">
+          <TimelineLucideIcon name="star" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量移入回收站" @click="submitBatch('batch-trash')">
+          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+        </button>
+      </template>
+      <button type="button" class="iconbtn sm" title="退出多选" @click="toggleSelectMode">
+        <TimelineLucideIcon name="close" :stroke-width="1.8" />
+      </button>
+    </div>
+
     <div v-if="props.loading" class="feed-empty">正在加载时间线...</div>
     <div v-else-if="props.error" class="feed-empty">{{ props.error }}</div>
     <div v-else-if="!props.groups.length" class="feed-empty">{{ props.emptyReason }}</div>
@@ -335,10 +415,16 @@ onBeforeUnmount(() => {
             :ref="(element) => setRowRef(event.id, element)"
             type="button"
             class="row"
-            :class="{ active: event.id === props.selectedEventId }"
-            @click="emit('select-event', event.id)"
+            :class="{
+              active: !selectMode && event.id === props.selectedEventId,
+              selected: selectMode && isRowSelected(event.id),
+            }"
+            @click="onRowClick(event.id)"
           >
-            <span class="rdot"></span>
+            <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
+              <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+            </span>
+            <span v-else class="rdot"></span>
             <template v-for="column in visibleColumns()" :key="column.key">
               <span v-if="column.key === 'time'" class="c-time">{{ eventColumnValue(event, column) }}</span>
               <span v-else-if="column.key === 'title'" class="c-title">
