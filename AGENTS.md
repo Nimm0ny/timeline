@@ -12,6 +12,7 @@
 - `visual`、`interaction`、`data-contract` 或三栏时间线 UI 任务：必须额外读取 `docs/agent-frontend-hardness.md`。
 - 前端视觉/像素还原任务：还必须读取 `docs/00-mandatory-readonly-design-brief.md` 和 `timeline_notes_pixel_perfect_1920x1080_one_view.html`。
 - 后端/API/数据契约任务：读取 `docs/stage-0-boundary.md`、相关后端入口和 API 调用方。
+- 投产/部署任务：读取 `docs/production-deployment-runbook.md`，以该文档记录的真实 host 流程为准。
 - 纯文档任务：只读取被修改文档及其直接引用的依据文件。
 - `AGENTS.md` 目标是保持短小可常驻，原则上控制在 `120` 行、`6000` 字符以内；新增长规则时，根文件只写触发条件和路由，细则放入 `docs/agent-*.md`。
 

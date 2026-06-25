@@ -175,6 +175,26 @@ Vite 开发服务器默认监听 `0.0.0.0:5173`，并将以下路径代理到后
 - 前端开发页面：`http://localhost:5173`
 - 后端直出页面：`http://localhost:8000`
 
+## 生产部署
+
+当前公网 host 的完整投产流程以 `docs/production-deployment-runbook.md` 为准。
+
+生产环境采用 systemd 管理 FastAPI 服务：
+
+- 服务名：`timeline.service`
+- 应用目录：`~/timeline`
+- 内部监听：`0.0.0.0:8000`
+- 生产入口：`http://<host>/`
+- 端口关系：系统网络层将生产入口 `80` redirect 到内部 `8000`
+
+部署原则：
+
+- 本地先运行 `agent:check`、`build`、`test:ui` 和后端 pytest。
+- 部署包从当前 `HEAD` 生成，加入本地 `frontend/` 构建产物。
+- 远端保留 `data/`、`theme/`、`.venv/`，不覆盖 SQLite、上传资源、主题文件和虚拟环境。
+- 每次切换前在 `~/timeline_backups/` 创建可回滚备份。
+- 发布后用生产入口 `80` 验证 `/` 和 `/api/topics`。
+
 ## 数据与存储
 
 当前项目已从旧的 JSON 文件模式迁移到数据库模式，主数据以 `SQLite` 为准：
@@ -336,7 +356,7 @@ python -m compileall backend/app backend/server.py
 
 ## 已知限制
 
-- 更适合本地或局域网部署，当前没有完整的公网部署方案
+- 公网 host 已有投产流程，但不是通用云部署方案；具体环境以 `docs/production-deployment-runbook.md` 为准
 - 默认管理员密码为固定初始化值，安全性有限
 - 主题变量仍存储在 `theme/*.css`，尚未纳入数据库
 - 后端兼容接口仍保留，后续可视情况收敛或删除
