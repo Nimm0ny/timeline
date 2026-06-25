@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class EventItemIn(BaseModel):
@@ -46,25 +46,6 @@ class TopicMetaUpdateIn(BaseModel):
     title: str | None = None
     subtitle: str | None = None
     columns: list[ColumnDef] | None = None
-
-
-class LoginIn(BaseModel):
-    username: str
-    password: str
-
-
-class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    username: str
-    is_active: bool
-    is_admin: bool
-
-
-class LoginOut(BaseModel):
-    accessToken: str
-    user: UserOut
 
 
 class TopicOut(BaseModel):

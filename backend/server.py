@@ -27,7 +27,4 @@ if __name__ == "__main__":
     print("\n  >> History Timeline Project")
     print("  >> Local:    http://localhost:8000")
     print(f"  >> Network:  http://{ip}:8000")
-    print("  >> Default admin: admin / admin123456")
-    print("  >> If external access fails, run as admin:")
-    print('     netsh advfirewall firewall add rule name="Timeline" dir=in action=allow protocol=TCP localport=8000\n')
     uvicorn.run(app, host="0.0.0.0", port=8000)

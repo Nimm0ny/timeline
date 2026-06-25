@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.app.api.auth import router as auth_router
 from backend.app.api.config import router as config_router
 from backend.app.api.frontend import router as frontend_router
 from backend.app.api.media import router as media_router
@@ -29,7 +28,6 @@ def create_app() -> FastAPI:
     app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
     app.mount("/theme", StaticFiles(directory=str(THEME_DIR)), name="theme")
 
-    app.include_router(auth_router)
     app.include_router(config_router)
     app.include_router(topics_router)
     app.include_router(media_router)

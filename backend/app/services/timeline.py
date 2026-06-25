@@ -11,7 +11,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, THEME_DIR
-from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic, User
+from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
 from backend.app.services.date_utils import (
     build_display_label,
     date_key_to_iso,
@@ -780,14 +780,11 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
         event.deleted_at = data["deletedAt"]
 
 
-def create_event(db: Session, topic_id: int, payload: dict, user: User | None) -> dict:
+def create_event(db: Session, topic_id: int, payload: dict) -> dict:
     topic = get_topic_or_404(db, topic_id)
     data = normalize_event_payload(payload, topic=topic)
     image = resolve_image(db, data["image"])
-    event = TimelineEvent(
-        topic_id=topic.id,
-        created_by=user.id if user else None,
-    )
+    event = TimelineEvent(topic_id=topic.id)
     write_event_model(event, data, image)
     db.add(event)
     db.flush()
@@ -968,7 +965,7 @@ def update_app_config(db: Session, payload: dict) -> dict:
     return get_app_config(db)
 
 
-async def store_uploaded_image(db: Session, file: UploadFile, uploaded_by: int | None):
+async def store_uploaded_image(db: Session, file: UploadFile):
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".md", ".txt", ".docx"):
@@ -982,7 +979,6 @@ async def store_uploaded_image(db: Session, file: UploadFile, uploaded_by: int |
         filename=filename,
         original_name=file.filename,
         mime_type=file.content_type or mimetypes.guess_type(file.filename or "")[0],
-        uploaded_by=uploaded_by,
         is_orphan=True,
     )
     db.add(image)

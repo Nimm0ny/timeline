@@ -230,11 +230,6 @@ a {
   padding: 0;
 }
 
-.login-form {
-  display: grid;
-  gap: 14px;
-}
-
 .toast-stack {
   position: fixed;
   right: 18px;

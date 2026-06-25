@@ -9,8 +9,7 @@
   - 构建后的前端由 FastAPI catch-all 路由返回
   - 图片文件走 `/images/*`
 - 鉴权：
-  - 登录接口已存在
-  - 前端通过 `Authorization: Bearer <token>` 访问受保护写接口
+  - 已移除（本地优先 / 开源，无登录）；所有写接口无需令牌直接生效
 - 启动行为：
   - 应用启动时会执行 legacy migration
 - 兼容面：
@@ -63,7 +62,6 @@
 - `attachments_json`: string | null
 - `related_event_ids_json`: string | null
 - `image_id`: number | null
-- `created_by`: number | null
 - `created_at`: datetime
 - `updated_at`: datetime
 - `favorite`: boolean

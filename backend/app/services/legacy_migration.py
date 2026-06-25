@@ -1,13 +1,14 @@
 import json
+import sqlite3
 from pathlib import Path
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import CreateIndex, CreateTable
 
-from backend.app.core.config import CONFIG_FILE, DATA_DIR, DEFAULT_CONFIG
+from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG
 from backend.app.db.session import Base, engine
 from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
-from backend.app.services.auth import ensure_default_admin
 from backend.app.services.date_utils import (
     date_key_to_parts,
     extract_headline_from_legacy_label,
@@ -19,6 +20,7 @@ from backend.app.services.timeline import sanitize_topic_name
 def init_database():
     Base.metadata.create_all(bind=engine)
     ensure_timeline_event_schema()
+    drop_legacy_auth_artifacts()
 
 
 def ensure_timeline_event_schema():
@@ -160,9 +162,60 @@ def ensure_timeline_event_schema():
             connection.execute(text("UPDATE topics SET columns_json = COALESCE(columns_json, '[]')"))
 
 
-def migrate_legacy_files(db: Session):
-    ensure_default_admin(db)
+def drop_legacy_auth_artifacts():
+    """Auth was removed (single-user / local-first). Drop the now-orphaned `users`
+    table and the `created_by`/`uploaded_by` FK columns so existing DBs match the
+    auth-free models. SQLite refuses to ALTER-DROP a column named in a foreign key,
+    so those two tables are rebuilt from the clean ORM definition."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
 
+    # Rebuild the FK-bearing tables first, then drop `users` last, so a mid-way
+    # failure never leaves `users` gone while the orphan columns remain.
+    if "timeline_events" in tables and "created_by" in {c["name"] for c in inspector.get_columns("timeline_events")}:
+        rebuild_table_from_model(TimelineEvent.__table__)
+    if "images" in tables and "uploaded_by" in {c["name"] for c in inspector.get_columns("images")}:
+        rebuild_table_from_model(ImageAsset.__table__)
+
+    if "users" in tables:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE users"))
+
+
+def rebuild_table_from_model(table):
+    """Rebuild a SQLite table in place from its (clean) ORM definition: rename the
+    old table, recreate it without the dropped columns, copy rows, drop the old one,
+    recreate indexes. `legacy_alter_table=ON` keeps other tables' foreign keys
+    pointing at the original name during the rename; the PRAGMAs run outside the
+    transaction as SQLite requires."""
+    name = table.name
+    columns = ", ".join(f'"{column.name}"' for column in table.columns)
+    create_table_sql = str(CreateTable(table).compile(dialect=engine.dialect)).strip()
+    create_index_sql = [str(CreateIndex(index).compile(dialect=engine.dialect)).strip() for index in table.indexes]
+
+    connection = sqlite3.connect(str(DB_FILE))
+    connection.isolation_level = None
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("PRAGMA legacy_alter_table=ON")
+        connection.execute("BEGIN")
+        connection.execute(f'ALTER TABLE "{name}" RENAME TO "_rebuild_{name}"')
+        connection.execute(create_table_sql)
+        connection.execute(f'INSERT INTO "{name}" ({columns}) SELECT {columns} FROM "_rebuild_{name}"')
+        connection.execute(f'DROP TABLE "_rebuild_{name}"')
+        for statement in create_index_sql:
+            connection.execute(statement)
+        connection.execute("COMMIT")
+    except Exception:
+        connection.execute("ROLLBACK")
+        raise
+    finally:
+        connection.execute("PRAGMA legacy_alter_table=OFF")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.close()
+
+
+def migrate_legacy_files(db: Session):
     if db.query(Topic).count() > 0:
         seed_config_if_missing(db)
         return

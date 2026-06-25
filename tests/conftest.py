@@ -15,8 +15,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from backend.app.api.topics import router as topics_router
 from backend.app.db.session import Base, get_db
-from backend.app.models.entities import EventItem, TimelineEvent, Topic, User
-from backend.app.services.auth import get_admin_user, get_current_user
+from backend.app.models.entities import EventItem, TimelineEvent, Topic
 from backend.app.services.date_utils import build_display_label, date_key_to_parts, make_date_key
 
 
@@ -39,12 +38,7 @@ def db_session() -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def user() -> User:
-    return User(id=1, username="tester", password_hash="x", is_active=True, is_admin=True)
-
-
-@pytest.fixture()
-def client(db_session: Session, user: User) -> Generator[TestClient, None, None]:
+def client(db_session: Session) -> Generator[TestClient, None, None]:
     app = FastAPI()
     app.include_router(topics_router)
 
@@ -55,8 +49,6 @@ def client(db_session: Session, user: User) -> Generator[TestClient, None, None]
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_admin_user] = lambda: user
 
     with TestClient(app) as test_client:
         yield test_client

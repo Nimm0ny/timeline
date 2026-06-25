@@ -1,11 +1,5 @@
-import { clearAuth, getAccessToken, openLogin } from "./useAuth";
-
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  const token = getAccessToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
   const response = await fetch(path, {
     ...options,
@@ -15,10 +9,6 @@ async function request(path, options = {}) {
   if (!response.ok) {
     const fallbackMessage = response.statusText || "请求失败";
     const data = await response.json().catch(() => ({}));
-    if (response.status === 401) {
-      clearAuth();
-      openLogin();
-    }
     throw new Error(data.detail || fallbackMessage);
   }
 
@@ -36,16 +26,6 @@ async function request(path, options = {}) {
 
 export const api = {
   request,
-  login(payload) {
-    return request("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  },
-  getMe() {
-    return request("/api/auth/me");
-  },
   listTopics() {
     return request("/api/topics");
   },

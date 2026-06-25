@@ -5,8 +5,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
-from backend.app.models.entities import User
-from backend.app.services.auth import get_admin_user, get_current_user
 from backend.app.services.timeline import (
     create_event,
     create_topic,
@@ -36,7 +34,7 @@ def get_topics(db: Session = Depends(get_db)):
 
 
 @router.post("/api/topics")
-def post_topic(payload: dict, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def post_topic(payload: dict, db: Session = Depends(get_db)):
     return create_topic(db, payload.get("name", ""))
 
 
@@ -46,7 +44,7 @@ def get_topic(topic_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/api/topics/{topic_id}")
-def remove_topic(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_admin_user)):
+def remove_topic(topic_id: int, db: Session = Depends(get_db)):
     return delete_topic(db, topic_id)
 
 
@@ -56,7 +54,7 @@ def get_topic_meta_route(topic_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/api/topics/{topic_id}/meta")
-def put_topic_meta(topic_id: int, payload: dict, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def put_topic_meta(topic_id: int, payload: dict, db: Session = Depends(get_db)):
     return update_topic_meta(db, topic_id, payload)
 
 
@@ -101,13 +99,12 @@ def create_topic_event(
     topic_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    return create_event(db, topic_id, payload, user)
+    return create_event(db, topic_id, payload)
 
 
 @router.put("/api/events/{event_id}")
-def put_event(event_id: int, payload: dict, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def put_event(event_id: int, payload: dict, db: Session = Depends(get_db)):
     return update_event(db, event_id, payload)
 
 
@@ -116,7 +113,6 @@ def remove_event(
     event_id: int,
     permanent: bool = Query(False),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     return delete_event(db, event_id, permanent=permanent)
 
@@ -126,7 +122,6 @@ async def import_topic(
     topic_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     try:
         content = await file.read()

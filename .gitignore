@@ -21,7 +21,6 @@ data/timeline.db
 data/*.db
 data/*.sqlite
 data/*.sqlite3
-data/.auth_secret
 data/images/
 
 # Logs and local environment files

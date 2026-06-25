@@ -1,7 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from backend.app.models.entities import User
-from backend.app.services.auth import get_admin_user
 from backend.app.services.timeline import get_theme_vars, list_themes, update_theme_vars
 
 router = APIRouter(tags=["themes"])
@@ -18,5 +16,5 @@ def get_theme_variables(name: str):
 
 
 @router.put("/api/themes/{name}/vars")
-def put_theme_variables(name: str, payload: dict, _: User = Depends(get_admin_user)):
+def put_theme_variables(name: str, payload: dict):
     return update_theme_vars(name, payload)

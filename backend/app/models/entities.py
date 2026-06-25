@@ -10,17 +10,6 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-
 class Topic(Base):
     __tablename__ = "topics"
 
@@ -46,7 +35,6 @@ class ImageAsset(Base):
     filename: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     is_orphan: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -77,7 +65,6 @@ class TimelineEvent(Base):
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     related_event_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"), nullable=True)
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
