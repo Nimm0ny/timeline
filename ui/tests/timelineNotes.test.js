@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildReadableDetailGroups,
   buildEditorDraft,
   buildEventPreview,
   collectEventTags,
@@ -112,4 +113,16 @@ test("buildEditorDraft clones event DTO fields for safe editing", () => {
   draft.attachments[0].name = "changed.pdf";
   assert.equal(draft.attachments[0].name, "changed.pdf");
   assert.equal(event.attachments[0].name, "source.pdf");
+});
+
+test("buildReadableDetailGroups removes empty read-mode support groups", () => {
+  const groups = buildReadableDetailGroups({
+    tags: ["", " politics ", "politics"],
+    attachments: [{ name: "  " }, { filename: "source.pdf" }],
+    relatedEvents: [{ id: 1, headline: "" }, { id: 2, headline: "Trade Conflict" }],
+  });
+
+  assert.deepEqual(groups.tags, ["politics"]);
+  assert.deepEqual(groups.attachments.map((attachment) => attachment.filename), ["source.pdf"]);
+  assert.deepEqual(groups.relatedEvents.map((event) => event.id), [2]);
 });

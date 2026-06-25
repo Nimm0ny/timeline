@@ -5,6 +5,7 @@ import { pushToast } from "@/composables/useToast";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import {
+  buildReadableDetailGroups,
   buildEditorDraft,
   formatEventDate,
   formatEventDisplayDate,
@@ -81,9 +82,10 @@ const panelHeading = computed(() => {
 
 const activeBodyMarkdown = computed(() => (inEditMode.value ? draft.bodyMarkdown : props.event?.bodyMarkdown || ""));
 const renderedBody = computed(() => renderMarkdownToHtml(activeBodyMarkdown.value));
-const detailTags = computed(() => (Array.isArray(props.event?.tags) ? props.event.tags : []));
-const detailAttachments = computed(() => (Array.isArray(props.event?.attachments) ? props.event.attachments : []));
-const detailRelatedEvents = computed(() => (Array.isArray(props.event?.relatedEvents) ? props.event.relatedEvents : []));
+const readableDetailGroups = computed(() => buildReadableDetailGroups(props.event));
+const detailTags = computed(() => readableDetailGroups.value.tags);
+const detailAttachments = computed(() => readableDetailGroups.value.attachments);
+const detailRelatedEvents = computed(() => readableDetailGroups.value.relatedEvents);
 const metaDateLabel = computed(() => {
   if ((props.mode === "edit" || props.mode === "view") && props.event?.dateRangeLabel) {
     return props.event.dateRangeLabel;
@@ -564,7 +566,7 @@ defineExpose({ submit, discardDraft, markSaved });
         </div>
       </section>
 
-      <section class="timeline-pane-section">
+      <section v-if="inEditMode || detailTags.length" class="timeline-pane-section">
         <div class="timeline-section-title-row">
           <h4>标签</h4>
           <button v-if="inEditMode" type="button" class="timeline-mini-soft-btn" @click="draft.tags = [...draft.tags, ''].slice(0, CONTENT_LIMITS.tagsVisible)">+</button>
@@ -584,7 +586,7 @@ defineExpose({ submit, discardDraft, markSaved });
         <p v-else class="timeline-pane-empty">暂无标签。</p>
       </section>
 
-      <section class="timeline-pane-section">
+      <section v-if="inEditMode || detailAttachments.length" class="timeline-pane-section">
         <div class="timeline-section-title-row">
           <h4>附件</h4>
           <span v-if="inEditMode" class="timeline-section-helper">{{ uploading ? "上传中..." : "可插入正文或挂载资料" }}</span>
@@ -592,7 +594,7 @@ defineExpose({ submit, discardDraft, markSaved });
         <div v-if="(inEditMode ? draft.attachments : detailAttachments).length" class="timeline-support-list timeline-attachment-list">
           <div
             v-for="(attachment, index) in (inEditMode ? draft.attachments : detailAttachments).slice(0, CONTENT_LIMITS.attachmentsVisible)"
-            :key="attachment.filename"
+            :key="attachment.filename || attachment.url || attachment.name || index"
             class="timeline-support-row"
           >
             <span class="timeline-file-preview" :class="`kind-${attachmentKind(attachment)}`" aria-hidden="true">
@@ -600,7 +602,7 @@ defineExpose({ submit, discardDraft, markSaved });
               <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.7" />
             </span>
             <div class="timeline-support-main">
-              <strong>{{ attachment.name }}</strong>
+              <strong>{{ attachment.name || attachment.filename || "附件" }}</strong>
               <span>{{ attachment.mimeType || "文件" }}</span>
             </div>
             <div class="timeline-row-actions">
@@ -613,7 +615,7 @@ defineExpose({ submit, discardDraft, markSaved });
         <p v-else class="timeline-pane-empty">暂无附件。</p>
       </section>
 
-      <section class="timeline-pane-section timeline-related-section">
+      <section v-if="inEditMode || detailRelatedEvents.length" class="timeline-pane-section timeline-related-section">
         <div class="timeline-section-title-row">
           <h4>相关时间点</h4>
           <span v-if="inEditMode" class="timeline-section-helper">来自当前笔记本</span>
@@ -648,7 +650,7 @@ defineExpose({ submit, discardDraft, markSaved });
             @click="inEditMode ? removeRelatedEvent(item.id) : openRelatedEvent(item.id)"
           >
             <div class="timeline-support-main">
-              <strong>{{ item.headline }}</strong>
+              <strong>{{ item.headline || item.displayLabel || formatEventDate(item) || "未命名时间点" }}</strong>
               <span>{{ item.displayLabel || formatEventDate(item) }}</span>
             </div>
             <span class="timeline-support-action">{{ inEditMode ? "移除" : "查看" }}</span>

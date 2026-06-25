@@ -107,6 +107,32 @@ export function normalizeTagValues(tags) {
     });
 }
 
+function hasReadableAttachment(attachment = {}) {
+  return Boolean(
+    String(attachment.name || "").trim() ||
+      String(attachment.filename || "").trim() ||
+      String(attachment.url || "").trim() ||
+      String(attachment.imageUrl || "").trim()
+  );
+}
+
+function hasReadableRelatedEvent(event = {}) {
+  return Boolean(
+    event.id &&
+      (String(event.headline || "").trim() ||
+        String(event.displayLabel || "").trim() ||
+        String(event.isoDate || "").trim())
+  );
+}
+
+export function buildReadableDetailGroups(event) {
+  return {
+    tags: normalizeTagValues(Array.isArray(event?.tags) ? event.tags : []),
+    attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment),
+    relatedEvents: (Array.isArray(event?.relatedEvents) ? event.relatedEvents : []).filter(hasReadableRelatedEvent),
+  };
+}
+
 export function matchesEventSearch(event, query) {
   const normalized = String(query || "").trim().toLowerCase();
   if (!normalized) return true;
