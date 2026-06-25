@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { buildPropertyRows } from "@/utils/timelineNotes";
@@ -55,6 +55,7 @@ const emit = defineEmits([
   "update:filter",
   "update:property-filter",
   "delete-topic",
+  "batch-delete-topics",
   "focus-search",
   "open-settings",
 ]);
@@ -72,6 +73,31 @@ const state = reactive({
 
 const topicName = ref("");
 const creatingTopic = ref(false);
+
+// Batch multi-select for notebooks: a pane-head toggle reveals row checkboxes;
+// row clicks then toggle selection instead of navigating, and a batch bar offers
+// a multi-delete (confirmed in-app by the page).
+const selectMode = ref(false);
+const selectedTopicIds = ref([]);
+
+function isTopicSelected(topicId) {
+  return selectedTopicIds.value.includes(topicId);
+}
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) selectedTopicIds.value = [];
+}
+
+function toggleTopicSelection(topicId) {
+  selectedTopicIds.value = isTopicSelected(topicId)
+    ? selectedTopicIds.value.filter((id) => id !== topicId)
+    : [...selectedTopicIds.value, topicId];
+}
+
+function submitBatchDelete() {
+  if (selectedTopicIds.value.length) emit("batch-delete-topics", [...selectedTopicIds.value]);
+}
 
 // Each ribbon owns a distinct left-pane panel (Obsidian-style). The notebook
 // tree, tags, and stats are no longer stacked together under one tab.
@@ -170,6 +196,10 @@ function toggleSection(key) {
 }
 
 function toggleTopic(topicId) {
+  if (selectMode.value) {
+    toggleTopicSelection(topicId);
+    return;
+  }
   state.topicCollapsed[topicId] = !state.topicCollapsed[topicId];
   emit("select-topic", topicId);
 }
@@ -204,6 +234,29 @@ function toggleCollapseAll() {
   }
   allCollapsed.value = collapse;
 }
+
+// Drop any selected ids whose notebook no longer exists (e.g. after a batch
+// delete reloads the list), keeping the selection consistent.
+watch(
+  () => props.topics,
+  (topics) => {
+    const ids = new Set((topics || []).map((topic) => topic.id));
+    selectedTopicIds.value = selectedTopicIds.value.filter((id) => ids.has(id));
+  },
+  { deep: true }
+);
+
+// Leaving the notebook tree (switching ribbons) exits multi-select so a hidden
+// selection never lingers across panels.
+watch(
+  () => state.ribbon,
+  () => {
+    if (selectMode.value) {
+      selectMode.value = false;
+      selectedTopicIds.value = [];
+    }
+  }
+);
 </script>
 
 <template>
@@ -238,7 +291,7 @@ function toggleCollapseAll() {
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
           <button
-            v-if="props.activeTopicId"
+            v-if="props.activeTopicId && !selectMode"
             type="button"
             class="iconbtn"
             title="删除当前笔记本"
@@ -246,19 +299,38 @@ function toggleCollapseAll() {
           >
             <TimelineLucideIcon name="trash" :stroke-width="1.8" />
           </button>
-          <button type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
+          <button v-if="!selectMode" type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
             <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
           </button>
-          <button type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
+          <button v-if="!selectMode" type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
             <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
           </button>
-          <button type="button" class="iconbtn" title="排序">
+          <button v-if="!selectMode" type="button" class="iconbtn" title="排序">
             <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
           </button>
-          <button type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
+          <button v-if="!selectMode" type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
             <TimelineLucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.8" />
           </button>
+          <button type="button" class="iconbtn" :class="{ on: selectMode }" :title="selectMode ? '退出多选' : '多选'" @click="toggleSelectMode">
+            <TimelineLucideIcon name="listChecks" :stroke-width="1.8" />
+          </button>
         </template>
+      </div>
+
+      <div v-if="selectMode && activePanel.tree" class="batch-bar">
+        <span class="batch-cnt">已选 {{ selectedTopicIds.length }} 个笔记本</span>
+        <button
+          type="button"
+          class="iconbtn sm"
+          :disabled="!selectedTopicIds.length"
+          title="删除所选笔记本"
+          @click="submitBatchDelete"
+        >
+          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+        </button>
+        <button type="button" class="iconbtn sm" title="退出多选" @click="toggleSelectMode">
+          <TimelineLucideIcon name="close" :stroke-width="1.8" />
+        </button>
       </div>
 
       <div class="pane-scroll scroll">
@@ -318,16 +390,23 @@ function toggleCollapseAll() {
                 <button
                   type="button"
                   class="ti folder"
-                  :class="{ active: topic.id === props.activeTopicId, collapsed: state.topicCollapsed[topic.id] }"
+                  :class="{
+                    active: !selectMode && topic.id === props.activeTopicId,
+                    selected: selectMode && isTopicSelected(topic.id),
+                    collapsed: state.topicCollapsed[topic.id],
+                  }"
                   @click="toggleTopic(topic.id)"
                 >
-                  <span class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
+                  <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(topic.id) }">
+                    <TimelineLucideIcon v-if="isTopicSelected(topic.id)" name="check" :stroke-width="2.4" />
+                  </span>
+                  <span v-else class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
                   <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
                   <span class="ti-name">{{ topic.title || topic.name }}</span>
                   <span class="ti-cnt">{{ topic.eventCount || 0 }}</span>
                 </button>
                 <div
-                  v-if="topic.id === props.activeTopicId && !state.topicCollapsed[topic.id]"
+                  v-if="!selectMode && topic.id === props.activeTopicId && !state.topicCollapsed[topic.id]"
                   class="ti-kids"
                   :style="{ '--pdepth': 0 }"
                 >

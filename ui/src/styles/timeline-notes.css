@@ -2019,3 +2019,47 @@ select:focus-visible {
   background: var(--t-war);
   color: #fff;
 }
+
+/* ============================================================
+   P4 · 左栏批量多选（笔记本）
+   ============================================================ */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--accent-soft);
+}
+
+.batch-cnt {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tcheck {
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  color: #fff;
+}
+
+.tcheck.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tcheck .timeline-lucide-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.ti.folder.selected {
+  background: var(--accent-soft);
+}

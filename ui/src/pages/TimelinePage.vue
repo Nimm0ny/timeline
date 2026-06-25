@@ -95,7 +95,7 @@ const state = reactive({
   afterSaveAction: null,
   menuEvent: null,
   settingsOpen: false,
-  confirmDeleteTopic: null,
+  confirmDeleteTopics: null,
   rightOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
@@ -624,27 +624,46 @@ async function addPropertyOption({ key, option }) {
   }
 }
 
+function topicsByIds(ids) {
+  const wanted = new Set(ids);
+  return state.topics.filter((topic) => wanted.has(topic.id));
+}
+
 function requestDeleteTopic(topicId) {
-  const topic = state.topics.find((item) => item.id === topicId);
-  if (topic) state.confirmDeleteTopic = topic;
+  const topics = topicsByIds([topicId]);
+  if (topics.length) state.confirmDeleteTopics = topics;
+}
+
+function requestBatchDeleteTopics(ids) {
+  const topics = topicsByIds(ids || []);
+  if (topics.length) state.confirmDeleteTopics = topics;
 }
 
 function closeDeleteTopic() {
-  state.confirmDeleteTopic = null;
+  state.confirmDeleteTopics = null;
 }
 
 async function confirmDeleteTopicNow() {
-  const topic = state.confirmDeleteTopic;
-  if (!topic) return;
+  const topics = state.confirmDeleteTopics;
+  if (!topics?.length) return;
+  let deleted = 0;
   try {
-    await api.deleteTopic(topic.id);
-    state.confirmDeleteTopic = null;
-    await loadWorkspace({ preferredTopicId: null, preferredEventId: null, preferredMode: "view", openDetail: false });
-    state.rightOpen = false;
-    await syncRouteState({ topicId: state.activeTopicId, eventId: null });
-    pushToast(`已删除笔记本：${topic.title || topic.name}`);
+    for (const topic of topics) {
+      await api.deleteTopic(topic.id);
+      deleted += 1;
+    }
+    pushToast(topics.length > 1 ? `已删除 ${topics.length} 个笔记本` : `已删除笔记本：${topics[0].title || topics[0].name}`);
   } catch (error) {
-    pushToast(`删除失败：${error.message}`, "error");
+    pushToast(deleted ? `已删除 ${deleted} 个，其余失败：${error.message}` : `删除失败：${error.message}`, "error");
+  } finally {
+    // Reconcile the UI to server truth whether all / some / none succeeded, so a
+    // mid-loop failure never leaves the card open over already-deleted notebooks.
+    state.confirmDeleteTopics = null;
+    if (deleted) {
+      await loadWorkspace({ preferredTopicId: null, preferredEventId: null, preferredMode: "view", openDetail: false });
+      state.rightOpen = false;
+      await syncRouteState({ topicId: state.activeTopicId, eventId: null });
+    }
   }
 }
 
@@ -731,6 +750,7 @@ watch(
       @create-event="startCreateEvent"
       @create-topic="createTopic"
       @delete-topic="requestDeleteTopic"
+      @batch-delete-topics="requestBatchDeleteTopics"
       @focus-search="focusFeedSearch"
       @open-settings="state.settingsOpen = true"
       @select-era="updateActiveEra"
@@ -813,10 +833,11 @@ watch(
       </section>
     </div>
 
-    <div v-if="state.confirmDeleteTopic" class="timeline-modal-backdrop">
+    <div v-if="state.confirmDeleteTopics" class="timeline-modal-backdrop">
       <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="删除笔记本">
-        <h3>删除笔记本</h3>
-        <p>将永久删除「{{ state.confirmDeleteTopic.title || state.confirmDeleteTopic.name }}」及其全部时间点，此操作不可恢复。</p>
+        <h3>{{ state.confirmDeleteTopics.length > 1 ? `删除 ${state.confirmDeleteTopics.length} 个笔记本` : "删除笔记本" }}</h3>
+        <p v-if="state.confirmDeleteTopics.length > 1">将永久删除所选 {{ state.confirmDeleteTopics.length }} 个笔记本及其全部时间点，此操作不可恢复。</p>
+        <p v-else>将永久删除「{{ state.confirmDeleteTopics[0].title || state.confirmDeleteTopics[0].name }}」及其全部时间点，此操作不可恢复。</p>
         <div class="timeline-confirm-actions">
           <button type="button" class="timeline-primary-btn danger" @click="confirmDeleteTopicNow">删除</button>
           <button type="button" class="timeline-secondary-btn" @click="closeDeleteTopic">取消</button>
