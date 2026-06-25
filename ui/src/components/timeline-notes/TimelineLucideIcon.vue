@@ -77,6 +77,7 @@ const icons = {
   file: FileText,
   filter: Filter,
   fold: ChevronsDownUp,
+  unfold: ChevronsUpDown,
   folder: Folder,
   folderPlus: FolderPlus,
   hash: Hash,

@@ -4,6 +4,11 @@
 > 本文是把 `prototypes/timeline-obsidian-minimal.html` 落到生产代码（Vue 3 + FastAPI + SQLite）的逐项实现说明，**也是本改版的实现基准（baseline of record）**。
 > **像素与交互真相 = 该原型文件**；与文字描述冲突时以原型为准。配套高层视觉稿见 `docs/obsidian-minimal-design-spec.md`。
 > 实现代理（含 Codex）开工前必读：本文 + 原型 + `AGENTS.md` 第 9 节 + `docs/agent-frontend-hardness.md`。
+>
+> **【2026-06 整改基准增补】** 以下子系统以专属设计文档为准，**取代本文相应小节**：
+> - 统一属性系统（类型/标签/自定义列皆为「属性」）→ `docs/property-system-design.md`（取代 §5.3 标签项 / §6.4 / §8.2）。
+> - 外观/主题/Markdown + 全屏设置 → `docs/appearance-system-design.md`（**暗色已解禁**；§1 增暗色令牌组，§9/§12 同步）。
+> - 图标尺寸分级（总功能区 ribbon / 三栏功能区两级，后者更小）于整改 P1 折入 §2。
 
 ## 0. 定位与范围
 
@@ -13,7 +18,7 @@
 - 已定决策：单页自适应、三栏可拖拽、全局禁滚动条、强调色=紫、**本期不做深色**、中栏列表+关联时间线、行高固定+显示预览、列可自定义、左栏 Obsidian 风格、右栏默认折叠按需展开、无感编辑、附件 Modal、正文内联图片、关联事件跳转。
 - 所有功能按键一律 **纯图标（SVG / Lucide）**，集中走 `ui/src/components/timeline-notes/TimelineLucideIcon.vue`。
 
-## 1. 设计令牌（仅亮色；深色暂缓，token 可保留备用）
+## 1. 设计令牌（亮色基线；**暗色已解禁**，暗色令牌组见 `docs/appearance-system-design.md` §3.1）
 
 写入 `ui/src/styles/timeline-notes.css` 的 `:root`。原型已是最终值，直接照搬。
 
@@ -36,7 +41,7 @@
 ## 2. 全局规则
 
 - **禁显滚动条（全局）**：`*{scrollbar-width:none;-ms-overflow-style:none} *::-webkit-scrollbar{display:none} html,body{overflow:hidden}`；各栏内部用独立可滚动容器。
-- 图标线宽 `1.75`，视觉尺寸 16–18px，圆角圆端；按钮热区 26–34px。
+- 图标线宽 `1.75`，圆角圆端；按钮热区 26–34px。**图标尺寸两级（令牌）**：总功能区（最左 ribbon）`--icon-rail:18px`；三栏功能区（各栏顶部工具条 pane-head / tl-bar / actionbar / pane-foot）`--icon-bar:16px`，须小于 ribbon。
 - 字体锁定自托管 `Noto Sans SC`（SIL OFL）；子集外字符回退系统 sans 栈，不回退宋体/衬线。
 - 命令按钮统一 `.iconbtn`（hover 浅底，`.on` 强调色软底，`.primary` 强调色实心）。
 
@@ -122,7 +127,7 @@
 ## 6. 中栏：列表 + 关联时间线（重写 `TimelineFeed.vue`，弃用卡片 `TimelineEventCard.vue` 改为行）
 
 ### 6.1 工具条
-左：`历史事件` + `时间线 · 共 N 条`（窄栏标题自动省略，不挤压按钮）。右纯图标**分组**：查询/视图组（搜索(展开输入)、时间定位、列设置、显示预览(默认 on)）+ 细分隔线 `.tl-divider` + 主操作 新建时间点(强调色实心)。
+左：**单行**标题 `{专题} · 共 N 条`（去掉「时间线」前缀；窄栏标题先省略，不挤压按钮）。右纯图标**分组**：查询/视图组（搜索(展开输入)、时间定位、列设置、显示预览(默认 on)）+ 细分隔线 `.tl-divider` + 主操作 新建时间点(强调色实心)。
 
 - **主筛选（全部/今天/本周/收藏/回收站）只在左栏视图区，中栏不重复**——二者绑定同一 `sidebarFilter`，中栏曾经的「筛选」弹层是重复，已移除。
 - **列设置**：单按钮（`columns` 图标）开单一锚点·互斥弹层（§2.1）。列表式：每列 = 类型图标 + 名称 + 右侧眼睛显隐；**必选列（时间/事件）为不可点灰色眼睛**；内置类型/标签可显隐；自定义列的编辑/删除悬停该行才浮现、点编辑渐进展开字段；底部「新建列」，右上角安静的 ✓ 保存到当前专题。
@@ -245,7 +250,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 |---|---|---|
 | 尺寸 | 1920×1080 像素级 one-view | 单页自适应 + 三栏可拖拽(min/max) |
 | 强调色 | 红 | 紫 #7b68d9 |
-| 深色 | 不做 | 仍不做（本期） |
+| 深色 | 不做 | 主题系统支持（暗色已解禁，见 `docs/appearance-system-design.md`） |
 | 中栏 | 年份大字轨 + 卡片流 + 底部 composer | 列表 + 关联时间线 + 列可自定义；新建入口仅工具条一个图标 |
 | 右栏编辑 | 有边框编辑框 + 工具栏 | 无感编辑：无边框、无工具栏、尺寸不变（CodeMirror Live Preview） |
 | 右栏默认 | 常驻三栏 | 默认两栏，点击行展开 |

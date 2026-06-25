@@ -120,6 +120,20 @@ function openSearch() {
   nextTick(() => searchInputRef.value?.focus());
 }
 
+// The fixed search icon toggles the field: open+focus when closed; when open it
+// refocuses if there is a query, or collapses when empty.
+function toggleSearch() {
+  if (searchOpen.value) {
+    if (String(props.searchQuery || "").trim()) {
+      searchInputRef.value?.focus();
+    } else {
+      searchOpen.value = false;
+    }
+  } else {
+    openSearch();
+  }
+}
+
 function closeSearchIfEmpty() {
   if (!String(props.searchQuery || "").trim()) {
     searchOpen.value = false;
@@ -218,13 +232,12 @@ onBeforeUnmount(() => {
     <div class="tl-bar">
       <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
-        <span class="tl-count">时间线 · 共 {{ props.eventCount }} 条</span>
+        <span class="tl-count">· 共 {{ props.eventCount }} 条</span>
       </div>
       <span class="spacer"></span>
 
       <div class="tl-actions">
-        <label v-if="searchOpen" class="searchbox open" id="searchbox">
-          <TimelineLucideIcon name="search" :stroke-width="1.8" />
+        <div class="searchbox" :class="{ open: searchOpen }" id="searchbox">
           <input
             ref="searchInputRef"
             :value="props.searchQuery"
@@ -233,10 +246,10 @@ onBeforeUnmount(() => {
             @input="emit('update:searchQuery', $event.target.value)"
             @blur="closeSearchIfEmpty"
           />
-        </label>
-        <button v-else id="searchBtn" type="button" class="iconbtn lg" title="搜索" @click="openSearch">
-          <TimelineLucideIcon name="search" :stroke-width="1.8" />
-        </button>
+          <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">
+            <TimelineLucideIcon name="search" :stroke-width="1.8" />
+          </button>
+        </div>
 
         <button
           type="button"

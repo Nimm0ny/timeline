@@ -191,14 +191,19 @@ function submitTopic() {
   creatingTopic.value = false;
 }
 
-function collapseAll() {
-  state.sections.views = true;
-  state.sections.topics = true;
-  state.sections.tags = true;
-  state.sections.stats = true;
-  for (const topic of props.topics) {
-    state.topicCollapsed[topic.id] = true;
+const allCollapsed = ref(false);
+
+// One button toggles the whole active panel between fully collapsed and fully
+// expanded (sections + notebook nodes), with the icon/label following suit.
+function toggleCollapseAll() {
+  const collapse = !allCollapsed.value;
+  for (const key of activePanel.value.sections) {
+    state.sections[key] = collapse;
   }
+  for (const topic of props.topics) {
+    state.topicCollapsed[topic.id] = collapse;
+  }
+  allCollapsed.value = collapse;
 }
 </script>
 
@@ -242,8 +247,8 @@ function collapseAll() {
           <button type="button" class="iconbtn" title="排序">
             <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
           </button>
-          <button type="button" class="iconbtn" title="全部折叠" @click="collapseAll">
-            <TimelineLucideIcon name="fold" :stroke-width="1.8" />
+          <button type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
+            <TimelineLucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.8" />
           </button>
         </template>
       </div>
