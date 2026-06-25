@@ -7,7 +7,9 @@
     "dev": "vite --config ui/vite.config.js",
     "build": "vite build --config ui/vite.config.js",
     "preview": "vite preview --config ui/vite.config.js",
-    "test:ui": "node --test \"ui/tests/*.test.js\""
+    "test:ui": "node --test \"ui/tests/*.test.js\"",
+    "agent:check": "node tools/qa/agent-guard.mjs",
+    "qa:visual-server": "node tools/qa/visual-server.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
