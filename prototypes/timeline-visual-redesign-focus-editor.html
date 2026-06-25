@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1920, initial-scale=1" />
+    <meta name="prototype-status" content="visual-exploration; not production baseline" />
+    <title>时间线笔记视觉原型 - Graphite Focus</title>
+    <link rel="stylesheet" href="./timeline-visual-redesign.css" />
+  </head>
+  <body class="variant-graphite">
+
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="book-open" viewBox="0 0 24 24">
+    <path d="M12 7v14" />
+    <path d="M3 18a3 3 0 0 1 3-3h6V5H6a3 3 0 0 0-3 3z" />
+    <path d="M21 18a3 3 0 0 0-3-3h-6V5h6a3 3 0 0 1 3 3z" />
+  </symbol>
+  <symbol id="menu" viewBox="0 0 24 24">
+    <path d="M4 6h16" />
+    <path d="M4 12h16" />
+    <path d="M4 18h16" />
+  </symbol>
+  <symbol id="list" viewBox="0 0 24 24">
+    <path d="M8 6h13" />
+    <path d="M8 12h13" />
+    <path d="M8 18h13" />
+    <path d="M3 6h.01" />
+    <path d="M3 12h.01" />
+    <path d="M3 18h.01" />
+  </symbol>
+  <symbol id="sun" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2" />
+    <path d="M12 20v2" />
+    <path d="m4.93 4.93 1.41 1.41" />
+    <path d="m17.66 17.66 1.41 1.41" />
+    <path d="M2 12h2" />
+    <path d="M20 12h2" />
+    <path d="m6.34 17.66-1.41 1.41" />
+    <path d="m19.07 4.93-1.41 1.41" />
+  </symbol>
+  <symbol id="calendar-days" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <path d="M16 2v4" />
+    <path d="M8 2v4" />
+    <path d="M3 10h18" />
+    <path d="M8 14h.01" />
+    <path d="M12 14h.01" />
+    <path d="M16 14h.01" />
+    <path d="M8 18h.01" />
+    <path d="M12 18h.01" />
+  </symbol>
+  <symbol id="star" viewBox="0 0 24 24">
+    <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" />
+  </symbol>
+  <symbol id="trash" viewBox="0 0 24 24">
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v5" />
+    <path d="M14 11v5" />
+  </symbol>
+  <symbol id="folder" viewBox="0 0 24 24">
+    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+  </symbol>
+  <symbol id="tag" viewBox="0 0 24 24">
+    <path d="M12.6 2H4a2 2 0 0 0-2 2v8.6a2 2 0 0 0 .59 1.41l7.4 7.4a2 2 0 0 0 2.82 0l8.6-8.6a2 2 0 0 0 0-2.82l-7.4-7.4A2 2 0 0 0 12.6 2z" />
+    <path d="M7 7h.01" />
+  </symbol>
+  <symbol id="settings" viewBox="0 0 24 24">
+    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.4 1.05V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.05-.4H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .4-1.05V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.4 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.36.15.68.36 1 .6.31.24.67.4 1.05.4H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" />
+  </symbol>
+  <symbol id="search" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.35-4.35" />
+  </symbol>
+  <symbol id="calendar-search" viewBox="0 0 24 24">
+    <path d="M16 2v4" />
+    <path d="M8 2v4" />
+    <path d="M3 10h18" />
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <circle cx="11" cy="16" r="3" />
+    <path d="m13.2 18.2 2.3 2.3" />
+  </symbol>
+  <symbol id="plus-circle" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 12h8" />
+    <path d="M12 8v8" />
+  </symbol>
+  <symbol id="plus" viewBox="0 0 24 24">
+    <path d="M5 12h14" />
+    <path d="M12 5v14" />
+  </symbol>
+  <symbol id="arrow-left" viewBox="0 0 24 24">
+    <path d="m12 19-7-7 7-7" />
+    <path d="M19 12H5" />
+  </symbol>
+  <symbol id="arrow-right" viewBox="0 0 24 24">
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </symbol>
+  <symbol id="lock" viewBox="0 0 24 24">
+    <rect x="3" y="11" width="18" height="11" rx="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </symbol>
+  <symbol id="more-horizontal" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+    <circle cx="5" cy="12" r="1" />
+  </symbol>
+  <symbol id="save" viewBox="0 0 24 24">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+    <path d="M17 21v-8H7v8" />
+    <path d="M7 3v5h8" />
+  </symbol>
+  <symbol id="x" viewBox="0 0 24 24">
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </symbol>
+  <symbol id="bold" viewBox="0 0 24 24">
+    <path d="M6 4h8a4 4 0 0 1 0 8H6z" />
+    <path d="M6 12h9a4 4 0 0 1 0 8H6z" />
+  </symbol>
+  <symbol id="italic" viewBox="0 0 24 24">
+    <path d="M19 4h-9" />
+    <path d="M14 20H5" />
+    <path d="m15 4-6 16" />
+  </symbol>
+  <symbol id="heading" viewBox="0 0 24 24">
+    <path d="M6 4v16" />
+    <path d="M18 4v16" />
+    <path d="M6 12h12" />
+  </symbol>
+  <symbol id="link" viewBox="0 0 24 24">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </symbol>
+  <symbol id="image" viewBox="0 0 24 24">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+  </symbol>
+  <symbol id="table" viewBox="0 0 24 24">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M10 4v16" />
+  </symbol>
+  <symbol id="file-text" viewBox="0 0 24 24">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M16 13H8" />
+    <path d="M16 17H8" />
+    <path d="M10 9H8" />
+  </symbol>
+  <symbol id="external-link" viewBox="0 0 24 24">
+    <path d="M15 3h6v6" />
+    <path d="M10 14 21 3" />
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </symbol>
+  <symbol id="eye" viewBox="0 0 24 24">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+    <circle cx="12" cy="12" r="3" />
+  </symbol>
+  <symbol id="edit" viewBox="0 0 24 24">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </symbol>
+</svg>
+
+<main class="prototype-frame" aria-label="时间线笔记桌面视觉原型">
+      <aside class="sidebar">
+        <header class="brand">
+          <div class="brand-main">
+            <span class="brand-mark" aria-hidden="true"><svg class="lucide"><use href="#book-open"></use></svg></span>
+            <h1>时间线笔记</h1>
+          </div>
+          <button class="icon-button subtle" type="button" aria-label="打开主菜单"><svg class="lucide"><use href="#menu"></use></svg></button>
+        </header>
+        <nav class="sidebar-nav" aria-label="笔记分类">
+          <div class="nav-item active"><svg class="lucide"><use href="#list"></use></svg><span>全部笔记</span><strong class="count">12</strong></div>
+          <div class="nav-item"><svg class="lucide"><use href="#sun"></use></svg><span>今天</span><strong class="count">2</strong></div>
+          <div class="nav-item"><svg class="lucide"><use href="#calendar-days"></use></svg><span>本周</span><strong class="count">5</strong></div>
+          <div class="nav-item"><svg class="lucide"><use href="#star"></use></svg><span>收藏</span><strong class="count">4</strong></div>
+          <div class="nav-item"><svg class="lucide"><use href="#trash"></use></svg><span>回收站</span><strong class="count">1</strong></div>
+        </nav>
+        <section class="sidebar-section">
+          <div class="section-head"><span>笔记本</span></div>
+          <div class="topic-list">
+            <div class="topic-item active"><svg class="lucide"><use href="#folder"></use></svg><span class="topic-main"><strong>历史学习</strong><span>1840 - 1949</span></span><strong class="count">8</strong></div>
+            <div class="topic-item"><svg class="lucide"><use href="#folder"></use></svg><span class="topic-main"><strong>产品决策</strong><span>2024 - 2026</span></span><strong class="count">3</strong></div>
+            <div class="topic-item"><svg class="lucide"><use href="#folder"></use></svg><span class="topic-main"><strong>阅读摘录</strong><span>长期</span></span><strong class="count">1</strong></div>
+          </div>
+        </section>
+        <section class="sidebar-section">
+          <div class="section-head"><span>标签</span></div>
+          <div class="tag-list">
+            <div class="tag-item active"><span class="tag-dot"></span><span>近代史</span><strong class="count">4</strong></div>
+            <div class="tag-item"><span class="tag-dot"></span><span>制度</span><strong class="count">3</strong></div>
+            <div class="tag-item"><span class="tag-dot"></span><span>人物</span><strong class="count">2</strong></div>
+          </div>
+        </section>
+        <footer class="sidebar-footer"><button class="icon-button" type="button" aria-label="设置"><svg class="lucide"><use href="#settings"></use></svg></button></footer>
+      </aside>
+
+      <section class="timeline">
+        <header class="timeline-head">
+          <label class="search"><svg class="lucide"><use href="#search"></use></svg><input type="search" value="搜索笔记" aria-label="搜索笔记" /></label>
+          <div class="timeline-actions">
+            <button class="icon-button" type="button" aria-label="按日期定位"><svg class="lucide"><use href="#calendar-search"></use></svg></button>
+            <button class="icon-button primary" type="button" aria-label="新建时间点"><svg class="lucide"><use href="#plus-circle"></use></svg></button>
+          </div>
+        </header>
+        <div class="feed">
+          <div class="feed-shell">
+            <article class="year-group">
+              <div class="year-label"><strong>1840</strong><span>6月</span></div>
+              <div class="rail"><span class="year-dot"></span><span class="month-dot"></span></div>
+              <div class="card-stack">
+                <section class="event-card active" style="--card-h: 175px">
+                  <div class="card-head"><h2>鸦片战争</h2><div class="card-actions"><button class="icon-button favorite active" type="button" aria-label="取消收藏"><svg class="lucide"><use href="#star"></use></svg></button><button class="icon-button" type="button" aria-label="更多操作"><svg class="lucide"><use href="#more-horizontal"></use></svg></button></div></div>
+                  <p>从条约、关税权和通商口岸追踪近代秩序变化，正文正在右侧编辑。</p>
+                  <div class="chips"><span class="chip">近代史</span><span class="chip secondary">条约</span></div>
+                </section>
+              </div>
+            </article>
+            <article class="year-group">
+              <div class="year-label"><strong>1911</strong><span>10月</span></div>
+              <div class="rail"><span class="year-dot"></span><span class="month-dot"></span></div>
+              <div class="card-stack">
+                <section class="event-card" style="--card-h: 147px">
+                  <div class="card-head"><h2>辛亥革命</h2><div class="card-actions"><button class="icon-button favorite" type="button" aria-label="收藏"><svg class="lucide"><use href="#star"></use></svg></button><button class="icon-button" type="button" aria-label="更多操作"><svg class="lucide"><use href="#more-horizontal"></use></svg></button></div></div>
+                  <p>民国政治框架的建立与制度转型。</p>
+                  <div class="chips"><span class="chip">制度</span><span class="chip secondary">革命</span></div>
+                </section>
+              </div>
+            </article>
+            <article class="year-group">
+              <div class="year-label"><strong>更早</strong><span>公元前</span></div>
+              <div class="rail"><span class="year-dot"></span><span class="month-dot"></span></div>
+              <div class="card-stack">
+                <section class="event-card" style="--card-h: 155px">
+                  <div class="card-head"><h2>秦始皇统一六国</h2><div class="card-actions"><button class="icon-button favorite" type="button" aria-label="收藏"><svg class="lucide"><use href="#star"></use></svg></button><button class="icon-button" type="button" aria-label="更多操作"><svg class="lucide"><use href="#more-horizontal"></use></svg></button></div></div>
+                  <p>中央集权制度、文字与度量衡统一是长期结构变化的起点。</p>
+                  <div class="chips"><span class="chip">制度</span><span class="chip secondary">古代史</span></div>
+                </section>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <aside class="detail">
+        <div class="actionbar">
+          <div class="action-group"><button class="icon-button" type="button" aria-label="上一条"><svg class="lucide"><use href="#arrow-left"></use></svg></button><button class="icon-button" type="button" aria-label="下一条"><svg class="lucide"><use href="#arrow-right"></use></svg></button></div>
+          <div class="action-group"><button class="icon-button favorite active" type="button" aria-label="取消收藏"><svg class="lucide"><use href="#star"></use></svg></button><button class="icon-button" type="button" aria-label="锁定"><svg class="lucide"><use href="#lock"></use></svg></button><button class="icon-button" type="button" aria-label="更多操作"><svg class="lucide"><use href="#more-horizontal"></use></svg></button><button class="icon-button primary" type="button" aria-label="保存"><svg class="lucide"><use href="#save"></use></svg></button><button class="icon-button view-toggle" type="button" aria-label="退出编辑"><svg class="lucide"><use href="#x"></use></svg></button></div>
+        </div>
+        <div class="detail-head">
+          <input class="title-field" value="鸦片战争" aria-label="标题" />
+          <div class="meta-grid">
+            <label class="field"><span>年份</span><input value="1840" /></label><label class="field"><span>月份</span><input value="6" /></label><label class="field"><span>日期</span><input value="1" /></label><label class="field"><span>专题</span><input value="近代史" /></label>
+          </div>
+        </div>
+        <div class="markdown">
+          <textarea aria-label="Markdown"># 鸦片战争
+
+这一条笔记优先服务长文写作。右栏保留清晰边界和充足留白，避免工具区抢走正文注意力。
+
+战争之后的条约体系改变了贸易、关税和外交秩序。后续可以把洋务运动、甲午战争和制度改革接到同一组相关时间点中。</textarea>
+          <div class="markdown-toolbar" aria-label="Markdown 工具栏"><button class="icon-button" type="button" aria-label="加粗"><svg class="lucide"><use href="#bold"></use></svg></button><button class="icon-button" type="button" aria-label="斜体"><svg class="lucide"><use href="#italic"></use></svg></button><button class="icon-button" type="button" aria-label="标题"><svg class="lucide"><use href="#heading"></use></svg></button><button class="icon-button" type="button" aria-label="链接"><svg class="lucide"><use href="#link"></use></svg></button><button class="icon-button" type="button" aria-label="图片"><svg class="lucide"><use href="#image"></use></svg></button><button class="icon-button" type="button" aria-label="表格"><svg class="lucide"><use href="#table"></use></svg></button></div>
+        </div>
+        <section class="pane-section"><div class="section-title-row"><span>标签</span><span class="section-helper">正文下方维护</span></div><div class="chips"><span class="chip">近代史</span><span class="chip secondary">条约</span><span class="chip secondary">外交</span></div></section>
+        <section class="pane-section"><div class="section-title-row"><span>附件</span><span class="section-helper">挂载资料</span></div><div class="support-list"><div class="support-row"><span class="file-preview"><svg class="lucide"><use href="#file-text"></use></svg></span><span class="support-main"><strong>南京条约摘录.pdf</strong><span>资料</span></span><button class="icon-button" type="button" aria-label="打开附件"><svg class="lucide"><use href="#external-link"></use></svg></button></div></div></section>
+        <section class="pane-section"><div class="section-title-row"><span>相关时间点</span><span class="section-helper">当前笔记本</span></div><div class="support-list"><div class="support-row"><span class="file-preview"><svg class="lucide"><use href="#calendar-days"></use></svg></span><span class="support-main"><strong>辛亥革命</strong><span>1911年10月</span></span><button class="icon-button" type="button" aria-label="查看相关时间点"><svg class="lucide"><use href="#eye"></use></svg></button></div></div></section>
+      </aside>
+    </main>
+  </body>
+</html>
