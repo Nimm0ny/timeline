@@ -94,14 +94,15 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 - 只改文档可不运行构建和测试，但必须说明未运行原因。
 - `agent:check` 是硬约束快速检查；具体拦截项见 `docs/agent-frontend-hardness.md`。
-- 前端视觉改动必须按 `docs/agent-frontend-hardness.md` 执行 fixture 和 `1920×1080` 视觉 QA。
+- 前端视觉 UI 改动必须按 `docs/agent-frontend-hardness.md` 执行 fixture、`1920×1080` 视觉 QA，并把验收截图归档到 `docs/visual-qa/`。
 
 ## 6. 收尾流程
 
 交付或 commit 前必须清理本任务制造的现场，不碰不确定来源的东西。
 
 - 停止本任务启动的后台进程，例如 dev server、backend server、visual QA server；不得停止任务开始前已存在且不属于本任务的进程。
-- 清理本任务创建的临时文件、临时日志、临时截图、一次性验证脚本和临时目录；只清理能确认由本任务创建的路径。
+- 清理本任务创建的临时文件、临时日志、未归档临时截图、一次性验证脚本和临时目录；只清理能确认由本任务创建的路径。
+- 前端视觉 UI 验收截图一旦按规范归档，就属于本次交付物，必须随相关改动一起提交，不得在收尾时删除。
 - 递归删除前必须确认目标绝对路径位于仓库内，且属于明确临时目录。
 - 禁止清理 `data/`、`node_modules/`、`.git/`、上传资源、数据库文件、用户文件和未确认来源的缓存。
 - 临时测试文件必须二选一：升级为正式测试并纳入本次提交，或在交付前删除。
@@ -118,7 +119,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - `Changed`: 实际改动的文件和行为摘要。
 - `Verified`: 已运行的命令及结果；未运行必须说明原因。
 - `Review`: 是否触发 subagent review；触发时列出 review 结论，未触发时说明原因。
-- `Visual QA`: 若涉及前端视觉，说明是否通过 fixture、是否按 `1920×1080` 固定 URL 验证，以及发现的问题。
+- `Visual QA`: 若涉及前端视觉，说明是否通过 fixture、是否按 `1920×1080` 固定 URL 验证、截图归档路径，以及发现的问题。
 - `Cleanup`: 是否停止本任务启动的进程、是否清理本任务创建的临时文件、是否仍有非本任务工作区改动。
 - `Risks`: 剩余风险或明确写 `无已知剩余风险`。
 
