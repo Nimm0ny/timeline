@@ -234,11 +234,20 @@ Pretext 中栏裁决：
 
 ## 6. QA 验收
 
-视觉 QA 固定使用 `.tmp-qa/visual-server.mjs`，默认状态优先打开：
+视觉 QA 固定使用仓库可追踪脚本：
+
+```bash
+cmd /c npm run qa:visual-fixture
+cmd /c npm run qa:visual-server
+```
+
+默认状态优先打开：
 
 ```text
-http://127.0.0.1:8798/?topic=1&event=101&mode=edit
+http://127.0.0.1:8798/?topic=1&event=1&mode=edit
 ```
+
+禁止继续使用旧 URL `?topic=1&event=101&mode=edit` 作为验收入口。
 
 验收步骤：
 

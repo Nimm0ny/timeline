@@ -261,9 +261,11 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 视觉验证：
 
-- 使用 `.tmp-qa/visual-server.mjs`
-- 固定 URL：`http://127.0.0.1:8798/?topic=1&event=101&mode=edit`
+- 先用 `cmd /c npm run qa:visual-fixture` 校验默认 fixture
+- 使用 `cmd /c npm run qa:visual-server` 启动可追踪视觉 QA server
+- 固定 URL：`http://127.0.0.1:8798/?topic=1&event=1&mode=edit`
 - 固定视口：`1920×1080`
+- 禁止使用旧 URL `?topic=1&event=101&mode=edit` 作为验收入口
 
 ## 8. 后续阶段
 
