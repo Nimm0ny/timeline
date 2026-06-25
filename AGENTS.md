@@ -46,14 +46,14 @@
 
 - 每次 commit 前必须先做 review gate 判定，并在最终回复说明触发或未触发的理由。
 - `新增代码有效行数 > 50` 只是 review 触发器之一；删除、重构、行为改线和核心文档改写同样可能触发 review。
-- 必须 review 的行数/范围条件：新增代码有效行数超过 `50`；有效代码 churn（新增 + 删除，排除纯文档、空行、注释-only、构建产物）超过 `120` 行；或单次任务触碰超过 `6` 个生产/测试/脚本文件。
-- 必须 review 的风险条件：前端视觉基准、数据契约、既有行为/接口/数据/验证路径或文件级删除/迁移、认证/权限、持久化语义、部署/发布流程、测试/QA gate、agent guardrail、`AGENTS.md`、mandatory 设计文档、stage boundary、production runbook。
+- 必须 review 的行数/范围条件：新增代码有效行数超过 `50`；有效代码 churn（新增 + 删除，排除纯文档、空行、注释-only、构建产物）超过 `120` 行；实施指导类文档语义 churn 超过 `80` 行或触碰超过 `3` 个文档；或单次任务触碰超过 `6` 个生产/测试/脚本文件。
+- 必须 review 的风险条件：前端视觉基准、数据契约、既有行为/接口/数据/验证路径或文件级删除/迁移、认证/权限、持久化语义、部署/发布流程、测试/QA gate、agent guardrail、`AGENTS.md`、`docs/agent-*.md`、mandatory 设计文档、stage boundary、production runbook。
 - 必须 review 的行为条件：删除或绕过既有验证；修改测试以适配实现；修复失败测试；更改默认数据、fixture、URL、端口、环境变量或远端/生产操作步骤。
 - 不涉及上述行数/范围、风险、行为条件的小 typo、链接修正、纯格式调整、无语义历史文档标记可以不触发 review，但最终回复必须写明未触发原因。
 - 触发 review 时，必须启动独立 subagent 进行，不允许由实现同一个改动的 agent 只做自检替代。
 - review 前必须执行 `git status --short`，并用 `git ls-files --others --exclude-standard` 找出未追踪文件。
 - 统计口径必须覆盖已跟踪改动和未追踪新文件。
-- review 必须发生在测试验收之后、本地 commit 之前；未追踪新文件优先用 `git add -N <path>` 纳入 diff，不能修改 index 时必须把完整文件内容交给 subagent。
+- review 必须发生在初步测试验收之后、本地 commit 之前；review 要求补验证时必须补跑。未追踪新文件优先用 `git add -N <path>` 纳入 diff，不能修改 index 时必须把完整文件内容交给 subagent。
 - 提交给 subagent 的材料必须包括任务目标、Non-goals、已读关键文档、工作区状态、改动文件清单、完整 diff 或新增文件内容、验证结果和已知风险。
 - review 输出必须以问题优先，包含文件/行号、风险说明和建议修复；没有阻断问题时必须明确写 `No blocking findings`。
 - P0/P1/P2 问题必须在 commit 前修复，或向用户说明不修复理由并等待确认。
