@@ -721,7 +721,6 @@ watch(
       :groups="groupedEvents"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
-      :active-filter="state.sidebarFilter"
       :builtin-columns="state.builtinColumns"
       :columns="topicColumns"
       :column-saving="state.columnSaving"
@@ -734,7 +733,6 @@ watch(
       @toggle-builtin="toggleBuiltinColumn"
       @toggle-favorite="toggleFavorite"
       @toggle-preview="togglePreview"
-      @update:filter="updateSidebarFilter"
       @update:searchQuery="updateSearchQuery"
     />
 

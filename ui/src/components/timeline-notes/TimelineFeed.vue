@@ -52,10 +52,6 @@ const props = defineProps({
     type: String,
     default: "",
   },
-  activeFilter: {
-    type: String,
-    default: "all",
-  },
   builtinColumns: {
     type: Object,
     default: () => ({ type: true, tags: true }),
@@ -84,28 +80,23 @@ const emit = defineEmits([
   "update:searchQuery",
   "locate-date",
   "toggle-favorite",
-  "update:filter",
   "toggle-preview",
   "save-columns",
   "toggle-builtin",
 ]);
 
-const locatorOpen = ref(false);
+// Single mutually-exclusive popover layer for the toolbar (spec §2.1).
+// '' | 'locator' | 'columns' — only one may be open at a time.
+const activePopover = ref("");
 const locatorValue = ref("");
 const searchOpen = ref(false);
-const filterOpen = ref(false);
-const columnOpen = ref(false);
 const searchInputRef = ref(null);
 const feedRef = ref(null);
 const rowRefs = new Map();
 
-const FILTER_OPTIONS = [
-  { id: "all", label: "全部笔记" },
-  { id: "today", label: "今天" },
-  { id: "week", label: "本周" },
-  { id: "favorite", label: "收藏" },
-  { id: "trash", label: "回收站" },
-];
+function togglePopover(name) {
+  activePopover.value = activePopover.value === name ? "" : name;
+}
 
 function visibleColumns() {
   return buildVisibleTimelineColumns(props.columns, props.builtinColumns);
@@ -124,6 +115,7 @@ function setRowRef(id, element) {
 }
 
 function openSearch() {
+  activePopover.value = "";
   searchOpen.value = true;
   nextTick(() => searchInputRef.value?.focus());
 }
@@ -147,18 +139,23 @@ function focusDate(value) {
 function submitLocator() {
   const value = String(locatorValue.value || "").trim();
   if (!value) return;
-  locatorOpen.value = false;
+  activePopover.value = "";
   emit("locate-date", value);
   focusDate(value);
 }
 
 function closePopovers(event) {
   if (!(event.target instanceof Element)) return;
-  if (!event.target.closest(".tl-toolbar-group")) {
-    filterOpen.value = false;
-    columnOpen.value = false;
-    locatorOpen.value = false;
+  // The single popover layer lives inside .tl-bar; any click outside it closes.
+  if (!event.target.closest(".tl-bar")) {
+    activePopover.value = "";
   }
+}
+
+function handleEscape(event) {
+  if (event.key !== "Escape") return;
+  activePopover.value = "";
+  closeSearchIfEmpty();
 }
 
 watch(
@@ -207,104 +204,102 @@ watch(
 
 onMounted(() => {
   document.addEventListener("click", closePopovers);
+  document.addEventListener("keydown", handleEscape);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", closePopovers);
+  document.removeEventListener("keydown", handleEscape);
 });
 </script>
 
 <template>
   <section class="col timeline" :class="{ 'preview-off': !props.showPreview }">
     <div class="tl-bar">
-      <div>
+      <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
         <span class="tl-count">时间线 · 共 {{ props.eventCount }} 条</span>
       </div>
       <span class="spacer"></span>
 
-      <label v-if="searchOpen" class="searchbox open" id="searchbox">
-        <TimelineLucideIcon name="search" :stroke-width="1.8" />
-        <input
-          ref="searchInputRef"
-          :value="props.searchQuery"
-          type="search"
-          placeholder="搜索当前时间线"
-          @input="emit('update:searchQuery', $event.target.value)"
-          @blur="closeSearchIfEmpty"
-        />
-      </label>
-      <button v-else id="searchBtn" type="button" class="iconbtn lg" title="搜索" @click="openSearch">
-        <TimelineLucideIcon name="search" :stroke-width="1.8" />
-      </button>
+      <div class="tl-actions">
+        <label v-if="searchOpen" class="searchbox open" id="searchbox">
+          <TimelineLucideIcon name="search" :stroke-width="1.8" />
+          <input
+            ref="searchInputRef"
+            :value="props.searchQuery"
+            type="search"
+            placeholder="搜索当前时间线"
+            @input="emit('update:searchQuery', $event.target.value)"
+            @blur="closeSearchIfEmpty"
+          />
+        </label>
+        <button v-else id="searchBtn" type="button" class="iconbtn lg" title="搜索" @click="openSearch">
+          <TimelineLucideIcon name="search" :stroke-width="1.8" />
+        </button>
 
-      <div class="tl-toolbar-group">
-        <button type="button" class="iconbtn lg" title="时间定位" @click.stop="locatorOpen = !locatorOpen">
+        <button
+          type="button"
+          class="iconbtn lg"
+          :class="{ on: activePopover === 'locator' }"
+          title="时间定位"
+          @click.stop="togglePopover('locator')"
+        >
           <TimelineLucideIcon name="calendarSearch" :stroke-width="1.8" />
         </button>
-        <form v-if="locatorOpen" class="popover filter-pop" @submit.prevent="submitLocator">
+
+        <button
+          id="colBtn"
+          type="button"
+          class="iconbtn lg"
+          :class="{ on: activePopover === 'columns' }"
+          title="列设置"
+          @click.stop="togglePopover('columns')"
+        >
+          <TimelineLucideIcon name="columns" :stroke-width="1.8" />
+        </button>
+
+        <button
+          id="previewBtn"
+          type="button"
+          class="iconbtn lg"
+          :class="{ on: props.showPreview }"
+          title="显示预览"
+          @click="emit('toggle-preview')"
+        >
+          <TimelineLucideIcon name="alignLeft" :stroke-width="1.8" />
+        </button>
+      </div>
+
+      <span class="tl-divider" aria-hidden="true"></span>
+
+      <button type="button" class="iconbtn lg primary" title="新建时间点" @click="emit('create-event')">
+        <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
+      </button>
+
+      <div v-if="activePopover" class="popover tl-pop" :class="`tl-pop-${activePopover}`">
+        <form v-if="activePopover === 'locator'" class="tl-pop-body" @submit.prevent="submitLocator">
           <div class="pop-title">时间定位</div>
           <label class="pop-field">
             <span>输入日期</span>
             <input v-model="locatorValue" type="text" placeholder="1840 / 1840-06 / 1840-06-01" />
           </label>
-          <button type="submit" class="pop-submit">
-            <TimelineLucideIcon name="check" :stroke-width="1.8" />
-          </button>
-        </form>
-      </div>
-
-      <div class="tl-toolbar-group">
-        <button type="button" class="iconbtn lg" title="筛选" @click.stop="filterOpen = !filterOpen">
-          <TimelineLucideIcon name="filter" :stroke-width="1.8" />
-        </button>
-        <div v-if="filterOpen" class="popover filter-pop">
-          <div class="pop-title">主筛选</div>
-          <button
-            v-for="option in FILTER_OPTIONS"
-            :key="option.id"
-            type="button"
-            class="pop-item"
-            :class="{ on: option.id === props.activeFilter }"
-            @click="emit('update:filter', option.id)"
-          >
-            <span class="pop-check">
+          <div class="pop-foot">
+            <button type="submit" class="iconbtn sm primary" title="定位">
               <TimelineLucideIcon name="check" :stroke-width="1.8" />
-            </span>
-            <span class="lbl">{{ option.label }}</span>
-          </button>
-        </div>
+            </button>
+          </div>
+        </form>
+
+        <ColumnConfigPopover
+          v-else-if="activePopover === 'columns'"
+          :builtin-state="props.builtinColumns"
+          :columns="props.columns"
+          :saving="props.columnSaving"
+          @save-columns="emit('save-columns', $event)"
+          @toggle-builtin="emit('toggle-builtin', $event)"
+        />
       </div>
-
-      <div class="tl-toolbar-group">
-        <button id="colBtn" type="button" class="iconbtn lg" title="列设置" @click.stop="columnOpen = !columnOpen">
-          <TimelineLucideIcon name="columns" :stroke-width="1.8" />
-        </button>
-        <div v-if="columnOpen" class="popover col-pop-wrap">
-          <ColumnConfigPopover
-            :builtin-state="props.builtinColumns"
-            :columns="props.columns"
-            :saving="props.columnSaving"
-            @save-columns="emit('save-columns', $event)"
-            @toggle-builtin="emit('toggle-builtin', $event)"
-          />
-        </div>
-      </div>
-
-      <button
-        id="previewBtn"
-        type="button"
-        class="iconbtn lg"
-        :class="{ on: props.showPreview }"
-        title="显示预览"
-        @click="emit('toggle-preview')"
-      >
-        <TimelineLucideIcon name="alignLeft" :stroke-width="1.8" />
-      </button>
-
-      <button type="button" class="iconbtn lg primary" title="新建时间点" @click="emit('create-event')">
-        <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
-      </button>
     </div>
 
     <div v-if="props.loading" class="feed-empty">正在加载时间线...</div>

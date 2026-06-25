@@ -543,6 +543,7 @@ button {
 }
 
 .tl-bar {
+  position: relative;
   height: 52px;
   display: flex;
   align-items: center;
@@ -551,25 +552,51 @@ button {
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* Title block shrinks (and ellipsizes) first so the toolbar buttons never crowd. */
+.tl-head {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
 .tl-bar h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
   color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tl-count {
   font-size: 12px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tl-bar .spacer {
   flex: 1;
 }
 
-.tl-toolbar-group {
-  position: relative;
+/* Query/view controls cluster tightly; the primary action sits past a divider. */
+.tl-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.tl-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex: none;
 }
 
 .searchbox {
@@ -895,9 +922,22 @@ button {
   box-shadow: var(--shadow-pop);
 }
 
-.filter-pop {
-  top: 38px;
-  right: 0;
+/* Single toolbar popover layer (spec §2.1): one shared anchor at the bar's
+   right edge, width clamped to the column so it never overflows. */
+.tl-pop {
+  top: calc(100% + 6px);
+  right: 12px;
+  width: min(300px, calc(100% - 24px));
+}
+
+.tl-pop-columns {
+  width: min(320px, calc(100% - 20px));
+}
+
+.pop-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 4px 0;
 }
 
 .pop-title {
@@ -924,10 +964,12 @@ button {
   background: var(--bg-hover);
 }
 
-.pop-item.on .pop-check {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+/* Leading type / view glyph on list rows. */
+.pop-item-ic {
+  width: 15px;
+  height: 15px;
+  color: var(--text-faint);
+  flex: none;
 }
 
 .pop-field {
@@ -941,77 +983,35 @@ button {
   font-size: 12px;
 }
 
-.pop-submit {
-  width: 32px;
-  height: 32px;
-  display: inline-grid;
-  place-items: center;
-  margin: 0 8px 4px auto;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
-}
-
-.pop-check {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-strong);
-  display: grid;
-  place-items: center;
-  color: transparent;
-  flex: none;
-}
-
-.pop-check .timeline-lucide-icon {
-  width: 14px;
-  height: 14px;
-}
-
 .lbl {
   flex: 1;
   font-size: 13px;
 }
 
-.col-pop-wrap {
-  width: 344px;
-  padding: 0;
-  top: 38px;
-  right: 0;
-}
-
-.col-popover {
-  padding: 10px;
-}
-
-.col-pop-title-row {
+/* "View settings" popover — filter + columns share one list grammar (spec §2.1). */
+.pop-title-row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
   justify-content: space-between;
-  padding: 4px 4px 10px;
+  gap: 8px;
+  padding-bottom: 4px;
 }
 
-.col-pop-title-row strong {
-  display: block;
-  font-size: 13px;
-  color: var(--text-strong);
+.pop-title-row .pop-label {
+  padding: 0 0 0 8px;
 }
 
-.col-pop-title-row span,
-.col-pop-label,
-.col-pop-note,
-.col-builtin-main small,
+.pop-label,
+.pop-note,
 .detail-field-item span {
   color: var(--text-faint);
   font-size: 11px;
 }
 
 /* Popover divider grouping (spec §2.1): sections auto-separate; .pop-divider is explicit. */
-.col-pop-section + .col-pop-section,
 .pop-section + .pop-section {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-soft);
 }
 
@@ -1021,73 +1021,89 @@ button {
   background: var(--border-soft);
 }
 
-.col-pop-label {
-  padding: 0 4px 8px;
+.pop-label {
+  padding: 0 8px 8px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
-.col-builtins,
-.col-custom-list {
-  display: grid;
-  gap: 6px;
+.pop-note {
+  padding: 8px 8px 2px;
+  line-height: 1.5;
 }
 
-.col-builtin {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.col-builtin:hover {
-  background: var(--bg-hover);
-}
-
-.col-builtin.lock {
-  background: var(--bg-surface-2);
+.pop-item.is-locked {
   cursor: default;
 }
 
-.col-builtin.on .pop-check {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+.pop-item.is-locked:hover {
+  background: none;
 }
 
-.col-builtin-main {
-  display: grid;
-  gap: 2px;
+/* Custom column row = pop-item + type badge + edit / delete. */
+.col-row {
+  cursor: default;
 }
 
-.col-builtin-main b,
-.col-item-head strong {
-  font-size: 13px;
-  color: var(--text-strong);
-}
-
-.col-item {
-  padding: 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-}
-
-.col-item-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.col-item-head strong {
-  flex: 1;
+.col-row .lbl {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Hidden columns dim to grey (Notion); visibility is an eye toggle, not a checkbox. */
+.col-row.is-hidden .lbl,
+.col-row.is-hidden .pop-item-ic {
+  color: var(--text-faint);
+}
+
+.col-eye {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  flex: none;
+  cursor: pointer;
+}
+
+.col-eye:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Required columns (时间 / 事件): a dimmed, non-interactive eye — always visible. */
+.col-eye:disabled {
+  cursor: default;
+}
+
+.col-eye:disabled:hover {
+  background: none;
+  color: var(--text-faint);
+}
+
+.col-eye .timeline-lucide-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Secondary actions stay hidden until the row is hovered or being edited. */
+.col-row-act {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.1s var(--ease);
+}
+
+.col-row:hover .col-row-act,
+.col-row.editing .col-row-act {
+  opacity: 1;
+}
+
+.col-add {
+  color: var(--text-muted);
 }
 
 .col-grid {
@@ -1096,31 +1112,22 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.col-grid.add {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .col-grid label {
   display: grid;
   gap: 4px;
 }
 
-.col-add-btn {
-  width: 100%;
-  min-height: 34px;
-  margin-top: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  cursor: pointer;
+.col-detail {
+  padding: 2px 8px 10px 34px;
 }
 
-.col-add-btn:hover {
-  background: var(--bg-hover);
+.col-detail .col-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.col-detail span {
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 .detail {
@@ -1270,6 +1277,15 @@ button {
 
 .body-editor {
   min-height: 280px;
+}
+
+/* Seamless editor: the contenteditable body never shows a focus ring or border,
+   so read <-> edit stays zero-displacement (spec §7.2). Caret signals focus. */
+.body-editable,
+.body-editable:focus,
+.body-editable:focus-visible {
+  outline: none;
+  border: 0;
 }
 
 .markdown-body h1,
