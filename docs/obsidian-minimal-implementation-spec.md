@@ -15,7 +15,7 @@
 - 目标：用 Obsidian 极简风格重构现有三栏时间线笔记界面。
 - 技术栈不变：前端 `Vue 3 + Vue Router 4 + Vite`，后端 `FastAPI + SQLAlchemy + SQLite`。
 - 本改版**取代**冻结基准 `docs/00-mandatory-readonly-design-brief.md` 的若干裁决（见 §12 差异表）。Codex 落地时需同步更新该冻结文档，否则与 `AGENTS.md` 第 4 节裁决顺序冲突。
-- 已定决策：单页自适应、三栏可拖拽、全局禁滚动条、强调色=紫、**本期不做深色**、中栏列表+关联时间线、行高固定+显示预览、列可自定义、左栏 Obsidian 风格、右栏默认折叠按需展开、无感编辑、附件 Modal、正文内联图片、关联事件跳转。
+- 已定决策：单页自适应、三栏可拖拽、全局禁滚动条、强调色=紫（可在外观设置自定义）、**深色经主题系统解禁**（见 `docs/appearance-system-design.md`）、中栏列表+关联时间线、行高固定+显示预览、列可自定义、左栏 Obsidian 风格、右栏默认折叠按需展开、无感编辑、附件 Modal、正文内联图片、关联事件跳转。
 - 所有功能按键一律 **纯图标（SVG / Lucide）**，集中走 `ui/src/components/timeline-notes/TimelineLucideIcon.vue`。
 
 ## 1. 设计令牌（亮色基线；**暗色已解禁**，暗色令牌组见 `docs/appearance-system-design.md` §3.1）
@@ -93,7 +93,7 @@
 | 知识库切换/帮助/设置 | chevronsUpDown/help/settings | ChevronsUpDown, CircleHelp, Settings |
 | 勾选（列设置） | check | Check |
 
-> 深色切换图标（sun/moon）本期不接入。
+> 主题/深色切换在全屏设置「外观」面板进行（预设系统/浅色/深色 + 自定义），非 ribbon sun/moon 图标。
 
 ## 5. 左栏：Obsidian 文件树（重写 `TopicSidebar.vue`）
 
@@ -293,5 +293,5 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 ### 14.3 禁止（防漂移）
 - 禁止偏离原型“自由发挥”视觉；不确定就照原型 1:1，并在回复列出存疑点。
 - 禁止把视觉问题改成后端重构/数据迁移；禁止恢复旧基准元素（红色、卡片流、底部 composer、有边框编辑器、右栏箭头/用户栏、左栏日历）。
-- 禁止新增暗色模式、移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。
+- 禁止移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现；上述装饰禁令在暗色下仍生效。）
 - 禁止用截图当 UI；禁止 PNG 反推 SVG。

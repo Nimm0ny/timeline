@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
+import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
@@ -845,24 +846,13 @@ watch(
       </section>
     </div>
 
-    <div v-if="state.settingsOpen" class="timeline-modal-backdrop">
-      <section class="timeline-settings-card" role="dialog" aria-modal="true" aria-label="设置">
-        <div class="timeline-settings-head">
-          <h3>设置</h3>
-          <button type="button" class="timeline-icon-btn" aria-label="关闭设置" @click="state.settingsOpen = false">×</button>
-        </div>
-        <div class="timeline-settings-body">
-          <button type="button" class="timeline-settings-action" @click="exportCurrentTopic">导出当前笔记本</button>
-          <div class="timeline-settings-meta">
-            <span>品牌</span>
-            <strong>{{ state.config.brandName }}</strong>
-          </div>
-          <div class="timeline-settings-meta">
-            <span>当前专题</span>
-            <strong>{{ activeTopicTitle }}</strong>
-          </div>
-        </div>
-      </section>
-    </div>
+    <SettingsModal
+      :open="state.settingsOpen"
+      :brand-name="state.config.brandName"
+      :active-topic-title="activeTopicTitle"
+      :has-topic="Boolean(state.activeTopicId)"
+      @close="state.settingsOpen = false"
+      @export-data="exportCurrentTopic"
+    />
   </div>
 </template>
