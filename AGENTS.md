@@ -7,7 +7,7 @@
 
 ## 0.1 Hardness 工作方式
 
-总路线固定为 `Define-First -> 目标文档/实现计划 -> 编码 -> 测试验收 -> 收尾清理 -> 必要时 subagent review -> 本地 commit`。
+总路线固定为 `开工前现场确认 -> Define-First -> 目标文档/实现计划 -> 编码 -> 测试验收 -> 收尾清理 -> 必要时 subagent review -> 本地 commit`。
 
 - 非纯问答任务必须先 Define-First，再动代码。至少明确 `Goal`、`Non-goals`、`Scope`、`Acceptance` 和 `Verification`。
 - 小于 20 行且边界明确的修复可以不单独写目标文档，但最终回复必须说明目标、范围和验证结果。
@@ -40,7 +40,11 @@
 
 1. 先读本文件，确认任务边界。
 2. 执行 `git status --short`，识别当前工作区是否已有用户改动；不得回滚、覆盖或格式化无关改动。
-3. 根据任务范围读取最小必要上下文：
+3. 如有未追踪文件，执行 `git ls-files --others --exclude-standard` 分清本任务文件和用户/并行文件；不得把未知来源文件纳入统计、review 或 commit。
+4. 记录开工基线：当前分支、工作区脏文件、用户已有改动、已存在后台服务或端口占用。只需要记录与本任务相关的信息，避免无意义盘点。
+5. 明确本次任务的可写范围和不可写范围；发现需求会触碰用户已有改动时，先读懂该改动并与其协作，不能直接覆盖。
+6. 若任务需要启动服务、写临时文件、生成截图或修改环境变量，先确定命名、路径和退出/清理方式，保证收尾时可追踪。
+7. 根据任务范围读取最小必要上下文：
    - 前端入口：`ui/src/pages/TimelinePage.vue`
    - 前端样式：`ui/src/styles/main.css`、`ui/src/styles/timeline-notes.css`
    - 图标入口：`ui/src/components/timeline-notes/TimelineLucideIcon.vue`
@@ -48,15 +52,16 @@
    - API 封装：`ui/src/composables/useApi.js`
    - 后端入口：`backend/app/main.py`、`backend/server.py`
    - 数据契约：`docs/stage-0-boundary.md`
-4. 前端视觉任务必须额外读取：
+8. 前端视觉任务必须额外读取：
    - `docs/00-mandatory-readonly-design-brief.md`
    - `timeline_notes_pixel_perfect_1920x1080_one_view.html`
-5. 在动手前明确本次改动属于哪类：
+9. 在动手前明确本次改动属于哪类：
    - `visual`: 布局、尺寸、颜色、字体、图标、像素还原
    - `interaction`: 搜索、筛选、收藏、回收站、编辑/阅读切换、未保存确认
    - `data-contract`: DTO、API、字段、持久化
    - `infra`: 构建、测试、启动脚本、依赖
-6. 只改完成任务必须改的文件，不顺手重构、不顺手迁移、不顺手统一风格。
+10. 动手前明确 `Goal`、`Non-goals`、`Scope`、`Acceptance`、`Verification`；小修可在回复中简述，但不能省略边界判断。
+11. 只改完成任务必须改的文件，不顺手重构、不顺手迁移、不顺手统一风格。
 
 ## 1. 项目事实
 
@@ -298,6 +303,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 完成代码任务时，最终回复必须包含以下信息；缺一项视为未完成：
 
 - `Read`: 已阅读 `AGENTS.md`，并列出本任务额外读取的关键设计/代码文件。
+- `Startup`: 开工前工作区状态、用户/并行改动、任务分类和可写范围摘要。
 - `Changed`: 实际改动的文件和行为摘要。
 - `Verified`: 已运行的命令及结果；未运行必须说明原因。
 - `Review`: 是否触发 subagent review；触发时列出 review 结论，未触发时说明原因。
