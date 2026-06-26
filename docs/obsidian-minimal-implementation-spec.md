@@ -15,6 +15,7 @@
 - 目标：用 Obsidian 极简风格重构现有三栏时间线笔记界面。
 - 技术栈不变：前端 `Vue 3 + Vue Router 4 + Vite`，后端 `FastAPI + SQLAlchemy + SQLite`。
 - 本改版**取代**冻结基准 `docs/00-mandatory-readonly-design-brief.md` 的若干裁决（见 §12 差异表）。Codex 落地时需同步更新该冻结文档，否则与 `AGENTS.md` 第 4 节裁决顺序冲突。
+- 移动端 Web 形态（`≤768px` 单栏、左抽屉、详情全屏）以 `docs/mobile-web-design.md` 为独立断点基准；桌面 `>1024px` 仍以本文 + 原型为准。
 - 已定决策：单页自适应、三栏可拖拽、全局禁滚动条、强调色=紫（可在外观设置自定义）、**深色经主题系统解禁**（见 `docs/appearance-system-design.md`）、中栏列表+关联时间线、行高固定+显示预览、列可自定义、左栏 Obsidian 风格、右栏默认折叠按需展开、无感编辑、附件 Modal、正文内联图片、关联事件跳转。
 - 所有功能按键一律 **纯图标（SVG / Lucide）**，集中走 `ui/src/components/timeline-notes/TimelineLucideIcon.vue`。
 
@@ -237,6 +238,8 @@
 前端 `ui/src/`：
 - `styles/timeline-notes.css` — 全量替换为原型令牌与三栏/ribbon/列表/详情/Modal 样式（视觉控制平面）。
 - `pages/TimelinePage.vue` — 改三栏为可拖拽 grid + 右栏折叠状态；新增 `leftW/rightW/rightOpen/activeColumns/showPreview/activeEra`；接 `select-event` 展开右栏、`open-related` 跳转、resizer 拖拽、列设置状态。
+- `composables/useViewport.js` — 移动端独立断点状态（`≤768px` mobile；`769–1024px` 紧凑桌面）。
+- `components/timeline-notes/MobileTopBar.vue` — 移动主屏顶栏（抽屉 / 标题计数 / 搜索 / 新建）。
 - `components/timeline-notes/TopicSidebar.vue` — 重写为 ribbon + 文件树 + 底栏（§5）；prop/emit 见 §5.5。
 - `components/timeline-notes/TimelineFeed.vue` — 重写为列表 + 关联时间线 + 列设置 + 显示预览（§6）。
 - `components/timeline-notes/TimelineEventCard.vue` — 废弃卡片，替换为行渲染（可并入 Feed 或改为 `TimelineRow.vue`）。
@@ -289,6 +292,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 | 右栏默认 | 常驻三栏 | 默认两栏，点击行展开 |
 | 左栏 | 视图+笔记本+标签 | Obsidian ribbon+文件树+底栏；加标签管理+统计(仅3数字)；删两个统计图表 |
 | 左栏日历 | 删除 | 仍不做 |
+| 移动端 | 禁止移动端重排 | 按 `docs/mobile-web-design.md` 独立断点基准实现移动 Web 单栏形态 |
 
 ## 13. 已拍板决策（无需再问）
 
@@ -326,5 +330,5 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 ### 14.3 禁止（防漂移）
 - 禁止偏离原型“自由发挥”视觉；不确定就照原型 1:1，并在回复列出存疑点。
 - 禁止把视觉问题改成后端重构/数据迁移；禁止恢复旧基准元素（红色、卡片流、底部 composer、有边框编辑器、右栏箭头/用户栏、左栏日历）。
-- 禁止移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现；上述装饰禁令在暗色下仍生效。）
+- 禁止未按 `docs/mobile-web-design.md` 独立断点基准擅自移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现；上述装饰禁令在暗色下仍生效。）
 - 禁止用截图当 UI；禁止 PNG 反推 SVG。

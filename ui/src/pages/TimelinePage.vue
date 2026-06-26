@@ -2,12 +2,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
+import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
 import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
+import { useViewport } from "@/composables/useViewport";
 import {
   compareTimelineEvents,
   groupTimelineEvents,
@@ -19,6 +21,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
+const { isMobile, isCompactDesktop } = useViewport();
 
 const DETAIL_MODES = new Set(["view", "edit", "create"]);
 const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
@@ -100,6 +103,8 @@ const state = reactive({
   confirmDeleteTopics: null,
   confirmPurgeIds: null,
   rightOpen: false,
+  mobileSidebarOpen: false,
+  mobileSearchOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
   showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
@@ -110,8 +115,8 @@ const state = reactive({
 let resizeCleanup = null;
 
 const workspaceStyle = computed(() => ({
-  "--left-w": `${state.leftWidth}px`,
-  "--right-w": `${state.rightWidth}px`,
+  "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
+  "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
 }));
 
 const activeTopicTitle = computed(
@@ -331,6 +336,19 @@ function closeUnsavedDialog() {
   state.pendingAction = null;
 }
 
+function openMobileSidebar() {
+  if (isMobile.value) state.mobileSidebarOpen = true;
+}
+
+function closeMobileSidebar() {
+  state.mobileSidebarOpen = false;
+}
+
+function openSettings() {
+  closeMobileSidebar();
+  state.settingsOpen = true;
+}
+
 function discardAndContinue() {
   const action = state.pendingAction;
   state.detailDirty = false;
@@ -381,6 +399,8 @@ function startCreateEvent() {
       pushToast("请先选择一个笔记本", "error");
       return;
     }
+    closeMobileSidebar();
+    state.mobileSearchOpen = false;
     state.detailMode = "create";
     state.rightOpen = true;
     await syncRouteState({ eventId: state.selectedEventId, mode: "create" });
@@ -403,6 +423,8 @@ function createEventInTopic(topicId) {
         openDetail: false,
       });
     }
+    closeMobileSidebar();
+    state.mobileSearchOpen = false;
     state.detailMode = "create";
     state.rightOpen = true;
     await syncRouteState({ topicId, eventId: state.selectedEventId, mode: "create" });
@@ -479,6 +501,7 @@ async function selectTopic(topicId) {
       openDetail: false,
     });
     state.rightOpen = false;
+    closeMobileSidebar();
     await syncRouteState({ topicId, eventId: null, propertyFilter: { key: "", value: "" }, era: "", mode: "view" });
   });
 }
@@ -494,6 +517,7 @@ async function createTopic(name) {
       openDetail: false,
     });
     state.rightOpen = false;
+    closeMobileSidebar();
     await syncRouteState({ topicId: created.id, eventId: null });
   } catch (error) {
     pushToast(`创建笔记本失败：${error.message}`, "error");
@@ -536,6 +560,7 @@ function applyFilterState({ filter = state.sidebarFilter, propertyFilter = state
 function updateSidebarFilter(filter) {
   runOrConfirm(async () => {
     applyFilterState({ filter });
+    closeMobileSidebar();
     await syncRouteState({ filter, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
@@ -543,6 +568,7 @@ function updateSidebarFilter(filter) {
 function updatePropertyFilter(propertyFilter) {
   runOrConfirm(async () => {
     applyFilterState({ propertyFilter });
+    closeMobileSidebar();
     await syncRouteState({ propertyFilter, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
@@ -550,6 +576,7 @@ function updatePropertyFilter(propertyFilter) {
 function updateActiveEra(era) {
   runOrConfirm(async () => {
     applyFilterState({ era });
+    closeMobileSidebar();
     await syncRouteState({ era, eventId: state.rightOpen ? state.selectedEventId : null });
   });
 }
@@ -694,6 +721,11 @@ async function confirmBatchPurgeNow() {
 }
 
 function focusFeedSearch() {
+  if (isMobile.value) {
+    state.mobileSearchOpen = true;
+    closeMobileSidebar();
+    return;
+  }
   state.searchRequestKey += 1;
 }
 
@@ -819,6 +851,16 @@ onBeforeUnmount(() => {
 });
 
 watch(
+  isMobile,
+  (mobile) => {
+    if (!mobile) {
+      state.mobileSidebarOpen = false;
+      state.mobileSearchOpen = false;
+    }
+  }
+);
+
+watch(
   () => [route.query.topic, route.query.event, route.query.mode, route.query.filter, route.query.pk, route.query.pv, route.query.era, route.query.date],
   () => {
     state.sidebarFilter = parseRouteFilter();
@@ -830,7 +872,30 @@ watch(
 </script>
 
 <template>
-  <div class="app timeline-workspace" :class="{ 'right-closed': !state.rightOpen }" :style="workspaceStyle">
+  <div
+    class="app timeline-workspace"
+    :class="{
+      'right-closed': !state.rightOpen,
+      'is-mobile': isMobile,
+      'mobile-drawer-open': state.mobileSidebarOpen,
+      'mobile-detail-open': isMobile && state.rightOpen,
+    }"
+    :style="workspaceStyle"
+  >
+    <MobileTopBar
+      v-if="isMobile"
+      :title="activeTopicTitle"
+      :count="visibleEvents.length"
+      :search-query="state.searchQuery"
+      :search-open="state.mobileSearchOpen"
+      @open-drawer="openMobileSidebar"
+      @create-event="startCreateEvent"
+      @update:searchQuery="updateSearchQuery"
+      @update:search-open="state.mobileSearchOpen = $event"
+    />
+
+    <div v-if="isMobile && state.mobileSidebarOpen" class="mobile-drawer-scrim" @click="closeMobileSidebar"></div>
+
     <TopicSidebar
       :brand="state.config.brandName"
       :topics="state.topics"
@@ -849,7 +914,7 @@ watch(
       @delete-topic="requestDeleteTopic"
       @batch-delete-topics="requestBatchDeleteTopics"
       @focus-search="focusFeedSearch"
-      @open-settings="state.settingsOpen = true"
+      @open-settings="openSettings"
       @select-era="updateActiveEra"
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
@@ -872,6 +937,7 @@ watch(
       :show-preview="state.showPreview"
       :search-request-key="state.searchRequestKey"
       :trash-view="state.sidebarFilter === 'trash'"
+      :mobile="isMobile"
       @create-event="startCreateEvent"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
@@ -886,6 +952,7 @@ watch(
     />
 
     <EventDetailPane
+      v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
       :event="selectedEvent"
       :candidate-events="state.events"
@@ -895,6 +962,7 @@ watch(
       :error="state.detailError"
       :mode="state.detailMode"
       :saving="state.saving"
+      :mobile="isMobile"
       @cancel="cancelDetailEdit"
       @close="closeDetailPane"
       @edit="startEditSelectedEvent"
@@ -907,8 +975,8 @@ watch(
       @preview-change="state.editPreview = $event"
     />
 
-    <div id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
-    <div v-if="state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
+    <div v-if="!isMobile" id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
+    <div v-if="!isMobile && state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
 
     <div v-if="state.menuEvent" class="timeline-menu-backdrop" @click="closeEventMenu">
       <div class="popover timeline-action-menu" @click.stop>

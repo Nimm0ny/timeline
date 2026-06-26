@@ -57,6 +57,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  mobile: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -590,6 +594,9 @@ onBeforeUnmount(() => {
 
     <template v-else>
       <div class="actionbar">
+        <button v-if="props.mobile" type="button" class="iconbtn" title="返回列表" @click="emit('close')">
+          <TimelineLucideIcon name="arrowLeft" :stroke-width="1.8" />
+        </button>
         <span class="spacer"></span>
         <template v-if="inEditMode">
           <label class="iconbtn" :class="{ 'is-disabled': uploading }" title="添加附件">
@@ -630,7 +637,7 @@ onBeforeUnmount(() => {
         >
           <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.8" />
         </button>
-        <button id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
+        <button v-if="!props.mobile" id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
           <TimelineLucideIcon name="close" :stroke-width="1.8" />
         </button>
       </div>

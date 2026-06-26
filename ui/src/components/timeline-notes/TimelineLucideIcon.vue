@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import {
   AlignLeft,
+  ArrowLeft,
   Archive,
   ArrowRight,
   ArrowUpDown,
@@ -32,6 +33,7 @@ import {
   List,
   ListChecks,
   Maximize2,
+  Menu,
   MoreHorizontal,
   NotebookText,
   Paperclip,
@@ -62,6 +64,7 @@ const props = defineProps({
 
 const icons = {
   arrowRight: ArrowRight,
+  arrowLeft: ArrowLeft,
   arrowUpDown: ArrowUpDown,
   alignLeft: AlignLeft,
   archive: Archive,
@@ -95,6 +98,7 @@ const icons = {
   list: List,
   listChecks: ListChecks,
   maximize: Maximize2,
+  menu: Menu,
   more: MoreHorizontal,
   note: NotebookText,
   notebook: NotebookText,

@@ -135,7 +135,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 ## 9. 「编年」Obsidian 改版 · 实现代理硬约束（含 Codex，前端落地必读）
 
-实现基准（baseline of record）= `docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html`，优先级高于旧 1920 文档。「属性系统」「外观/主题」两子系统分别以 `docs/property-system-design.md`、`docs/appearance-system-design.md` 为准（取代本基准相应小节；暗色已解禁）。涉及本改版前端落地，除常规流程外强制遵守（细则与分阶段/自检清单见 spec 第 14 节，前端通则见 `docs/agent-frontend-hardness.md`）：
+实现基准（baseline of record）= `docs/obsidian-minimal-implementation-spec.md` + `prototypes/timeline-obsidian-minimal.html`，优先级高于旧 1920 文档；移动端 Web 形态以 `docs/mobile-web-design.md` 独立断点基准为准。「属性系统」「外观/主题」两子系统分别以 `docs/property-system-design.md`、`docs/appearance-system-design.md` 为准（取代本基准相应小节；暗色已解禁）。涉及本改版前端落地，除常规流程外强制遵守（细则与分阶段/自检清单见 spec 第 14 节，前端通则见 `docs/agent-frontend-hardness.md`）：
 
 - 原型即像素与交互真相：照原型 1:1 还原；不确定一律照原型，并在回复列出存疑点，**禁止自由发挥视觉**。
 - 必读：实现 spec 全文（尤其 §14 分阶段落地 + 提交前自检）、原型文件、`docs/agent-frontend-hardness.md`。
@@ -147,4 +147,4 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - 数据契约：自定义列只用 `Topic.columns_json + TimelineEvent.extra_json`（spec §8.2）；改字段必须前后端 + 测试同步；未定义列键后端丢弃；无值显示 `—`，**禁止臆造数据**。
 - 依赖：除 `CodeMirror 6`（无感编辑）外不新增依赖；不改 `package-lock.json`（除非确有依赖变更）；不做无关重构/格式化。
 - 提交前逐条过 spec §14.2 自检清单；视觉改动按 `docs/agent-frontend-hardness.md` 做 QA 并归档截图；未达标不得 commit。
-- 禁止恢复旧基准元素：红色主强调、卡片流、底部 composer、有边框编辑器 + 工具栏、右栏上一条/下一条箭头、右栏用户栏、左栏日历；禁止移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现，见 `docs/appearance-system-design.md`；仍禁装饰渐变/glow/玻璃态。）
+- 禁止恢复旧基准元素：红色主强调、卡片流、底部 composer、有边框编辑器 + 工具栏、右栏上一条/下一条箭头、右栏用户栏、左栏日历；禁止未按 `docs/mobile-web-design.md` 独立断点基准擅自移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现，见 `docs/appearance-system-design.md`；仍禁装饰渐变/glow/玻璃态。）

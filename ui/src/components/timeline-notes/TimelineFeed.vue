@@ -73,6 +73,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  mobile: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -148,10 +152,13 @@ function togglePopover(name) {
 }
 
 function visibleColumns() {
-  return buildVisibleTimelineColumns(props.columns);
+  const columns = buildVisibleTimelineColumns(props.columns);
+  if (!props.mobile) return columns;
+  return columns.filter((column) => column.key === "time" || column.key === "title");
 }
 
 function rowGrid() {
+  if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
   return buildTimelineGridTemplate(props.columns);
 }
 
