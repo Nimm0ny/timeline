@@ -313,6 +313,7 @@ const stats = computed(() => ({
   week: liveEvents.value.filter(isThisWeek).length,
   favorite: liveEvents.value.filter((event) => event.favorite).length,
 }));
+const globalFavoritesCopy = computed(() => (props.globalFavoriteCount ? `共 ${props.globalFavoriteCount} 条收藏。` : "暂无收藏。"));
 
 // Lightweight "new notes per week" trend (last 8 weeks) as CSS bars — no deps,
 // no chart library; oldest week left, current week right.
@@ -506,18 +507,7 @@ watch(
       <div class="pane-scroll scroll" @scroll="onPaneScroll">
         <div v-if="panelHas('globalFavorites')" class="tg">
           <div class="tg-body">
-            <button
-              type="button"
-              class="ti leaf global-favorite-entry"
-              :class="{ active: props.globalFavoritesActive }"
-              @click="emit('open-global-favorites')"
-            >
-              <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon name="star" :stroke-width="1.8" /></span>
-              <span class="ti-name">跨笔记本收藏</span>
-              <span class="ti-cnt">{{ props.globalFavoriteCount }}</span>
-            </button>
-            <p v-if="!props.globalFavoriteCount" class="sidebar-copy">暂无跨笔记本收藏。</p>
+            <p class="sidebar-copy">{{ globalFavoritesCopy }}</p>
           </div>
         </div>
 
