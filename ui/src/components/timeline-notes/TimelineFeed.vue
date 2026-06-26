@@ -90,6 +90,10 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
+  commandSearch: {
+    type: Boolean,
+    default: false,
+  },
   trashView: {
     type: Boolean,
     default: false,
@@ -112,6 +116,7 @@ const emit = defineEmits([
   "batch-trash",
   "batch-restore",
   "batch-permanent-delete",
+  "open-command-palette",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -201,6 +206,12 @@ function openSearch() {
 // The fixed search icon toggles the field: open+focus when closed; when open it
 // refocuses if there is a query, or collapses when empty.
 function toggleSearch() {
+  if (props.commandSearch) {
+    activePopover.value = "";
+    searchOpen.value = false;
+    emit("open-command-palette");
+    return;
+  }
   if (searchOpen.value) {
     if (String(props.searchQuery || "").trim()) {
       searchInputRef.value?.focus();
@@ -244,7 +255,12 @@ function closePopovers(event) {
   }
 }
 
-function handleEscape(event) {
+function handleDocumentKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && props.commandSearch) {
+    activePopover.value = "";
+    searchOpen.value = false;
+    return;
+  }
   if (event.key !== "Escape") return;
   activePopover.value = "";
   closeSearchIfEmpty();
@@ -303,12 +319,12 @@ watch(
 
 onMounted(() => {
   document.addEventListener("click", closePopovers);
-  document.addEventListener("keydown", handleEscape);
+  document.addEventListener("keydown", handleDocumentKeydown);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", closePopovers);
-  document.removeEventListener("keydown", handleEscape);
+  document.removeEventListener("keydown", handleDocumentKeydown);
 });
 </script>
 

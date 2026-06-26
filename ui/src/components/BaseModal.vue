@@ -1,4 +1,6 @@
 <script setup>
+import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+
 const props = defineProps({
   modelValue: {
     type: Boolean,
@@ -11,6 +13,22 @@ const props = defineProps({
   wide: {
     type: Boolean,
     default: false,
+  },
+  hideHeader: {
+    type: Boolean,
+    default: false,
+  },
+  ariaLabel: {
+    type: String,
+    default: "",
+  },
+  cardClass: {
+    type: String,
+    default: "",
+  },
+  bodyClass: {
+    type: String,
+    default: "",
   },
 });
 
@@ -30,12 +48,20 @@ function onBackdropClick(event) {
 <template>
   <Teleport to="body">
     <div v-if="props.modelValue" class="modal-backdrop" @click="onBackdropClick">
-      <div class="modal-card" :class="{ 'modal-wide': props.wide }">
-        <div class="modal-head">
+      <div
+        class="modal-card"
+        :class="[{ 'modal-wide': props.wide }, props.cardClass]"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="props.ariaLabel || props.title"
+      >
+        <div v-if="!props.hideHeader" class="modal-head">
           <h3>{{ props.title }}</h3>
-          <button type="button" class="icon-btn" @click="close">×</button>
+          <button type="button" class="icon-btn" title="关闭" @click="close">
+            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+          </button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" :class="props.bodyClass">
           <slot />
         </div>
       </div>

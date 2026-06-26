@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
@@ -42,6 +42,10 @@ DEFAULT_TOPIC_COLUMNS = [
 SUPPORTED_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".md", ".txt", ".docx"}
 PILLOW_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ORIGINAL_IMAGE_EXTENSIONS = {".gif", ".svg"}
+SEARCH_LIMIT_DEFAULT = 20
+SEARCH_LIMIT_MAX = 50
+SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
+SEARCH_INDEX_TABLE = "timeline_events_fts"
 
 
 def default_topic_columns_json() -> str:
@@ -436,6 +440,204 @@ def flatten_search_values(value) -> list[str]:
     return [str(value)]
 
 
+def extra_search_text(extra: dict, topic: Topic | None) -> str:
+    parts = flatten_search_values(extra)
+    if topic is None:
+        return " ".join(parts)
+
+    for column in deserialize_json_list(topic.columns_json):
+        if not isinstance(column, dict):
+            continue
+        key = str(column.get("key", "")).strip()
+        if not key or key not in extra or column.get("type") not in OPTION_COLUMN_TYPES:
+            continue
+        option_labels = {
+            str(option.get("id", "")): str(option.get("label", "")).strip()
+            for option in (column.get("options") or [])
+            if isinstance(option, dict)
+        }
+        values = extra.get(key) if isinstance(extra.get(key), list) else [extra.get(key)]
+        parts.extend(label for value in values if (label := option_labels.get(str(value))) and label != str(value))
+    return " ".join(parts)
+
+
+def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: Topic | None = None) -> dict:
+    if data is None:
+        items = serialize_items(event)
+        extra = deserialize_json_dict(event.extra_json)
+        headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
+        body_markdown = event.body_markdown or default_body_markdown(items)
+        era = event.era
+        topic = topic or event.topic
+    else:
+        items = data.get("items") or []
+        extra = data.get("extra") or {}
+        headline = str(data.get("headline") or "").strip() or extract_headline_from_legacy_label(data.get("legacyYear") or "")
+        body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
+        era = data.get("era")
+
+    return {
+        "event_id": event.id,
+        "topic_id": event.topic_id,
+        "headline": headline,
+        "body": " ".join(
+            part
+            for part in [
+                markdown_plain_text(str(body_markdown or "")),
+                *[str(item.get("text", "")) for item in items if isinstance(item, dict)],
+            ]
+            if part
+        ),
+        "era": str(era or ""),
+        "extra": extra_search_text(extra, topic),
+    }
+
+
+def ensure_search_schema(db: Session) -> None:
+    db.execute(
+        text(
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {SEARCH_INDEX_TABLE}
+            USING fts5(
+              event_id UNINDEXED,
+              topic_id UNINDEXED,
+              headline,
+              body,
+              era,
+              extra,
+              tokenize = 'unicode61'
+            )
+            """
+        )
+    )
+
+
+def remove_search_index_row(db: Session, event_id: int) -> None:
+    ensure_search_schema(db)
+    db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE event_id = :event_id"), {"event_id": int(event_id)})
+
+
+def remove_search_index_topic(db: Session, topic_id: int) -> None:
+    ensure_search_schema(db)
+    db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE topic_id = :topic_id"), {"topic_id": int(topic_id)})
+
+
+def insert_search_index_row(db: Session, payload: dict) -> None:
+    db.execute(
+        text(
+            f"""
+            INSERT INTO {SEARCH_INDEX_TABLE} (event_id, topic_id, headline, body, era, extra)
+            VALUES (:event_id, :topic_id, :headline, :body, :era, :extra)
+            """
+        ),
+        payload,
+    )
+
+
+def upsert_search_index_row(db: Session, event: TimelineEvent, data: dict | None = None, topic: Topic | None = None) -> None:
+    remove_search_index_row(db, event.id)
+    if event.deleted_at:
+        return
+    insert_search_index_row(db, build_search_payload(event, data, topic))
+
+
+def rebuild_search_index(db: Session) -> None:
+    ensure_search_schema(db)
+    db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE}"))
+    rows = (
+        db.query(TimelineEvent)
+        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.topic))
+        .filter(TimelineEvent.deleted_at.is_(None))
+        .order_by(TimelineEvent.topic_id.asc(), TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+        .all()
+    )
+    for event in rows:
+        insert_search_index_row(db, build_search_payload(event))
+
+
+def search_index_needs_rebuild(db: Session) -> bool:
+    ensure_search_schema(db)
+    row = db.execute(text(f"SELECT COUNT(*) AS count FROM {SEARCH_INDEX_TABLE}")).mappings().first()
+    indexed_count = int(row["count"] if row else 0)
+    live_count = db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.deleted_at.is_(None)).scalar() or 0
+    return live_count > 0 and indexed_count < live_count
+
+
+def build_fts_query(query: str | None) -> str:
+    terms = SEARCH_TOKEN_PATTERN.findall(str(query or "").lower())[:8]
+    return " ".join(f"{term}*" for term in terms if term)
+
+
+def normalize_search_snippet(*parts: str | None) -> str:
+    for part in parts:
+        text_value = re.sub(r"\s+", " ", str(part or "")).strip()
+        if text_value:
+            return text_value[:180].rstrip()
+    return ""
+
+
+def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFAULT) -> list[dict]:
+    match_query = build_fts_query(query)
+    if not match_query:
+        return []
+
+    safe_limit = max(1, min(int(limit or SEARCH_LIMIT_DEFAULT), SEARCH_LIMIT_MAX))
+    if search_index_needs_rebuild(db):
+        rebuild_search_index(db)
+        db.commit()
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+              e.id,
+              e.topic_id AS topic_id,
+              e.date_key AS date_key,
+              e.sort_key AS sort_key,
+              e.headline AS headline,
+              e.year AS legacy_year,
+              e.body_markdown AS body_markdown,
+              snippet({SEARCH_INDEX_TABLE}, 2, '', '', '...', 12) AS headline_snippet,
+              snippet({SEARCH_INDEX_TABLE}, 3, '', '', '...', 18) AS body_snippet,
+              snippet({SEARCH_INDEX_TABLE}, 4, '', '', '...', 12) AS era_snippet,
+              snippet({SEARCH_INDEX_TABLE}, 5, '', '', '...', 12) AS extra_snippet,
+              bm25({SEARCH_INDEX_TABLE}) AS rank
+            FROM {SEARCH_INDEX_TABLE}
+            JOIN timeline_events e ON e.id = {SEARCH_INDEX_TABLE}.event_id
+            WHERE {SEARCH_INDEX_TABLE} MATCH :query
+              AND e.deleted_at IS NULL
+            ORDER BY rank ASC, e.date_key ASC, e.id ASC
+            LIMIT :limit
+            """
+        ),
+        {"query": match_query, "limit": safe_limit},
+    ).mappings()
+
+    results = []
+    for row in rows:
+        date_key = row["date_key"] or normalize_date_key(row["sort_key"])
+        headline = (row["headline"] or "").strip() or extract_headline_from_legacy_label(row["legacy_year"] or "")
+        results.append(
+            {
+                "id": row["id"],
+                "topicId": row["topic_id"],
+                "headline": headline,
+                "snippet": normalize_search_snippet(
+                    row["body_snippet"],
+                    row["headline_snippet"],
+                    row["era_snippet"],
+                    row["extra_snippet"],
+                    markdown_plain_text(row["body_markdown"] or ""),
+                    headline,
+                ),
+                "dateKey": date_key,
+                "isoDate": date_key_to_iso(date_key),
+                "rank": row["rank"],
+            }
+        )
+    return results
+
+
 def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> str:
     items = serialize_items(event)
     extra = deserialize_json_dict(event.extra_json)
@@ -609,6 +811,7 @@ def delete_topic(db: Session, topic_id: int):
         .all()
     )
     image_ids = {event.image_id for event in events if event.image_id}
+    remove_search_index_topic(db, topic_id)
     db.delete(topic)
     db.commit()
     cleanup_orphan_images(db, image_ids)
@@ -961,6 +1164,7 @@ def create_event(db: Session, topic_id: int, payload: dict) -> dict:
     db.flush()
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+    upsert_search_index_row(db, event, data, topic)
     db.commit()
     db.refresh(event)
     return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
@@ -975,6 +1179,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
         if event.deleted_at and not (set(payload.keys()) == {"deletedAt"} and payload.get("deletedAt") is None):
             raise HTTPException(status_code=409, detail="Deleted events can only be restored")
         apply_event_state(event, payload)
+        upsert_search_index_row(db, event, topic=event.topic)
         db.commit()
         return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
 
@@ -991,6 +1196,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
     db.flush()
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+    upsert_search_index_row(db, event, data, event.topic)
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
@@ -1002,9 +1208,11 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
     old_image_id = event.image_id
     if not permanent:
         event.deleted_at = datetime.now(timezone.utc)
+        remove_search_index_row(db, event.id)
         db.commit()
         return {"ok": True, "deletedAt": serialize_datetime(event.deleted_at)}
 
+    remove_search_index_row(db, event.id)
     db.delete(event)
     db.commit()
     cleanup_orphan_images(db, {old_image_id} if old_image_id else set())
@@ -1031,6 +1239,7 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
 
     existing_events = db.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
     old_image_ids = {event.image_id for event in existing_events if event.image_id}
+    remove_search_index_topic(db, topic.id)
     for event in existing_events:
         db.delete(event)
     db.flush()
@@ -1045,6 +1254,7 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
         db.flush()
         for index, item in enumerate(node["items"]):
             db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+        upsert_search_index_row(db, event, node, topic)
     db.commit()
     cleanup_orphan_images(db, old_image_ids)
     return {"ok": True, "count": len(normalized_events)}

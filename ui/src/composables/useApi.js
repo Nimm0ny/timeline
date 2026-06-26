@@ -32,6 +32,12 @@ export const api = {
   getIndex() {
     return request("/api/index");
   },
+  search(query, params = {}) {
+    const search = new URLSearchParams();
+    search.set("q", query || "");
+    if (params.limit) search.set("limit", String(params.limit));
+    return request(`/api/search?${search.toString()}`);
+  },
   getEvent(id) {
     return request(`/api/events/${encodeURIComponent(id)}`);
   },

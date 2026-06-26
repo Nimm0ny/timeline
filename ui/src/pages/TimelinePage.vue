@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import CommandPalette from "@/components/timeline-notes/CommandPalette.vue";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
 import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
 import SettingsModal from "@/components/settings/SettingsModal.vue";
@@ -120,11 +121,19 @@ const state = reactive({
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
   showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
   searchRequestKey: 0,
+  commandOpen: false,
+  commandQuery: "",
+  commandResults: [],
+  commandLoading: false,
+  commandError: "",
+  topicCreateRequestKey: 0,
   editPreview: null,
 });
 
 let resizeCleanup = null;
 let detailRequestSeq = 0;
+let commandSearchTimer = null;
+let commandRequestSeq = 0;
 
 function normalizeMediaConfig(media = {}) {
   const source = media && typeof media === "object" ? media : {};
@@ -453,6 +462,130 @@ function closeMobileSidebar() {
 function openSettings() {
   closeMobileSidebar();
   state.settingsOpen = true;
+}
+
+function clearCommandSearchTimer() {
+  if (commandSearchTimer) {
+    window.clearTimeout(commandSearchTimer);
+    commandSearchTimer = null;
+  }
+}
+
+function openCommandPalette(initialQuery = "") {
+  state.commandOpen = true;
+  state.commandQuery = String(initialQuery || "");
+  state.commandResults = [];
+  state.commandError = "";
+}
+
+function closeCommandPalette() {
+  clearCommandSearchTimer();
+  commandRequestSeq += 1;
+  state.commandOpen = false;
+  state.commandLoading = false;
+}
+
+async function performCommandSearch(query, seq) {
+  const trimmed = String(query || "").trim();
+  if (!trimmed) {
+    state.commandResults = [];
+    state.commandError = "";
+    state.commandLoading = false;
+    return;
+  }
+
+  state.commandLoading = true;
+  state.commandError = "";
+  try {
+    const rows = await api.search(trimmed, { limit: 8 });
+    if (seq !== commandRequestSeq) return;
+    state.commandResults = Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (seq !== commandRequestSeq) return;
+    state.commandResults = [];
+    state.commandError = error.message || "搜索失败";
+  } finally {
+    if (seq === commandRequestSeq) state.commandLoading = false;
+  }
+}
+
+function handleGlobalKeydown(event) {
+  if (!((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k")) return;
+  event.preventDefault();
+  openCommandPalette();
+}
+
+function selectCommandEvent(result) {
+  const topicId = Number(result?.topicId);
+  const eventId = Number(result?.id);
+  if (!topicId || !eventId) return;
+  runOrConfirm(async () => {
+    closeCommandPalette();
+    state.collectionMode = "";
+    state.sidebarFilter = "all";
+    state.propertyFilter = { key: "", value: "" };
+    state.activeEra = "";
+    state.locateDate = "";
+    state.searchQuery = "";
+    applyWorkspaceSelection({
+      preferredTopicId: topicId,
+      preferredEventId: eventId,
+      preferredMode: "view",
+      openDetail: true,
+    });
+    state.detailError = "";
+    state.rightOpen = true;
+    closeMobileSidebar();
+    await syncRouteState({
+      topicId,
+      eventId,
+      filter: "all",
+      propertyFilter: { key: "", value: "" },
+      era: "",
+      date: "",
+      mode: "view",
+    });
+  });
+}
+
+function selectCommandTopic(topic) {
+  const topicId = Number(topic?.id);
+  if (!topicId) return;
+  runOrConfirm(async () => {
+    closeCommandPalette();
+    exitGlobalFavoritesMode({ reselect: false });
+    state.propertyFilter = { key: "", value: "" };
+    state.activeEra = "";
+    state.searchQuery = "";
+    applyWorkspaceSelection({
+      preferredTopicId: topicId,
+      preferredEventId: null,
+      preferredMode: "view",
+      openDetail: false,
+    });
+    state.rightOpen = false;
+    closeMobileSidebar();
+    await syncRouteState({ topicId, eventId: null, propertyFilter: { key: "", value: "" }, era: "", mode: "view" });
+  });
+}
+
+function handleCommandPaletteCommand(command) {
+  closeCommandPalette();
+  if (command === "new-event") {
+    startCreateEvent();
+    return;
+  }
+  if (command === "new-topic") {
+    exitGlobalFavoritesMode({ reselect: false });
+    closeMobileSidebar();
+    state.topicCreateRequestKey += 1;
+    return;
+  }
+  if (command === "settings") {
+    openSettings();
+    return;
+  }
+  if (command === "export") exportCurrentTopic();
 }
 
 function discardAndContinue() {
@@ -879,7 +1012,7 @@ function focusFeedSearch() {
     closeMobileSidebar();
     return;
   }
-  state.searchRequestKey += 1;
+  openCommandPalette();
 }
 
 // A brand-new option created in the picker is folded into its property and
@@ -1039,11 +1172,14 @@ async function loadSelectedEventDetail(eventId) {
 }
 
 onMounted(() => {
+  window.addEventListener("keydown", handleGlobalKeydown);
   loadWorkspace();
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleGlobalKeydown);
   resizeCleanup?.();
+  clearCommandSearchTimer();
 });
 
 watch(
@@ -1061,6 +1197,18 @@ watch(
   ([eventId, rightOpen, mode]) => {
     if (!rightOpen || !eventId || mode === "create") return;
     loadSelectedEventDetail(eventId);
+  }
+);
+
+watch(
+  () => [state.commandOpen, state.commandQuery],
+  ([open, query]) => {
+    clearCommandSearchTimer();
+    if (!open) return;
+    const seq = ++commandRequestSeq;
+    commandSearchTimer = window.setTimeout(() => {
+      performCommandSearch(query, seq);
+    }, 120);
   }
 );
 
@@ -1113,6 +1261,7 @@ watch(
       :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
+      :create-topic-request-key="state.topicCreateRequestKey"
       @create-event="startCreateEvent"
       @create-event-in-topic="createEventInTopic"
       @create-topic="createTopic"
@@ -1149,6 +1298,7 @@ watch(
       :show-column-controls="!isGlobalFavoritesMode"
       :search-placeholder="isGlobalFavoritesMode ? '搜索跨本收藏' : '搜索当前时间线'"
       :search-request-key="state.searchRequestKey"
+      :command-search="!isMobile"
       :trash-view="!isGlobalFavoritesMode && state.sidebarFilter === 'trash'"
       :mobile="isMobile"
       @create-event="startCreateEvent"
@@ -1162,6 +1312,7 @@ watch(
       @batch-trash="batchTrashEvents"
       @batch-restore="batchRestoreEvents"
       @batch-permanent-delete="requestBatchPurge"
+      @open-command-palette="openCommandPalette"
     />
 
     <EventDetailPane
@@ -1257,6 +1408,20 @@ watch(
       @close="state.settingsOpen = false"
       @export-data="exportCurrentTopic"
       @update-media="updateMediaConfig"
+    />
+
+    <CommandPalette
+      :open="state.commandOpen"
+      :query="state.commandQuery"
+      :events="state.commandResults"
+      :topics="state.topics"
+      :loading="state.commandLoading"
+      :error="state.commandError"
+      @close="closeCommandPalette"
+      @update:query="state.commandQuery = $event"
+      @select-event="selectCommandEvent"
+      @select-topic="selectCommandTopic"
+      @command="handleCommandPaletteCommand"
     />
   </div>
 </template>

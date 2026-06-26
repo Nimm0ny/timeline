@@ -14,6 +14,7 @@ from backend.app.api.topics import router as topics_router
 from backend.app.core.config import IMAGES_DIR, THEME_DIR
 from backend.app.db.session import SessionLocal
 from backend.app.services.legacy_migration import init_database, migrate_legacy_files
+from backend.app.services.timeline import rebuild_search_index
 
 
 MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable"
@@ -59,6 +60,8 @@ def create_app() -> FastAPI:
         db = SessionLocal()
         try:
             migrate_legacy_files(db)
+            rebuild_search_index(db)
+            db.commit()
         finally:
             db.close()
 

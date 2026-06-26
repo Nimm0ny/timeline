@@ -1880,6 +1880,173 @@ button {
   overflow: auto;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: start center;
+  padding: 12vh 24px 24px;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+}
+
+.modal-card.command-palette-card {
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(720px, 76vh);
+  border-radius: var(--radius-lg);
+  background: var(--bg-detail);
+  box-shadow: var(--shadow-pop);
+}
+
+.modal-body.command-palette-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.command-palette {
+  min-height: 220px;
+  max-height: min(720px, 76vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.command-search-field {
+  height: 58px;
+  display: grid;
+  grid-template-columns: var(--btn) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-faint);
+}
+
+.command-search-field input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.command-search-field input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.command-search-field input::placeholder {
+  color: var(--text-faint);
+}
+
+.command-search-state,
+.command-message,
+.command-section-label,
+.command-row-sub,
+.command-row-meta {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.command-results {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.command-message {
+  margin: 8px 8px 10px;
+}
+
+.command-section-label {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.command-result-row {
+  width: 100%;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-result-row:hover,
+.command-result-row.active {
+  background: var(--bg-hover);
+}
+
+.command-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.command-row-title,
+.command-row-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-row-title {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.command-row-sub {
+  color: var(--text-muted);
+}
+
+.command-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.command-date {
+  min-width: 76px;
+  text-align: right;
+  font-family: var(--tn-font-num);
+}
+
+.command-command-main {
+  grid-template-columns: var(--icon-bar) minmax(0, 1fr);
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.command-shortcut {
+  min-width: 52px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--text-faint);
+  font-family: var(--tn-font-num);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .modal-image,
 .modal-frame {
   width: 100%;

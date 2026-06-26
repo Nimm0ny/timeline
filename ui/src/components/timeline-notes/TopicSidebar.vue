@@ -53,6 +53,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  createTopicRequestKey: {
+    type: Number,
+    default: 0,
+  },
 });
 
 const emit = defineEmits([
@@ -415,6 +419,15 @@ watch(
   (active) => {
     if (active) state.ribbon = "star";
     else if (state.ribbon === "star") state.ribbon = "files";
+  }
+);
+
+watch(
+  () => props.createTopicRequestKey,
+  (key, previous) => {
+    if (!key || key === previous) return;
+    state.ribbon = "files";
+    startCreateTopic();
   }
 );
 </script>

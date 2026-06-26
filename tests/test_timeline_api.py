@@ -105,6 +105,66 @@ def test_index_and_event_detail_contract(client, seeded_topic):
     assert body["attachments"] == []
 
 
+def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
+    meta = client.put(
+        f"/api/topics/{seeded_topic.id}/meta",
+        json={
+            "columns": [
+                {
+                    "key": "category",
+                    "label": "Category",
+                    "type": "select",
+                    "width": 120,
+                    "order": 0,
+                    "visible": True,
+                    "options": [{"id": "policy_option", "label": "Policy Label", "color": ""}],
+                }
+            ]
+        },
+    )
+    assert meta.status_code == 200
+    payload = {
+        "dateYear": 1842,
+        "dateMonth": 6,
+        "dateDay": 8,
+        "headline": "Command Palette Treaty",
+        "era": "Modern China",
+        "bodyMarkdown": "A searchable body contains uniqueneedle text.",
+        "extra": {"category": "policy_option"},
+        "items": [],
+        "image": None,
+    }
+    created = client.post(f"/api/topics/{seeded_topic.id}/events", json=payload)
+    assert created.status_code == 200
+    event_id = created.json()["id"]
+
+    matched = client.get("/api/search", params={"q": "uniqueneedle", "limit": 5})
+    assert matched.status_code == 200
+    rows = matched.json()
+    assert rows[0]["id"] == event_id
+    assert rows[0]["topicId"] == seeded_topic.id
+    assert rows[0]["headline"] == "Command Palette Treaty"
+    assert rows[0]["isoDate"] == "1842-06-08"
+    assert "snippet" in rows[0]
+    assert "rank" in rows[0]
+
+    extra_match = client.get("/api/search", params={"q": "Policy Label"})
+    assert extra_match.status_code == 200
+    assert any(row["id"] == event_id for row in extra_match.json())
+
+    updated = client.put(
+        f"/api/events/{event_id}",
+        json={**payload, "headline": "Updated Search Event", "bodyMarkdown": "replacementneedle is now the indexed body."},
+    )
+    assert updated.status_code == 200
+    assert all(row["id"] != event_id for row in client.get("/api/search", params={"q": "uniqueneedle"}).json())
+    assert any(row["id"] == event_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
+
+    deleted = client.delete(f"/api/events/{event_id}")
+    assert deleted.status_code == 200
+    assert all(row["id"] != event_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
+
+
 def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     response = client.post(
         f"/api/topics/{seeded_topic.id}/events",

@@ -21,6 +21,7 @@ from backend.app.services.timeline import (
     parse_cursor_token,
     parse_query_date_key,
     query_topic_events,
+    search_events,
     summarize_topic_events,
     topic_to_dict,
     update_event,
@@ -38,6 +39,15 @@ def get_topics(db: Session = Depends(get_db)):
 @router.get("/api/index")
 def get_index(db: Session = Depends(get_db)):
     return build_timeline_index(db)
+
+
+@router.get("/api/search")
+def get_search(
+    q: str = Query("", alias="q"),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return search_events(db, q, limit)
 
 
 @router.post("/api/topics")
