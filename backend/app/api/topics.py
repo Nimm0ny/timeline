@@ -6,11 +6,13 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
 from backend.app.services.timeline import (
+    build_timeline_index,
     create_event,
     create_topic,
     delete_event,
     delete_topic,
     export_topic_data,
+    get_event_detail,
     get_topic_meta,
     get_topic_or_404,
     import_topic_data,
@@ -31,6 +33,11 @@ router = APIRouter(tags=["topics"])
 @router.get("/api/topics")
 def get_topics(db: Session = Depends(get_db)):
     return list_topics(db)
+
+
+@router.get("/api/index")
+def get_index(db: Session = Depends(get_db)):
+    return build_timeline_index(db)
 
 
 @router.post("/api/topics")
@@ -106,6 +113,11 @@ def create_topic_event(
 @router.put("/api/events/{event_id}")
 def put_event(event_id: int, payload: dict, db: Session = Depends(get_db)):
     return update_event(db, event_id, payload)
+
+
+@router.get("/api/events/{event_id}")
+def get_event(event_id: int, db: Session = Depends(get_db)):
+    return get_event_detail(db, event_id)
 
 
 @router.delete("/api/events/{event_id}")

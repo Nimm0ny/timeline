@@ -354,6 +354,7 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
     related_ids = [int(value) for value in deserialize_json_list(event.related_event_ids_json) if str(value).strip().isdigit()]
     return {
         "id": event.id,
+        "topicId": event.topic_id,
         "nodeType": "event",
         "dateKey": date_key,
         "sortKey": event.sort_key,
@@ -379,6 +380,74 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "favorite": bool(event.favorite),
         "deletedAt": serialize_datetime(event.deleted_at),
         "items": items,
+    }
+
+
+def markdown_plain_text(source: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", source)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[#>*_`~\-\[\]()]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def markdown_preview_text(event: TimelineEvent, *, max_length: int = 120) -> str:
+    items = serialize_items(event)
+    source = event.body_markdown or default_body_markdown(items)
+    text = markdown_plain_text(source)
+    return text[:max_length].rstrip()
+
+
+def flatten_search_values(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [part for item in value for part in flatten_search_values(item)]
+    if isinstance(value, dict):
+        return [part for item in value.values() for part in flatten_search_values(item)]
+    return [str(value)]
+
+
+def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> str:
+    items = serialize_items(event)
+    extra = deserialize_json_dict(event.extra_json)
+    parts = [
+        event.headline,
+        event.year,
+        event.era,
+        markdown_plain_text(event.body_markdown or default_body_markdown(items)),
+        *[item["text"] for item in items],
+        *flatten_search_values(extra),
+        *[f"{attachment.get('name', '')} {attachment.get('filename', '')}" for attachment in attachments],
+    ]
+    return re.sub(r"\s+", " ", " ".join(str(part or "") for part in parts)).strip()
+
+
+def event_to_index_dict(event: TimelineEvent) -> dict:
+    date_key = event.date_key or normalize_date_key(event.sort_key)
+    date_year, date_month, date_day = date_key_to_parts(date_key)
+    headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
+    attachments = deserialize_json_list(event.attachments_json)
+    return {
+        "id": event.id,
+        "topicId": event.topic_id,
+        "dateKey": date_key,
+        "isoDate": date_key_to_iso(date_key),
+        "dateParts": {
+            "year": date_year,
+            "month": date_month,
+            "day": date_day,
+        },
+        "displayLabel": build_display_label(date_year, date_month, date_day, headline),
+        "headline": headline,
+        "era": event.era,
+        "extra": deserialize_json_dict(event.extra_json),
+        "favorite": bool(event.favorite),
+        "deletedAt": serialize_datetime(event.deleted_at),
+        "createdAt": serialize_datetime(event.created_at),
+        "updatedAt": serialize_datetime(event.updated_at),
+        "preview": markdown_preview_text(event),
+        "searchText": event_index_search_text(event, attachments),
+        "attachmentCount": len(attachments),
     }
 
 
@@ -547,6 +616,23 @@ def list_topic_events(db: Session, topic_id: int) -> list[dict]:
     get_topic_or_404(db, topic_id)
     events = build_event_query(db, topic_id).order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc()).all()
     return serialize_event_rows(db, events)
+
+
+def get_event_detail(db: Session, event_id: int) -> dict:
+    return serialize_event_rows(db, [get_event_or_404(db, event_id)])[0]
+
+
+def build_timeline_index(db: Session) -> dict:
+    rows = (
+        db.query(TimelineEvent)
+        .options(selectinload(TimelineEvent.items))
+        .order_by(TimelineEvent.topic_id.asc(), TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+        .all()
+    )
+    return {
+        "topics": list_topics(db),
+        "events": [event_to_index_dict(event) for event in rows],
+    }
 
 
 def query_topic_events(

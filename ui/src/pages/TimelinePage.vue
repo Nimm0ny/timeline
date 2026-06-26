@@ -9,6 +9,7 @@ import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.v
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
+import { useTimelineStore } from "@/composables/useTimelineStore";
 import { useViewport } from "@/composables/useViewport";
 import {
   compareTimelineEvents,
@@ -21,6 +22,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
+const timelineStore = useTimelineStore();
 const { isMobile, isCompactDesktop } = useViewport();
 
 const DETAIL_MODES = new Set(["view", "edit", "create"]);
@@ -113,6 +115,7 @@ const state = reactive({
 });
 
 let resizeCleanup = null;
+let detailRequestSeq = 0;
 
 const workspaceStyle = computed(() => ({
   "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
@@ -124,7 +127,16 @@ const activeTopicTitle = computed(
 );
 
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
-const selectedEvent = computed(() => state.events.find((event) => event.id === state.selectedEventId) || null);
+const selectedEventDetail = computed(() => timelineStore.detailById(state.selectedEventId));
+const selectedEventIndex = computed(() => state.events.find((event) => event.id === state.selectedEventId) || null);
+const selectedEvent = computed(() => selectedEventDetail.value || selectedEventIndex.value);
+const detailRequiresFullEvent = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
+const detailPaneEvent = computed(() => {
+  if (state.detailMode === "create") return null;
+  if (detailRequiresFullEvent.value && !selectedEventDetail.value) return null;
+  return selectedEvent.value;
+});
+const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.detailLoading || (detailRequiresFullEvent.value && !selectedEventDetail.value))));
 
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
@@ -261,14 +273,62 @@ function setDefaultSelection(preferredEventId = null) {
   state.selectedEventId = items[0]?.id ?? null;
 }
 
-async function loadWorkspace(options = {}) {
+function syncActiveTopicFromStore() {
+  state.topics = [...timelineStore.state.topics];
+  state.activeTopicMeta = state.activeTopicId ? timelineStore.topicById(state.activeTopicId) : null;
+  state.events = state.activeTopicId ? timelineStore.eventsForTopic(state.activeTopicId) : [];
+  state.eventBounds = state.activeTopicMeta
+    ? {
+        eventCount: state.activeTopicMeta.eventCount,
+        minDateKey: state.activeTopicMeta.minDateKey,
+        maxDateKey: state.activeTopicMeta.maxDateKey,
+        minDate: state.activeTopicMeta.minDate,
+        maxDate: state.activeTopicMeta.maxDate,
+      }
+    : null;
+  state.hasMore = false;
+  state.nextCursor = null;
+}
+
+function applyWorkspaceSelection(options = {}) {
   const {
     preferredTopicId = null,
     preferredEventId = parseRouteNumber("event"),
     preferredMode = parseRouteMode(),
     openDetail = preferredMode !== "view" || preferredEventId !== null,
   } = options;
+  const topics = timelineStore.state.topics;
+  const routeTopicId = parseRouteNumber("topic");
+  const resolvedTopicId =
+    preferredTopicId && topics.some((topic) => topic.id === preferredTopicId)
+      ? preferredTopicId
+      : routeTopicId && topics.some((topic) => topic.id === routeTopicId)
+        ? routeTopicId
+        : topics[0]?.id ?? null;
 
+  state.activeTopicId = resolvedTopicId;
+  syncActiveTopicFromStore();
+
+  if (!resolvedTopicId) {
+    state.activeTopicMeta = null;
+    state.events = [];
+    state.selectedEventId = null;
+    state.rightOpen = false;
+    return;
+  }
+
+  setDefaultSelection(preferredEventId);
+  state.detailMode =
+    preferredMode === "create"
+      ? "create"
+      : preferredMode === "edit" && state.selectedEventId
+        ? "edit"
+        : "view";
+  state.rightOpen = Boolean(openDetail && (state.selectedEventId || state.detailMode === "create"));
+  document.title = `${state.config.brandName} Chronicle`;
+}
+
+async function loadWorkspace(options = {}) {
   state.loading = true;
   state.error = "";
   state.detailError = "";
@@ -278,42 +338,9 @@ async function loadWorkspace(options = {}) {
   state.locateDate = parseRouteString("date");
 
   try {
-    const [config, topics] = await Promise.all([api.getConfig(), api.listTopics()]);
+    await Promise.all([api.getConfig(), timelineStore.loadIndex()]);
     state.config.brandName = "编年";
-    state.topics = topics;
-
-    const resolvedTopicId =
-      preferredTopicId && topics.some((topic) => topic.id === preferredTopicId)
-        ? preferredTopicId
-        : parseRouteNumber("topic") && topics.some((topic) => topic.id === parseRouteNumber("topic"))
-          ? parseRouteNumber("topic")
-          : topics[0]?.id ?? null;
-
-    state.activeTopicId = resolvedTopicId;
-    if (!resolvedTopicId) {
-      state.activeTopicMeta = null;
-      state.events = [];
-      state.selectedEventId = null;
-      state.rightOpen = false;
-      return;
-    }
-
-    const [meta, response] = await Promise.all([api.getTopicMeta(resolvedTopicId), api.getTimelineEvents(resolvedTopicId)]);
-    state.activeTopicMeta = meta;
-    state.eventBounds = response.bounds || null;
-    state.hasMore = Boolean(response.hasMore);
-    state.nextCursor = response.nextCursor || null;
-    state.events = [...(response.items || [])].sort(compareTimelineEvents);
-
-    setDefaultSelection(preferredEventId);
-    state.detailMode =
-      preferredMode === "create"
-        ? "create"
-        : preferredMode === "edit" && state.selectedEventId
-          ? "edit"
-          : "view";
-    state.rightOpen = Boolean(openDetail && (state.selectedEventId || state.detailMode === "create"));
-    document.title = `${state.config.brandName} Chronicle`;
+    applyWorkspaceSelection(options);
   } catch (error) {
     state.error = error.message || "加载失败";
     pushToast(`加载失败：${error.message}`, "error");
@@ -416,7 +443,7 @@ function createEventInTopic(topicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      await loadWorkspace({
+      applyWorkspaceSelection({
         preferredTopicId: topicId,
         preferredEventId: null,
         preferredMode: "view",
@@ -463,13 +490,10 @@ async function saveEvent(payload) {
     await cleanupDeletedImages(payload.imageOps, payload.data.image);
     detailPaneRef.value?.markSaved?.();
     state.detailDirty = false;
-    await loadWorkspace({
-      preferredTopicId: state.activeTopicId,
-      preferredEventId: result.id,
-      preferredMode: "view",
-      openDetail: true,
-    });
+    timelineStore.upsertEvent(result);
+    syncActiveTopicFromStore();
     state.selectedEventId = result.id;
+    state.detailMode = "view";
     state.rightOpen = true;
     await syncRouteState({ eventId: result.id, mode: "view" });
     pushToast(payload.id ? "事件已更新" : "事件已创建");
@@ -494,7 +518,7 @@ async function selectTopic(topicId) {
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
-    await loadWorkspace({
+    applyWorkspaceSelection({
       preferredTopicId: topicId,
       preferredEventId: null,
       preferredMode: "view",
@@ -509,13 +533,14 @@ async function selectTopic(topicId) {
 async function createTopic(name) {
   try {
     const created = await api.createTopic(name);
-    pushToast(`已创建笔记本：${name}`);
-    await loadWorkspace({
+    timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
+    applyWorkspaceSelection({
       preferredTopicId: created.id,
       preferredEventId: null,
       preferredMode: "view",
       openDetail: false,
     });
+    pushToast(`已创建笔记本：${name}`);
     state.rightOpen = false;
     closeMobileSidebar();
     await syncRouteState({ topicId: created.id, eventId: null });
@@ -532,11 +557,8 @@ async function renameTopic({ id, title } = {}) {
   if (!id || !name) return;
   try {
     const meta = await api.updateTopicMeta(id, { title: name });
-    const topic = state.topics.find((item) => item.id === id);
-    if (topic) topic.title = meta.title;
-    if (id === state.activeTopicId && state.activeTopicMeta) {
-      state.activeTopicMeta = { ...state.activeTopicMeta, title: meta.title };
-    }
+    timelineStore.upsertTopic(meta);
+    syncActiveTopicFromStore();
     pushToast(`已重命名为：${meta.title}`);
   } catch (error) {
     pushToast(`重命名失败：${error.message}`, "error");
@@ -598,11 +620,8 @@ async function toggleFavorite(event) {
   if (!event || event.deletedAt) return;
   try {
     const result = await api.updateEventFavorite(event.id, !event.favorite);
-    const target = state.events.find((item) => item.id === event.id);
-    if (target) {
-      target.favorite = result.favorite;
-      target.updatedAt = result.updatedAt;
-    }
+    timelineStore.upsertEvent(result);
+    syncActiveTopicFromStore();
   } catch (error) {
     pushToast(`收藏更新失败：${error.message}`, "error");
   }
@@ -621,8 +640,8 @@ async function moveEventToTrash(event) {
   if (!event?.id) return;
   try {
     const result = await api.softDeleteEvent(event.id);
-    const target = state.events.find((item) => item.id === event.id);
-    if (target) target.deletedAt = result.deletedAt || new Date().toISOString();
+    timelineStore.patchEvent(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
+    syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
@@ -636,11 +655,8 @@ async function restoreEvent(event) {
   if (!event?.id) return;
   try {
     const result = await api.restoreEvent(event.id);
-    const target = state.events.find((item) => item.id === event.id);
-    if (target) {
-      target.deletedAt = result.deletedAt;
-      target.updatedAt = result.updatedAt;
-    }
+    timelineStore.upsertEvent(result);
+    syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
@@ -654,7 +670,8 @@ async function permanentlyDeleteEvent(event) {
   if (!event?.id) return;
   try {
     await api.permanentlyDeleteEvent(event.id);
-    state.events = state.events.filter((item) => item.id !== event.id);
+    timelineStore.removeEvent(event.id);
+    syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
@@ -680,13 +697,23 @@ async function runBatch(ids, perEvent, doneLabel) {
       // perEvent returns false for a no-op skip (e.g. already in target state),
       // so the toast counts only events actually changed.
       const ran = await perEvent(event);
-      if (ran !== false) done += 1;
+      if (ran !== false) {
+        if (ran?.permanentDeletedId) {
+          timelineStore.removeEvent(ran.permanentDeletedId);
+        } else if (ran?.id) {
+          timelineStore.upsertEvent(ran);
+        } else if ("deletedAt" in (ran || {})) {
+          timelineStore.patchEvent(event.id, { deletedAt: ran.deletedAt || new Date().toISOString() });
+        }
+        done += 1;
+      }
     }
     pushToast(`${doneLabel} ${done} 条`);
   } catch (error) {
     pushToast(done ? `已处理 ${done} 条，其余失败：${error.message}` : `操作失败：${error.message}`, "error");
   } finally {
-    await loadWorkspace({ preferredTopicId: state.activeTopicId, preferredEventId: null, preferredMode: "view", openDetail: false });
+    syncActiveTopicFromStore();
+    applyFilterState();
     state.rightOpen = false;
     await syncRouteState({ eventId: null });
   }
@@ -717,7 +744,16 @@ function closeBatchPurge() {
 async function confirmBatchPurgeNow() {
   const ids = state.confirmPurgeIds;
   state.confirmPurgeIds = null;
-  if (ids?.length) await runBatch(ids, (event) => api.permanentlyDeleteEvent(event.id), "已永久删除");
+  if (ids?.length) {
+    await runBatch(
+      ids,
+      async (event) => {
+        await api.permanentlyDeleteEvent(event.id);
+        return { permanentDeletedId: event.id };
+      },
+      "已永久删除"
+    );
+  }
 }
 
 function focusFeedSearch() {
@@ -738,14 +774,14 @@ async function addPropertyOption({ key, option }) {
     if ((column.options || []).some((existing) => existing.id === option.id)) return column;
     return { ...column, options: [...(column.options || []), option] };
   });
-  state.activeTopicMeta = { ...state.activeTopicMeta, columns };
   try {
     const meta = await api.updateTopicMeta(state.activeTopicId, {
       title: state.activeTopicMeta?.title || "",
       subtitle: state.activeTopicMeta?.subtitle || "",
       columns,
     });
-    state.activeTopicMeta = meta;
+    timelineStore.upsertTopic(meta);
+    syncActiveTopicFromStore();
   } catch (error) {
     pushToast(`选项保存失败：${error.message}`, "error");
   }
@@ -777,8 +813,10 @@ async function confirmDeleteTopicNow() {
   try {
     for (const topic of topics) {
       await api.deleteTopic(topic.id);
+      timelineStore.removeTopic(topic.id);
       deleted += 1;
     }
+    syncActiveTopicFromStore();
     pushToast(topics.length > 1 ? `已删除 ${topics.length} 个笔记本` : `已删除笔记本：${topics[0].title || topics[0].name}`);
   } catch (error) {
     pushToast(deleted ? `已删除 ${deleted} 个，其余失败：${error.message}` : `删除失败：${error.message}`, "error");
@@ -787,7 +825,7 @@ async function confirmDeleteTopicNow() {
     // mid-loop failure never leaves the card open over already-deleted notebooks.
     state.confirmDeleteTopics = null;
     if (deleted) {
-      await loadWorkspace({ preferredTopicId: null, preferredEventId: null, preferredMode: "view", openDetail: false });
+      applyWorkspaceSelection({ preferredTopicId: state.topics[0]?.id ?? null, preferredEventId: null, preferredMode: "view", openDetail: false });
       state.rightOpen = false;
       await syncRouteState({ topicId: state.activeTopicId, eventId: null });
     }
@@ -804,7 +842,8 @@ async function saveTopicColumns(columns) {
       subtitle: state.activeTopicMeta?.subtitle || "",
       columns: normalized,
     });
-    state.activeTopicMeta = meta;
+    timelineStore.upsertTopic(meta);
+    syncActiveTopicFromStore();
     pushToast("列定义已保存");
   } catch (error) {
     pushToast(`列定义保存失败：${error.message}`, "error");
@@ -842,6 +881,32 @@ function startResize(side, event) {
   event.preventDefault();
 }
 
+async function loadSelectedEventDetail(eventId) {
+  const id = Number(eventId);
+  if (!id || timelineStore.detailById(id)) {
+    state.detailLoading = false;
+    return;
+  }
+  const seq = ++detailRequestSeq;
+  state.detailLoading = true;
+  state.detailError = "";
+  try {
+    await timelineStore.ensureEventDetail(id);
+    if (seq === detailRequestSeq) {
+      syncActiveTopicFromStore();
+    }
+  } catch (error) {
+    if (seq === detailRequestSeq) {
+      state.detailError = error.message || "详情加载失败";
+      pushToast(`详情加载失败：${error.message}`, "error");
+    }
+  } finally {
+    if (seq === detailRequestSeq) {
+      state.detailLoading = false;
+    }
+  }
+}
+
 onMounted(() => {
   loadWorkspace();
 });
@@ -857,6 +922,14 @@ watch(
       state.mobileSidebarOpen = false;
       state.mobileSearchOpen = false;
     }
+  }
+);
+
+watch(
+  () => [state.selectedEventId, state.rightOpen, state.detailMode],
+  ([eventId, rightOpen, mode]) => {
+    if (!rightOpen || !eventId || mode === "create") return;
+    loadSelectedEventDetail(eventId);
   }
 );
 
@@ -954,11 +1027,11 @@ watch(
     <EventDetailPane
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
-      :event="selectedEvent"
+      :event="detailPaneEvent"
       :candidate-events="state.events"
       :topic-title="activeTopicTitle"
       :topic-columns="topicColumns"
-      :loading="state.detailLoading"
+      :loading="detailPaneLoading"
       :error="state.detailError"
       :mode="state.detailMode"
       :saving="state.saving"

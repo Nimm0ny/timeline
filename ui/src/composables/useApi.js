@@ -29,6 +29,12 @@ export const api = {
   listTopics() {
     return request("/api/topics");
   },
+  getIndex() {
+    return request("/api/index");
+  },
+  getEvent(id) {
+    return request(`/api/events/${encodeURIComponent(id)}`);
+  },
   createTopic(name) {
     return request("/api/topics", {
       method: "POST",

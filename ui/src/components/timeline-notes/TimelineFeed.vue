@@ -442,7 +442,7 @@ onBeforeUnmount(() => {
               <span v-if="column.key === 'time'" class="c-time">{{ eventColumnValue(event, column) }}</span>
               <span v-else-if="column.key === 'title'" class="c-title">
                 <b class="ev-name">{{ eventColumnValue(event, column) }}</b>
-                <span v-if="event.attachments?.length" class="clip">
+                <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                   <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
                 </span>
                 <span class="ev-sum">{{ buildEventPreview(event, 90) }}</span>

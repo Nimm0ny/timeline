@@ -96,6 +96,19 @@ test("buildEventPreview strips markdown and truncates to the requested length", 
   assert.equal(preview, "Heading This timeline...");
 });
 
+test("buildEventPreview and search can use lightweight index preview text", () => {
+  const event = { headline: "Index Row", preview: "轻量索引预览文本", extra: {} };
+
+  assert.equal(buildEventPreview(event, 20), "轻量索引预览文本");
+  assert.equal(groupTimelineEvents([event], "era", "索引").length, 1);
+});
+
+test("search can use lightweight index full search text outside preview", () => {
+  const event = { headline: "Index Row", preview: "首段摘要", searchText: "首段摘要 附件名 深层正文关键词", extra: {} };
+
+  assert.equal(groupTimelineEvents([event], "era", "深层正文关键词").length, 1);
+});
+
 test("resolvePropertyChips maps option ids to labels and colors, keeping unknown ids", () => {
   const chips = resolvePropertyChips({ extra: { tags: ["war", "politics", "ghost"] } }, tagsColumn);
   assert.deepEqual(chips.map((chip) => chip.value), ["war", "politics", "ghost"]);

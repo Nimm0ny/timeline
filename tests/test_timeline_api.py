@@ -17,6 +17,57 @@ def test_topic_meta_range_and_summary(client, seeded_topic):
     assert payload["items"][0]["eventCount"] == 2
 
 
+def test_index_and_event_detail_contract(client, seeded_topic):
+    long_body = "Short preview. " + ("filler " * 40) + "deep-search-token"
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={
+            "dateYear": 1842,
+            "dateMonth": 5,
+            "dateDay": 1,
+            "headline": "Searchable Index Event",
+            "era": "Modern China",
+            "bodyMarkdown": long_body,
+            "attachments": [
+                {"id": None, "name": "rare-attachment-name.pdf", "filename": "rare-attachment-name.pdf", "mimeType": "application/pdf"}
+            ],
+            "items": [],
+            "image": None,
+        },
+    )
+    assert created.status_code == 200
+
+    index = client.get("/api/index")
+    assert index.status_code == 200
+    payload = index.json()
+    assert payload["topics"][0]["id"] == seeded_topic.id
+    assert payload["topics"][0]["eventCount"] == 5
+
+    event = payload["events"][0]
+    assert event["topicId"] == seeded_topic.id
+    assert event["headline"] == "Opium War Begins"
+    assert event["preview"] == "Conflict begins."
+    assert event["attachmentCount"] == 0
+    assert "bodyMarkdown" not in event
+    assert "attachments" not in event
+
+    indexed_created = next(item for item in payload["events"] if item["id"] == created.json()["id"])
+    assert indexed_created["attachmentCount"] == 1
+    assert "deep-search-token" in indexed_created["searchText"]
+    assert "rare-attachment-name.pdf" in indexed_created["searchText"]
+    assert "deep-search-token" not in indexed_created["preview"]
+    assert "bodyMarkdown" not in indexed_created
+    assert "attachments" not in indexed_created
+
+    detail = client.get(f"/api/events/{event['id']}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["id"] == event["id"]
+    assert body["topicId"] == seeded_topic.id
+    assert body["bodyMarkdown"] == "Conflict begins."
+    assert body["attachments"] == []
+
+
 def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     response = client.post(
         f"/api/topics/{seeded_topic.id}/events",

@@ -115,6 +115,7 @@ export function formatEventDisplayDate(event) {
 
 export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText) {
   const text =
+    String(event?.preview || "").trim() ||
     plainTextFromMarkdown(event?.bodyMarkdown) ||
     (event?.items || [])
       .map((item) => String(item?.text || "").trim())
@@ -307,6 +308,8 @@ export function matchesEventSearch(event, query, columns = []) {
     event?.era,
     event?.legacyYear,
     event?.bodyMarkdown,
+    event?.preview,
+    event?.searchText,
     propertyText,
     attachmentText,
     ...(event?.items || []).map((item) => item?.text),
