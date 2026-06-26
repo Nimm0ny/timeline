@@ -1,4 +1,41 @@
+import io
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from backend.app.api.config import router as config_router
+from backend.app.api.media import router as media_router
+from backend.app import main as main_module
+from backend.app.db.session import get_db
+from backend.app.services import timeline as timeline_service
 from backend.app.services.timeline import export_topic_data, import_topic_data
+
+
+def make_media_client(db_session):
+    app = FastAPI()
+    app.include_router(config_router)
+    app.include_router(media_router)
+    app.add_api_route("/images/{filename:path}", main_module.image_response, methods=["GET"])
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app)
+
+
+def make_image_bytes(fmt="JPEG", size=(1200, 900), color=(120, 80, 220)) -> bytes:
+    image = Image.effect_noise(size, 80).convert("RGB")
+    overlay = Image.new("RGB", size, color)
+    image = Image.blend(image, overlay, 0.22)
+    buffer = io.BytesIO()
+    save_kwargs = {"quality": 95} if fmt.upper() in {"JPEG", "WEBP"} else {}
+    image.save(buffer, format=fmt, **save_kwargs)
+    return buffer.getvalue()
 
 
 def test_topic_meta_range_and_summary(client, seeded_topic):
@@ -94,6 +131,111 @@ def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     items = ranged.json()["items"]
     assert len(items) == 1
     assert items[0]["headline"] == "Structured Event"
+
+
+def test_media_upload_transcodes_thumbnails_dedupes_and_serves_immutable_cache(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(timeline_service, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "IMAGES_DIR", tmp_path)
+    content = make_image_bytes("JPEG")
+
+    with make_media_client(db_session) as client:
+        assert client.get("/api/config").json()["media"]["compress"] is True
+        config = client.put(
+            "/api/config",
+            json={"media": {"compress": True, "keepOriginal": False, "quality": 72, "maxEdge": 800, "thumbEdge": 200}},
+        )
+        assert config.status_code == 200
+        assert config.json()["media"]["quality"] == 72
+
+        uploaded = client.post(
+            "/api/media/upload",
+            files={"file": ("photo.jpg", content, "image/jpeg")},
+        )
+        assert uploaded.status_code == 200
+        body = uploaded.json()
+        content_hash = body["filename"].split(".", 1)[0]
+        assert body["filename"] == f"{content_hash}.webp"
+        assert body["thumbFilename"] == f"{content_hash}.thumb.webp"
+        assert body["originalFilename"] is None
+        assert body["mimeType"] == "image/webp"
+        assert body["url"] == f"/images/{body['filename']}"
+        assert body["thumbUrl"] == f"/images/{body['thumbFilename']}"
+        assert body["imageUrl"] == body["url"]
+        assert body["width"] <= 800
+        assert body["height"] <= 800
+
+        with Image.open(tmp_path / body["filename"]) as work_image:
+            assert work_image.format == "WEBP"
+            assert max(work_image.size) <= 800
+        with Image.open(tmp_path / body["thumbFilename"]) as thumb_image:
+            assert thumb_image.format == "WEBP"
+            assert max(thumb_image.size) <= 200
+
+        files_before = {path.name for path in tmp_path.iterdir()}
+        repeated = client.post(
+            "/api/media/upload",
+            files={"file": ("photo-copy.jpg", content, "image/jpeg")},
+        )
+        assert repeated.status_code == 200
+        assert repeated.json()["id"] == body["id"]
+        assert {path.name for path in tmp_path.iterdir()} == files_before
+
+        media = client.get(body["url"])
+        assert media.status_code == 200
+        assert media.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert media.headers["etag"] == f'"{content_hash}"'
+
+
+def test_media_upload_honors_keep_original_and_compress_off(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(timeline_service, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "IMAGES_DIR", tmp_path)
+
+    with make_media_client(db_session) as client:
+        keep_original = client.put(
+            "/api/config",
+            json={"media": {"compress": True, "keepOriginal": True, "quality": 80, "maxEdge": 700, "thumbEdge": 180}},
+        )
+        assert keep_original.status_code == 200
+        png_content = make_image_bytes("PNG", color=(40, 150, 120))
+        uploaded_png = client.post(
+            "/api/media/upload",
+            files={"file": ("diagram.png", png_content, "image/png")},
+        )
+        assert uploaded_png.status_code == 200
+        png_body = uploaded_png.json()
+        assert png_body["filename"].endswith(".webp")
+        assert png_body["originalFilename"].endswith(".orig.png")
+        assert (tmp_path / png_body["originalFilename"]).read_bytes() == png_content
+
+        no_compress = client.put("/api/config", json={"media": {"compress": False, "keepOriginal": False, "quality": 66}})
+        assert no_compress.status_code == 200
+        assert no_compress.json()["media"]["quality"] == 66
+        jpeg_content = make_image_bytes("JPEG", color=(180, 70, 70))
+        uploaded_jpeg = client.post(
+            "/api/media/upload",
+            files={"file": ("scan.jpg", jpeg_content, "image/jpeg")},
+        )
+        assert uploaded_jpeg.status_code == 200
+        jpeg_body = uploaded_jpeg.json()
+        assert jpeg_body["filename"].endswith(".jpg")
+        assert jpeg_body["thumbFilename"].endswith(".thumb.webp")
+        assert jpeg_body["originalFilename"] is None
+        assert (tmp_path / jpeg_body["filename"]).read_bytes() == jpeg_content
+
+
+def test_invalid_compress_off_image_leaves_no_orphan_file(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(timeline_service, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "IMAGES_DIR", tmp_path)
+
+    with make_media_client(db_session) as client:
+        no_compress = client.put("/api/config", json={"media": {"compress": False}})
+        assert no_compress.status_code == 200
+        response = client.post(
+            "/api/media/upload",
+            files={"file": ("broken.jpg", b"not a real jpeg", "image/jpeg")},
+        )
+        assert response.status_code == 400
+        assert list(tmp_path.iterdir()) == []
 
 
 PROPERTY_COLUMNS = [

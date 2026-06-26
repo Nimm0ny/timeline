@@ -81,6 +81,13 @@ const state = reactive({
   detailError: "",
   config: {
     brandName: "编年",
+    media: {
+      compress: true,
+      keepOriginal: false,
+      quality: 80,
+      maxEdge: 1920,
+      thumbEdge: 400,
+    },
   },
   topics: [],
   activeTopicId: null,
@@ -116,6 +123,17 @@ const state = reactive({
 
 let resizeCleanup = null;
 let detailRequestSeq = 0;
+
+function normalizeMediaConfig(media = {}) {
+  const source = media && typeof media === "object" ? media : {};
+  return {
+    compress: source.compress !== false,
+    keepOriginal: source.keepOriginal === true,
+    quality: Math.min(100, Math.max(1, Number.parseInt(source.quality, 10) || 80)),
+    maxEdge: Math.min(8192, Math.max(320, Number.parseInt(source.maxEdge, 10) || 1920)),
+    thumbEdge: Math.min(2048, Math.max(96, Number.parseInt(source.thumbEdge, 10) || 400)),
+  };
+}
 
 const workspaceStyle = computed(() => ({
   "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
@@ -338,8 +356,13 @@ async function loadWorkspace(options = {}) {
   state.locateDate = parseRouteString("date");
 
   try {
-    await Promise.all([api.getConfig(), timelineStore.loadIndex()]);
-    state.config.brandName = "编年";
+    const [config] = await Promise.all([api.getConfig(), timelineStore.loadIndex()]);
+    state.config = {
+      ...state.config,
+      ...config,
+      brandName: "编年",
+      media: normalizeMediaConfig(config?.media),
+    };
     applyWorkspaceSelection(options);
   } catch (error) {
     state.error = error.message || "加载失败";
@@ -857,6 +880,20 @@ function exportCurrentTopic() {
   api.exportCurrentDataRange(state.activeTopicId);
 }
 
+async function updateMediaConfig(media) {
+  const nextMedia = normalizeMediaConfig(media);
+  const previousMedia = state.config.media;
+  state.config.media = nextMedia;
+  try {
+    const updated = await api.updateConfig({ media: nextMedia });
+    state.config.media = normalizeMediaConfig(updated?.media);
+    pushToast("媒体设置已保存");
+  } catch (error) {
+    state.config.media = previousMedia;
+    pushToast(`媒体设置保存失败：${error.message}`, "error");
+  }
+}
+
 function startResize(side, event) {
   const onMove = (moveEvent) => {
     if (side === "left") {
@@ -1111,10 +1148,12 @@ watch(
     <SettingsModal
       :open="state.settingsOpen"
       :brand-name="state.config.brandName"
+      :media-config="state.config.media"
       :active-topic-title="activeTopicTitle"
       :has-topic="Boolean(state.activeTopicId)"
       @close="state.settingsOpen = false"
       @export-data="exportCurrentTopic"
+      @update-media="updateMediaConfig"
     />
   </div>
 </template>

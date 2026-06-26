@@ -349,8 +349,15 @@ function buildAttachmentFromUpload(result, file) {
     id: result.id ?? null,
     name: result.originalName || file.name,
     filename: result.filename,
+    thumbFilename: result.thumbFilename || null,
+    originalFilename: result.originalFilename || null,
     mimeType: result.mimeType || file.type || null,
+    width: result.width ?? null,
+    height: result.height ?? null,
+    bytes: result.bytes ?? null,
     url: result.url || `/images/${result.filename}`,
+    thumbUrl: result.thumbUrl || null,
+    originalUrl: result.originalUrl || null,
     imageUrl: result.imageUrl || null,
   };
 }
@@ -470,7 +477,12 @@ function submit() {
     id: item.id ?? null,
     name: item.name,
     filename: item.filename,
+    thumbFilename: item.thumbFilename || null,
+    originalFilename: item.originalFilename || null,
     mimeType: item.mimeType || null,
+    width: item.width ?? null,
+    height: item.height ?? null,
+    bytes: item.bytes ?? null,
   }));
   const extra = normalizeEventExtra(draft.extra, topicColumns.value);
 
@@ -768,8 +780,9 @@ onBeforeUnmount(() => {
                 <img
                   v-if="attachmentKind(attachment) === 'image' && attachment.imageUrl"
                   class="lrow-thumb"
-                  :src="attachment.imageUrl"
+                  :src="attachment.thumbUrl || attachment.imageUrl"
                   :alt="attachment.name"
+                  loading="lazy"
                 />
                 <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.8" />
               </span>

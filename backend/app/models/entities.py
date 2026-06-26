@@ -33,8 +33,14 @@ class ImageAsset(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     filename: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    thumb_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_orphan: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 

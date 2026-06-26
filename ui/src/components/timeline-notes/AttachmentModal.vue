@@ -62,8 +62,9 @@ onBeforeUnmount(() => {
         <img
           v-if="kind === 'image' && props.attachment?.imageUrl"
           class="modal-image"
-          :src="props.attachment.imageUrl"
+          :src="props.attachment.url || props.attachment.imageUrl"
           :alt="title"
+          loading="lazy"
         />
         <iframe
           v-else-if="kind === 'pdf' && props.attachment?.url"

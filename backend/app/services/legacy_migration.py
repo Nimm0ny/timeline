@@ -6,7 +6,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG
+from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG, encode_config_value
 from backend.app.db.session import Base, SessionLocal, engine
 from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
 from backend.app.services.date_utils import (
@@ -52,9 +52,38 @@ def build_tag_options(values: list[str]) -> list[dict]:
 
 def init_database():
     Base.metadata.create_all(bind=engine)
+    ensure_image_asset_schema()
     ensure_timeline_event_schema()
     migrate_to_property_model()
     drop_legacy_auth_artifacts()
+
+
+def ensure_image_asset_schema():
+    inspector = inspect(engine)
+    if "images" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("images")}
+    statements = []
+    if "content_hash" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN content_hash VARCHAR(64)")
+    if "thumb_filename" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN thumb_filename VARCHAR(255)")
+    if "original_filename" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN original_filename VARCHAR(255)")
+    if "width" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN width INTEGER")
+    if "height" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN height INTEGER")
+    if "bytes" not in existing:
+        statements.append("ALTER TABLE images ADD COLUMN bytes INTEGER")
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_images_content_hash ON images(content_hash)")
+        )
 
 
 def ensure_timeline_event_schema():
@@ -357,7 +386,7 @@ def seed_config_if_missing(db: Session):
         except json.JSONDecodeError:
             pass
     for key, value in payload.items():
-        db.add(AppConfigEntry(key=key, value=str(value)))
+        db.add(AppConfigEntry(key=key, value=encode_config_value(value)))
     db.commit()
 
 

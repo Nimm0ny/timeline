@@ -1,25 +1,39 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppearanceSettings from "@/components/settings/AppearanceSettings.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
   brandName: { type: String, default: "编年" },
+  mediaConfig: { type: Object, default: () => ({}) },
   activeTopicTitle: { type: String, default: "" },
   hasTopic: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "export-data"]);
+const emit = defineEmits(["close", "export-data", "update-media"]);
 
 const section = ref("appearance");
 
 const NAV = [
   { id: "general", label: "常规", icon: "settings" },
   { id: "appearance", label: "外观", icon: "sliders" },
+  { id: "media", label: "媒体", icon: "image" },
   { id: "data", label: "数据", icon: "download" },
   { id: "about", label: "关于", icon: "help" },
 ];
+
+const media = computed(() => ({
+  compress: props.mediaConfig?.compress !== false,
+  keepOriginal: props.mediaConfig?.keepOriginal === true,
+  quality: Math.min(100, Math.max(1, Number.parseInt(props.mediaConfig?.quality, 10) || 80)),
+  maxEdge: Math.min(8192, Math.max(320, Number.parseInt(props.mediaConfig?.maxEdge, 10) || 1920)),
+  thumbEdge: Math.min(2048, Math.max(96, Number.parseInt(props.mediaConfig?.thumbEdge, 10) || 400)),
+}));
+
+function updateMedia(patch) {
+  emit("update-media", { ...media.value, ...patch });
+}
 
 function onKeydown(event) {
   if (event.key === "Escape" && props.open) emit("close");
@@ -68,6 +82,47 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
       <section v-else-if="section === 'appearance'" class="settings-pane">
         <h3 class="settings-title">外观</h3>
         <AppearanceSettings />
+      </section>
+
+      <section v-else-if="section === 'media'" class="settings-pane">
+        <h3 class="settings-title">媒体 / 存储</h3>
+        <div class="settings-section">
+          <h4 class="settings-h">上传处理</h4>
+          <div class="settings-row">
+            <span class="settings-row-label">压缩图片</span>
+            <span class="settings-row-control">
+              <input
+                type="checkbox"
+                :checked="media.compress"
+                @change="updateMedia({ compress: $event.target.checked })"
+              />
+            </span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-row-label">保留原图</span>
+            <span class="settings-row-control">
+              <input
+                type="checkbox"
+                :checked="media.keepOriginal"
+                @change="updateMedia({ keepOriginal: $event.target.checked })"
+              />
+            </span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-row-label">WebP 质量</span>
+            <span class="settings-row-control range">
+              <input
+                type="range"
+                min="1"
+                max="100"
+                :value="media.quality"
+                @change="updateMedia({ quality: Number.parseInt($event.target.value, 10) })"
+              />
+              <span class="range-val">{{ media.quality }}</span>
+            </span>
+          </div>
+          <p class="settings-note">默认压缩为 WebP 并生成缩略图；GIF 与 SVG 保留原文件。</p>
+        </div>
       </section>
 
       <section v-else-if="section === 'data'" class="settings-pane">

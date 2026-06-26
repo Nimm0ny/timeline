@@ -1,16 +1,18 @@
+import hashlib
+import io
 import json
 import mimetypes
 import re
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, THEME_DIR
+from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
 from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
 from backend.app.services.date_utils import (
     build_display_label,
@@ -37,6 +39,9 @@ DEFAULT_TOPIC_COLUMNS = [
     {"key": "type", "label": "类型", "type": "select", "width": 96, "order": 0, "visible": True, "options": []},
     {"key": "tags", "label": "标签", "type": "multiselect", "width": 150, "order": 1, "visible": True, "options": []},
 ]
+SUPPORTED_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".md", ".txt", ".docx"}
+PILLOW_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ORIGINAL_IMAGE_EXTENSIONS = {".gif", ".svg"}
 
 
 def default_topic_columns_json() -> str:
@@ -176,14 +181,27 @@ def normalize_attachments(payload: dict) -> list[dict]:
         mime_type = str(item.get("mimeType", "")).strip() or None
         if not filename or not name:
             raise HTTPException(status_code=400, detail="Attachment requires filename and name")
-        attachments.append(
-            {
-                "id": item.get("id"),
-                "name": name,
-                "filename": filename,
-                "mimeType": mime_type,
-            }
-        )
+        normalized = {
+            "id": item.get("id"),
+            "name": name,
+            "filename": filename,
+            "mimeType": mime_type,
+        }
+        for source_key, target_key in (
+            ("thumbFilename", "thumbFilename"),
+            ("originalFilename", "originalFilename"),
+        ):
+            value = str(item.get(source_key, "")).strip()
+            if value:
+                normalized[target_key] = value
+        for key in ("width", "height", "bytes"):
+            try:
+                value = int(item.get(key))
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value >= 0:
+                normalized[key] = value
+        attachments.append(normalized)
     return attachments
 
 
@@ -333,15 +351,26 @@ def normalize_related_event_ids(payload: dict) -> list[int]:
 def build_attachment_payload(attachment: dict) -> dict:
     filename = attachment["filename"]
     mime_type = attachment.get("mimeType")
+    thumb_filename = attachment.get("thumbFilename")
+    original_filename = attachment.get("originalFilename")
+    url = f"/images/{filename}"
     image_url = f"/images/{filename}" if (mime_type or "").startswith("image/") else None
-    return {
+    payload = {
         "id": attachment.get("id"),
         "name": attachment["name"],
         "filename": filename,
+        "thumbFilename": thumb_filename,
+        "originalFilename": original_filename,
         "mimeType": mime_type,
-        "url": f"/images/{filename}",
+        "width": attachment.get("width"),
+        "height": attachment.get("height"),
+        "bytes": attachment.get("bytes"),
+        "url": url,
+        "thumbUrl": f"/images/{thumb_filename}" if thumb_filename else image_url,
+        "originalUrl": f"/images/{original_filename}" if original_filename else None,
         "imageUrl": image_url,
     }
+    return payload
 
 
 def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None = None) -> dict:
@@ -1080,29 +1109,81 @@ def update_theme_vars(name: str, variables: dict):
     return {"ok": True}
 
 
+def _to_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def _bounded_int(value, default: int, minimum: int, maximum: int) -> int:
+    try:
+        next_value = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(maximum, max(minimum, next_value))
+
+
+def normalize_media_config(value) -> dict:
+    source = value if isinstance(value, dict) else {}
+    defaults = dict(MEDIA_DEFAULT_CONFIG)
+    return {
+        "compress": _to_bool(source.get("compress"), defaults["compress"]),
+        "keepOriginal": _to_bool(source.get("keepOriginal"), defaults["keepOriginal"]),
+        "quality": _bounded_int(source.get("quality"), defaults["quality"], 1, 100),
+        "maxEdge": _bounded_int(source.get("maxEdge"), defaults["maxEdge"], 320, 8192),
+        "thumbEdge": _bounded_int(source.get("thumbEdge"), defaults["thumbEdge"], 96, 2048),
+    }
+
+
+def decode_config_value(key: str, raw_value: str):
+    default = DEFAULT_CONFIG.get(key)
+    if isinstance(default, (dict, list, bool, int, float)) or default is None:
+        try:
+            parsed = json.loads(raw_value)
+        except (json.JSONDecodeError, TypeError):
+            parsed = default
+        return normalize_media_config(parsed) if key == "media" else parsed
+    return raw_value
+
+
 def get_app_config(db: Session) -> dict:
     config = dict(DEFAULT_CONFIG)
+    config["media"] = normalize_media_config(config.get("media"))
     entries = db.query(AppConfigEntry).all()
     for entry in entries:
-        config[entry.key] = entry.value
+        config[entry.key] = decode_config_value(entry.key, entry.value)
     if not entries and CONFIG_FILE.exists():
         try:
             file_data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             config.update(file_data)
         except json.JSONDecodeError:
             pass
+    config["media"] = normalize_media_config(config.get("media"))
     return config
 
 
 def update_app_config(db: Session, payload: dict) -> dict:
-    merged = {**get_app_config(db), **payload}
+    current = get_app_config(db)
+    merged = {**current, **payload}
+    if "media" in payload:
+        media_source = payload.get("media")
+        if isinstance(media_source, dict):
+            merged["media"] = normalize_media_config({**current.get("media", {}), **media_source})
+        else:
+            merged["media"] = normalize_media_config(media_source)
     for key, value in merged.items():
         entry = db.get(AppConfigEntry, key)
         if entry is None:
-            entry = AppConfigEntry(key=key, value=str(value))
+            entry = AppConfigEntry(key=key, value=encode_config_value(value))
             db.add(entry)
         else:
-            entry.value = str(value)
+            entry.value = encode_config_value(value)
     db.commit()
     return get_app_config(db)
 
@@ -1110,31 +1191,154 @@ def update_app_config(db: Session, payload: dict) -> dict:
 async def store_uploaded_image(db: Session, file: UploadFile):
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".md", ".txt", ".docx"):
+    if ext not in SUPPORTED_MEDIA_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Unsupported media format")
-    filename = f"{uuid.uuid4().hex[:10]}{ext}"
     content = await file.read()
-    path = IMAGES_DIR / filename
-    path.write_bytes(content)
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    content_hash = hashlib.sha256(content).hexdigest()[:16]
+    existing = db.query(ImageAsset).filter(ImageAsset.content_hash == content_hash).first()
+    if existing is not None:
+        return image_asset_to_upload_payload(existing)
+
+    media_config = normalize_media_config(get_app_config(db).get("media"))
+    original_mime = file.content_type or mimetypes.guess_type(file.filename or "")[0]
+    processed = process_media_upload(content, ext, content_hash, original_mime, media_config)
 
     image = ImageAsset(
-        filename=filename,
+        filename=processed["filename"],
+        content_hash=content_hash,
+        thumb_filename=processed.get("thumbFilename"),
+        original_filename=processed.get("originalFilename"),
         original_name=file.filename,
-        mime_type=file.content_type or mimetypes.guess_type(file.filename or "")[0],
+        mime_type=processed.get("mimeType"),
+        width=processed.get("width"),
+        height=processed.get("height"),
+        bytes=processed.get("bytes"),
         is_orphan=True,
     )
     db.add(image)
     db.commit()
     db.refresh(image)
+    return image_asset_to_upload_payload(image)
+
+
+def image_asset_to_upload_payload(image: ImageAsset) -> dict:
     image_url = f"/images/{image.filename}" if (image.mime_type or "").startswith("image/") else None
     return {
         "id": image.id,
         "filename": image.filename,
+        "thumbFilename": image.thumb_filename,
+        "originalFilename": image.original_filename,
         "originalName": image.original_name,
         "mimeType": image.mime_type,
+        "width": image.width,
+        "height": image.height,
+        "bytes": image.bytes,
         "url": f"/images/{image.filename}",
+        "thumbUrl": f"/images/{image.thumb_filename}" if image.thumb_filename else image_url,
+        "originalUrl": f"/images/{image.original_filename}" if image.original_filename else None,
         "imageUrl": image_url,
     }
+
+
+def process_media_upload(content: bytes, ext: str, content_hash: str, mime_type: str | None, media_config: dict) -> dict:
+    if ext in PILLOW_IMAGE_EXTENSIONS and media_config["compress"]:
+        return process_transcoded_image(content, ext, content_hash, media_config)
+    if ext in PILLOW_IMAGE_EXTENSIONS:
+        return process_original_image_with_thumb(content, ext, content_hash, mime_type, media_config)
+    return process_original_file(content, ext, content_hash, mime_type)
+
+
+def process_transcoded_image(content: bytes, ext: str, content_hash: str, media_config: dict) -> dict:
+    image = decode_upload_image(content)
+    work_image = resize_long_edge(image, media_config["maxEdge"])
+    work_bytes = encode_webp(work_image, media_config["quality"])
+    filename = f"{content_hash}.webp"
+    thumb_filename = f"{content_hash}.thumb.webp"
+    (IMAGES_DIR / filename).write_bytes(work_bytes)
+    (IMAGES_DIR / thumb_filename).write_bytes(encode_webp(resize_long_edge(work_image, media_config["thumbEdge"]), media_config["quality"]))
+
+    original_filename = None
+    if media_config["keepOriginal"]:
+        original_filename = f"{content_hash}.orig{ext}"
+        (IMAGES_DIR / original_filename).write_bytes(content)
+
+    return {
+        "filename": filename,
+        "thumbFilename": thumb_filename,
+        "originalFilename": original_filename,
+        "mimeType": "image/webp",
+        "width": work_image.width,
+        "height": work_image.height,
+        "bytes": len(work_bytes),
+    }
+
+
+def process_original_image_with_thumb(content: bytes, ext: str, content_hash: str, mime_type: str | None, media_config: dict) -> dict:
+    image = decode_upload_image(content)
+    filename = f"{content_hash}{ext}"
+    (IMAGES_DIR / filename).write_bytes(content)
+    thumb_filename = f"{content_hash}.thumb.webp"
+    (IMAGES_DIR / thumb_filename).write_bytes(encode_webp(resize_long_edge(image, media_config["thumbEdge"]), media_config["quality"]))
+    return {
+        "filename": filename,
+        "thumbFilename": thumb_filename,
+        "mimeType": mime_type or mimetypes.guess_type(filename)[0],
+        "width": image.width,
+        "height": image.height,
+        "bytes": len(content),
+    }
+
+
+def process_original_file(content: bytes, ext: str, content_hash: str, mime_type: str | None) -> dict:
+    suffix = ext if ext in ORIGINAL_IMAGE_EXTENSIONS else ext
+    filename = f"{content_hash}{suffix}"
+    (IMAGES_DIR / filename).write_bytes(content)
+    return {
+        "filename": filename,
+        "mimeType": mime_type or mimetypes.guess_type(filename)[0],
+        "bytes": len(content),
+    }
+
+
+def decode_upload_image(content: bytes) -> Image.Image:
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            image = ImageOps.exif_transpose(image)
+            image.load()
+            if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+                return image.convert("RGBA")
+            return image.convert("RGB")
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image file") from exc
+
+
+def resize_long_edge(image: Image.Image, max_edge: int) -> Image.Image:
+    longest = max(image.width, image.height)
+    if longest <= max_edge:
+        return image.copy()
+    ratio = max_edge / longest
+    size = (max(1, round(image.width * ratio)), max(1, round(image.height * ratio)))
+    return image.resize(size, Image.Resampling.LANCZOS)
+
+
+def encode_webp(image: Image.Image, quality: int) -> bytes:
+    target = io.BytesIO()
+    image.save(target, format="WEBP", quality=quality, method=6)
+    return target.getvalue()
+
+
+def filenames_for_asset(image: ImageAsset) -> set[str]:
+    return {name for name in (image.filename, image.thumb_filename, image.original_filename) if name}
+
+
+def unlink_asset_files(image: ImageAsset):
+    for filename in filenames_for_asset(image):
+        path = IMAGES_DIR / filename
+        if path.exists():
+            path.unlink()
 
 
 def cleanup_orphan_images(db: Session, image_ids: set[int]):
@@ -1156,15 +1360,23 @@ def cleanup_orphan_images(db: Session, image_ids: set[int]):
             image.is_orphan = False
             continue
         image.is_orphan = True
-        image_path = IMAGES_DIR / image.filename
-        if image_path.exists():
-            image_path.unlink()
+        unlink_asset_files(image)
         db.delete(image)
     db.commit()
 
 
 def delete_image_by_filename(db: Session, filename: str):
-    image = db.query(ImageAsset).filter(ImageAsset.filename == filename).first()
+    image = (
+        db.query(ImageAsset)
+        .filter(
+            or_(
+                ImageAsset.filename == filename,
+                ImageAsset.thumb_filename == filename,
+                ImageAsset.original_filename == filename,
+            )
+        )
+        .first()
+    )
     if image is None:
         raise HTTPException(status_code=404, detail="Image not found")
     linked = db.query(TimelineEvent.id).filter(TimelineEvent.image_id == image.id).first()
@@ -1176,9 +1388,7 @@ def delete_image_by_filename(db: Session, filename: str):
         )
     if linked:
         raise HTTPException(status_code=409, detail="Image is still in use")
-    image_path = IMAGES_DIR / image.filename
-    if image_path.exists():
-        image_path.unlink()
+    unlink_asset_files(image)
     db.delete(image)
     db.commit()
     return {"ok": True}

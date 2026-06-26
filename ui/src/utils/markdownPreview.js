@@ -13,7 +13,7 @@ function renderInline(value) {
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
     const safeAlt = escapeHtml(alt || "");
     const safeSrc = escapeHtml(src || "");
-    return `<img class="timeline-markdown-image" src="${safeSrc}" alt="${safeAlt}">`;
+    return `<img class="timeline-markdown-image" src="${safeSrc}" alt="${safeAlt}" loading="lazy">`;
   });
   output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
     const safeHref = escapeHtml(href || "");
