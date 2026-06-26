@@ -94,17 +94,11 @@ const readableGroups = computed(() => buildReadableDetailGroups(props.event));
 const renderedBody = computed(() => renderMarkdownToHtml(props.event?.bodyMarkdown || ""));
 
 // Unified property section: option-typed properties edit via OptionPicker, free
-// ones via inline inputs. In read mode only properties that hold a value show.
+// ones via inline inputs. Every property renders in BOTH read and edit modes
+// (empty values show 「—」), so toggling read <-> edit causes zero vertical shift.
 function chipsFor(column) {
   return resolvePropertyChips(props.event, column);
 }
-
-function hasPropertyValue(column) {
-  if (isOptionColumn(column)) return chipsFor(column).length > 0;
-  return Boolean(String(props.event?.extra?.[column.key] || "").trim());
-}
-
-const hasAnyPropertyValue = computed(() => topicColumns.value.some((column) => hasPropertyValue(column)));
 
 function onCreateOption(payload) {
   emit("create-option", payload);
@@ -147,7 +141,7 @@ const hasAttachments = computed(
 const hasRelated = computed(
   () => (inEditMode.value ? selectedRelatedEvents.value : readableGroups.value.relatedEvents).length > 0
 );
-const showPropertySection = computed(() => topicColumns.value.length > 0 && (inEditMode.value || hasAnyPropertyValue.value));
+const showPropertySection = computed(() => topicColumns.value.length > 0);
 const showAttachmentSection = computed(() => hasAttachments.value);
 const showRelatedSection = computed(() => hasRelated.value || (inEditMode.value && showRelatedSearch.value));
 
@@ -669,16 +663,14 @@ onBeforeUnmount(() => {
             </div>
           </span>
 
-          <button v-if="!inEditMode" type="button" class="meta">
+          <button v-if="!inEditMode" type="button" class="meta meta-group" title="所属分组">
             <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
             <span>{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</span>
-            <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
           </button>
           <span v-else class="meta-pop-wrap">
             <button type="button" class="meta meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
               <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
               <span>{{ `${props.topicTitle} · ${draft.era || "未分期"}` }}</span>
-              <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
             </button>
             <div v-if="eraEditorOpen" class="popover meta-pop" @click.stop>
               <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
@@ -715,7 +707,6 @@ onBeforeUnmount(() => {
           <div class="detail-prop-list">
             <div
               v-for="column in topicColumns"
-              v-show="inEditMode || hasPropertyValue(column)"
               :key="column.key"
               class="detail-prop-item"
             >
@@ -729,7 +720,7 @@ onBeforeUnmount(() => {
                     :placeholder="`选择${column.label}`"
                     @create-option="onCreateOption"
                   />
-                  <div v-else class="pane-tags">
+                  <div v-else-if="chipsFor(column).length" class="pane-tags">
                     <span
                       v-for="chip in chipsFor(column)"
                       :key="chip.value"
@@ -739,6 +730,7 @@ onBeforeUnmount(() => {
                       <i></i>{{ chip.label }}
                     </span>
                   </div>
+                  <strong v-else>—</strong>
                 </template>
                 <template v-else>
                   <input

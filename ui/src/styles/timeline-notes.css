@@ -371,10 +371,14 @@ button {
 
 .tg-head .iconbtn {
   color: var(--text-faint);
+  opacity: 0;
 }
 
-.tg:hover .tg-head .iconbtn {
-  opacity: 0.8;
+/* Hover-reveal the group-head + (reuses the .ti-acts opacity pattern); the
+   active/creating state (.on) stays lit. The persistent bottom "+ 新增" is unaffected. */
+.tg-head:hover .iconbtn,
+.tg-head .iconbtn.on {
+  opacity: 1;
 }
 
 .tg.collapsed .tg-chev {
@@ -801,9 +805,12 @@ button {
   top: 22px;
 }
 
+/* Last era: the rail continues past the final node into the feed's bottom padding
+   and fades to transparent (未完待续), instead of hard-stopping above the last node. */
 .era:last-child::before {
   bottom: auto;
-  height: calc(100% - 18px);
+  height: calc(100% + 50px);
+  background: linear-gradient(to bottom, var(--rail) calc(100% - 60px), transparent);
 }
 
 .rdot {
@@ -1379,7 +1386,9 @@ button {
 
 .detail-title,
 .detail-title-field input {
+  display: block;
   width: 100%;
+  min-height: 0;
   margin: 0;
   border: 0;
   background: none;
@@ -1389,6 +1398,14 @@ button {
   line-height: 1.3;
   letter-spacing: -0.2px;
   outline: none;
+  padding: 0;
+}
+
+/* Edit-mode title wrapper adds no box of its own, so the <input> lands at the
+   exact height/baseline of the read-mode <h1> (right-pane zero-displacement). */
+.detail-title-field {
+  display: block;
+  margin: 0;
   padding: 0;
 }
 
@@ -1409,6 +1426,14 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  /* Reset native <button> chrome so the read-mode era button has the exact same
+     box as the edit-mode .meta-trigger (which cancels its own padding via negative
+     margin). Without this the button's default 6px padding shifts the era text on
+     edit toggle, breaking the 阅读↔编辑 zero-displacement invariant. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: 13px;
   color: var(--text-muted);
 }
@@ -1437,6 +1462,21 @@ button {
 .meta-trigger.on {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* Read-mode 分组 (era) chip: no ⌄ — a hover background hints it represents the
+   event's grouping. Shares .meta-trigger's padding/negative-margin so the era text
+   sits at the exact same x in read & edit (zero displacement); not clickable. */
+.meta-group {
+  padding: 3px 8px;
+  margin: -3px -8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
+}
+
+.meta-group:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 /* Field-editor popover (date / era inputs) — shares .popover chrome; positioning only. */
@@ -1590,6 +1630,8 @@ button {
 .pane-tags {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  min-height: 30px;
   gap: 8px;
 }
 
@@ -1896,22 +1938,25 @@ select:focus-visible {
   background: var(--dot, var(--accent));
 }
 
-/* Right-pane unified property section */
+/* Right-pane unified property section. The list is the grid (not each row), so
+   every label shares ONE content-sized column: short labels (类型/标签) hug their
+   value while values still align across rows; long labels cap + ellipsize. */
 .detail-prop-list {
   display: grid;
-  gap: 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 14px;
 }
 
 .detail-prop-item {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  min-height: 30px;
+  display: contents;
 }
 
 .detail-prop-label {
-  padding-top: 7px;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  max-width: 140px;
   color: var(--text-muted);
   font-size: 12px;
   white-space: nowrap;
@@ -1923,9 +1968,14 @@ select:focus-visible {
   min-width: 0;
 }
 
+/* Empty「—」/ free-value text aligns with option chips: same 11px content inset
+   (matches .ptag padding) + 30px centered box, so the value column reads consistently
+   whether a row holds a chip or「—」, and label/value share a vertical center. */
 .detail-prop-value > strong {
-  display: inline-block;
-  padding-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
   color: var(--text);
   font-size: 13px;
 }
