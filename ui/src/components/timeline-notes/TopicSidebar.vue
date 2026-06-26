@@ -342,12 +342,21 @@ function toggleSection(key) {
   state.sections[key] = !state.sections[key];
 }
 
+function isTopicExpanded(topicId) {
+  return !selectMode.value && topicId === props.activeTopicId && state.topicCollapsed[topicId] !== true;
+}
+
 function toggleTopic(topicId) {
   if (selectMode.value) {
     toggleTopicSelection(topicId);
     return;
   }
-  state.topicCollapsed[topicId] = !state.topicCollapsed[topicId];
+  if (topicId === props.activeTopicId) {
+    state.topicCollapsed[topicId] = isTopicExpanded(topicId);
+  } else {
+    state.topicCollapsed[topicId] = false;
+    allCollapsed.value = false;
+  }
   emit("select-topic", topicId);
 }
 
@@ -428,6 +437,16 @@ watch(
     if (!key || key === previous) return;
     state.ribbon = "files";
     startCreateTopic();
+  }
+);
+
+watch(
+  () => props.activeTopicId,
+  (topicId, previous) => {
+    if (topicId && topicId !== previous) {
+      state.topicCollapsed[topicId] = false;
+      allCollapsed.value = false;
+    }
   }
 );
 </script>
@@ -558,7 +577,7 @@ watch(
                   :class="{
                     active: !selectMode && topic.id === props.activeTopicId,
                     selected: selectMode && isTopicSelected(topic.id),
-                    collapsed: state.topicCollapsed[topic.id],
+                    collapsed: !isTopicExpanded(topic.id),
                     'menu-open': topicMenu && topicMenu.topic.id === topic.id,
                   }"
                   @click="toggleTopic(topic.id)"
@@ -579,26 +598,26 @@ watch(
                     </span>
                   </span>
                 </button>
-                <div
-                  v-if="!selectMode && topic.id === props.activeTopicId && !state.topicCollapsed[topic.id]"
-                  class="ti-kids"
-                  :style="{ '--pdepth': 0 }"
-                >
-                  <button
-                    v-for="era in eraRows"
-                    :key="era.era"
-                    type="button"
-                    class="ti leaf"
-                    :class="{ active: era.era === props.activeEra }"
-                    :style="{ '--depth': 1 }"
-                    @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
-                  >
-                    <span class="ti-chev"></span>
-                    <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.8" /></span>
-                    <span class="ti-name">{{ era.era }}</span>
-                    <span class="ti-cnt">{{ era.count }}</span>
-                  </button>
-                </div>
+                <Transition name="topic-kids-stack">
+                  <div v-if="isTopicExpanded(topic.id)" class="ti-kids-shell">
+                    <div class="ti-kids" :style="{ '--pdepth': 0 }">
+                      <button
+                        v-for="(era, index) in eraRows"
+                        :key="era.era"
+                        type="button"
+                        class="ti leaf"
+                        :class="{ active: era.era === props.activeEra }"
+                        :style="{ '--depth': 1, '--stack-index': index }"
+                        @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
+                      >
+                        <span class="ti-chev"></span>
+                        <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.8" /></span>
+                        <span class="ti-name">{{ era.era }}</span>
+                        <span class="ti-cnt">{{ era.count }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </Transition>
               </div>
             </template>
 

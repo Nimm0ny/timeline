@@ -507,8 +507,52 @@ button {
   color: var(--accent);
 }
 
+.ti-kids-shell {
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+}
+
+.topic-kids-stack-enter-active,
+.topic-kids-stack-leave-active {
+  display: grid;
+  overflow: hidden;
+  transition:
+    grid-template-rows var(--motion-slow) var(--ease),
+    opacity var(--motion-base) var(--ease);
+}
+
+.topic-kids-stack-enter-from,
+.topic-kids-stack-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.topic-kids-stack-enter-to,
+.topic-kids-stack-leave-from {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.topic-kids-stack-enter-active .ti,
+.topic-kids-stack-leave-active .ti {
+  transition:
+    background var(--motion-base) var(--ease),
+    opacity var(--motion-base) var(--ease),
+    transform var(--motion-slow) var(--ease);
+  transition-delay: calc(var(--stack-index, 0) * 18ms);
+}
+
+.topic-kids-stack-enter-from .ti,
+.topic-kids-stack-leave-to .ti {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .ti-kids {
   position: relative;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ti-kids::before {
