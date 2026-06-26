@@ -289,3 +289,17 @@ sudo systemctl start timeline.service
 - 入口端口确认：生产入口使用 `80`，系统网络层 redirect 到内部 `8000`。
 - 公网 80 smoke：`/` 和 `/api/topics` 均返回 HTTP `200`。
 - 说明：公网 `:8000` 不是生产入口，不作为投产验收目标。
+
+## 13. Deployment Record: 2026-06-26
+
+- 已部署 commit：`e68fbd8`（前值 `32847e1`；本次 forward 13 commits：P1–P5 + 价值闭环 + 列表操作/弹层/组件系统统一规范）。
+- 远端备份：`~/timeline_backups/timeline_predeploy_20260626_135301.tar.gz`。
+- 远端服务状态：`timeline.service` active/running。
+- 远端本机 smoke：通过（`service=active`，`revision=commit=e68fbd8`）。
+- 远端 API smoke：`topics_http=200`，`topics_count=3`，`is_list=true`。
+- 远端首页 smoke：`index_http=200`，`index_has_app=true`。
+- 公网 80 smoke：`/api/topics` 返回 HTTP `200`。
+- 持久化数据：`data/`、`data/timeline.db` 保留；启动期 `init_database()` 幂等 `ALTER TABLE ADD COLUMN`（`columns_json`/`extra_json` 等）将旧库前向迁移，无数据丢失。
+- 依赖状态：`backend/requirements.txt` 自 `32847e1` 未变，远端 `.venv` 未改动、未安装依赖。
+- 入口端口确认：生产入口 `80` → 内部 `8000`。
+- 本地验证：`agent:check` / `build` / `test:ui`(30) / `pytest`(9) 全通过。
