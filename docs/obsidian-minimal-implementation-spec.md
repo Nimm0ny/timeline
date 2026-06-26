@@ -41,7 +41,7 @@
 ## 2. 全局规则
 
 - **禁显滚动条（全局）**：`*{scrollbar-width:none;-ms-overflow-style:none} *::-webkit-scrollbar{display:none} html,body{overflow:hidden}`；各栏内部用独立可滚动容器。
-- 图标线宽 `1.75`，圆角圆端；按钮热区 26–34px。**图标尺寸两级（令牌）**：总功能区（最左 ribbon）`--icon-rail:18px`；三栏功能区（各栏顶部工具条 pane-head / tl-bar / actionbar / pane-foot）`--icon-bar:16px`，须小于 ribbon。
+- 图标线宽 `1.75`，圆角圆端；按钮热区 26–34px。**图标尺寸三级（令牌）**：ribbon `--icon-rail:18px` ＞ 三栏工具条 `--icon-bar:16px` ＞ 弹层菜单项 `--icon-menu:15px`。**尺寸 / 动画 / 状态的完整令牌与约定见 §2.2（强制）**。
 - 字体锁定自托管 `Noto Sans SC`（SIL OFL）；子集外字符回退系统 sans 栈，不回退宋体/衬线。
 - 命令按钮统一 `.iconbtn`（hover 浅底，`.on` 强调色软底，`.primary` 强调色实心）。
 
@@ -49,11 +49,43 @@
 
 所有浮层与输入框统一走以下规范，新增控件必须遵守，禁止每处各自造样式。
 
-- **弹层容器**（`.popover` / `.meta-pop` / `.timeline-action-menu` 同款）：背景 `var(--bg-detail)`、1px `var(--border)` 边、圆角 `--radius-lg`、阴影 `--shadow-pop`、`z-index:40`、内边距 `6–8px`（密集表单类如列设置可用 10px）。标题用 `.pop-title`（11px、大写字距、`--text-faint`）。
-- **分割线分组（强制）**：弹层内按语义分组，组间用分割线隔开——多组用 `.pop-section`（相邻组自动 `border-top:1px var(--border-soft)` + 间距），或用显式 `.pop-divider`（1px `--border-soft`，纵向 margin 6px）。破坏性操作（如永久删除）必须用分割线与普通操作隔开。
+- **弹层容器（统一·单一真相源）**：所有浮层共用 **`.popover` 一套外壳**——背景 `--bg-detail`、1px `--border`、圆角 `--radius-lg`、阴影 `--shadow-pop`、`z-index:40`；**宽度 / 定位 / 行密度由各浮层修饰类设置**，写法一律 `class="popover <modifier>"`，**禁止任一浮层再重复声明底/边/圆角/阴影**（2026-06-26 已收敛：`.meta-pop` / `.optpick-pop` / `.timeline-action-menu` 去重复用 `.popover`）。内边距随密度：动作菜单 `4px`、选择/字段编辑 `6px`、配置表单 `8px`。标题用 `.pop-title`（11px、大写字距、`--text-faint`）。
+  - **弹层家族（判例·全部 = `.popover` + 修饰）**：`.tl-pop`（中栏工具条·配置/定位）、`.meta-pop`（右栏日期/分期·字段编辑）、`.optpick-pop`（属性选择下拉·带右侧打勾）、`.ti-menu`（笔记本行动作菜单）、`.timeline-action-menu`（事件行动作菜单）、列设置面板（`.pop-section` + `.pop-item`）。
+  - **行密度三档（高亮态同款）**：① **动作菜单项** `.pop-item` `min-height:28px`（紧凑，见「展开菜单」）；② **配置项** `.pop-item` `32px`（表单类，可编辑需留白）；③ **选择项** `.optpick-opt`（色点 + 名称 + 右侧打勾(check)，见「列表式菜单/属性行」）。三者选中/高亮**同一信号**：`:hover` / `.is-active` = 整行 `--bg-hover` 软底 + `--radius-sm` 圆角（见「展开菜单」①）。
+- **分割线分组（强制）**：弹层内按语义分组，组间用分割线隔开——多组用 `.pop-section`（相邻组自动 `border-top:1px var(--border-soft)` + 间距），或用显式 `.pop-divider`（1px `--border-soft`，纵向 margin 6px）。**即时不可逆**的破坏操作（如永久删除、清空回收站——无二次确认）必须用分割线与普通操作隔开；带二次确认卡的破坏项（如删除笔记本）则靠 `.danger` 红标识、可**同组相邻不夹线**（贴合 Notion，详见 §2.1 展开菜单 ③）。
 - **输入控件（强制无边框）**：`border:0`、底色 `var(--bg-surface-2)`、圆角 `--radius-sm`、字号 `13px`、最小高 `30px`、padding `0 10px`。聚焦：去 outline、底色提亮到 `--bg-surface`、加 `box-shadow: inset 0 0 0 1.5px var(--accent-line)`（聚焦环，非边框）。禁止 1px 实边框输入框，禁止让输入框继承浏览器默认 16px 字号。
+- **列表式新增（Notion 式·强制）**：向列表追加新项（笔记本 §5.3、自定义列 §6.4 等）一律走「**底部内联行**」——不弹独立输入框、不浮在列表顶部。① 列表底部常驻一枚低调的 `新增`(plusSign) 行（复用该列表行型如 `.ti.leaf`，色 `--text-faint`、hover 提亮 `--text-muted`）；② 触发（分组头 `+` 或点该 `新增` 行）后，在列表**末尾**就地展开一枚干净内联行（复用行型 `.ti.folder` / `.pop-item`，**无边框盒、无 ✓/✗ 按钮**，仅 `--bg-hover` 淡选中底），自动聚焦；③ 提交＝Enter / 失焦(有内容即存、空则弃)，取消＝Esc。新项天然落在列表底部（笔记本按 `id asc`）。**判例**：`新建笔记本`（§5.2/§5.3；2026-06-26 由顶部浮动框 + ✓/✗ 改本规范）、`新建列`（§6.4，组件早已底部追加，符合）。
+  - **新增入口分级（图标 + 风格统一·强制）**：全应用「新增/新建」入口按角色分四级，**纯 `+`(plusSign) 用于次级 / 列表追加，圆 `+`(plusCircle) 仅留给工具条主操作**，形成层级——① **列表追加行（持久邀请）**：`plusSign` + `--text-faint`、hover 提亮 `--text-muted`，复用宿主行型（判例：左栏 `新增`笔记本 `.ti-add`、列设置 `新建列` `.col-add`，2026-06-26 由圆 + / 平铺 muted 收齐）；② **上下文新建（输入触发）**：`plusSign` + 文字 `--text-muted` / 图标 `--text-faint` + hover 软底（判例：属性选择下拉 `新建「query」` `.optpick-create`）；③ **工具条主操作**：`plusCircle` 强调色实心 `.iconbtn.primary`（判例：中栏 `新建时间点`）；④ **行内 ⊕（hover 操作组）**：`plusSign`（判例：笔记本行 `在此笔记本新建笔记`，见「列表行悬停操作组」）。
+- **列表行悬停操作组（Notion 式·强制）**：可操作的列表行（笔记本 `.ti.folder`、中栏事件 `.row` 等）**静息态只显示内容 + 尾部计数/星标，不露任何操作按钮**；仅在 `hover` / 行 `active` / 其菜单打开（`.menu-open`）时，于行**右缘绝对叠加**一枚操作组淡入，**同时尾部计数槽淡出（互斥，二者不并存）**，**绝不改变行高或回流**（硬约束，AGENTS §9 行高固定）。操作组以与行底色一致的遮罩（resting 用 `--bg-sidebar`+`--bg-hover`、active 用 `--accent-soft-2`；中栏用 `--bg-timeline`）盖住下方内容，长名绝不穿透。① **组内顺序（Notion）**：`⋯`(more，溢出菜单) 在左、`⊕`(plusSign，主新增) 在右；单操作行（如中栏事件行仅删除 `.row-act`）可只放一枚。② **`⋯` 行菜单**走弹层规范（本节弹层容器 + 分割线分组）：单一锚点定位于按钮下方（`position:fixed` 叠加于滚动裁切之上）、点外部/`Esc`/列表滚动即关；破坏性项（删除）置于 `.pop-divider` 之下并标 `.danger`。③ **重命名走就地内联编辑**——复用「列表式新增」的无边框输入行（`.ti-create`），Enter/失焦(有变更即存)、Esc 弃，与新增同一套列表编辑文法。图标尺寸 `--icon-bar`。**判例**：笔记本行（§5.3：`⋯`=重命名/删除、`⊕`=在此笔记本新建笔记；2026-06-26 由单一 `删除` 图标升为本规范）、中栏事件行（§6.2：单 `删除` `.row-act`，同族）。`创建副本 / 移动 / 排序`属 Phase 2，预留于 `⋯` 菜单（届时副本/移动加于重命名下、删除上）。
+- **展开菜单（动作/弹出菜单·强制）**：由 `⋯` / 右键等触发的动作菜单（笔记本行 `.ti-menu`、中栏事件 `.timeline-action-menu` **同款**）走 **Notion 紧凑度量**，**比配置型弹层（列设置等 `.pop-item` 32px 行）更密**：菜单容器 padding `4px`、宽度按内容收窄（短标签约 `150–170px`，绝不留大片空白＝防「占位大」）；**菜单项**（`.pop-item`）= 前导类型图标(`.pop-item-ic`，15px、`--text-faint`) + 标签(`.lbl`，13px) + 可选尾部(快捷键 / 子菜单 `›` / 单选勾)，行高 `min-height:28px`、`gap:8px`。① **菜单项选中 / 高亮态（固化·唯一当前态信号）**：当前项——鼠标 `:hover` **或**键盘/程序聚焦 `.pop-item.is-active`（`.timeline-action-menu button.is-active`），**二者完全同款**——= **整行 `--bg-hover` 软底填充 + `--radius-sm` 圆角**；因菜单容器 `4px` 内边距，高亮块**内缩呈悬浮、不顶满、不与外框相接**（Notion 观感，见判例图）。**禁止**：描边 / 阴影 / 改字号字重 / 强调色实底 / 文字反白。**危险项 `.danger` 高亮时只换底（`--bg-hover`），文字与图标保持红 `#b0524c`**（不反白、不变色）。`.is-locked`（不可操作项，如列设置必选列）**不高亮**。② **单选菜单**（如主筛选）当前项 = **右侧打勾(check) + 整行极淡底，不画复选框**（详见下「列表式菜单/属性行」）；动作菜单无持久选中态（一次性命令）。③ **分割线分组**（见上「分割线分组」）：语义分组用 `.pop-section` / `.pop-divider`。**短动作菜单中重命名/删除等同组相邻、不夹分割线**——破坏项靠 `.danger`（红 `#b0524c`，文字与图标同色）区分即可，避免「1 项 1 段」的空隔。**仅当**菜单含「安全 vs 破坏」两类不同结果、且破坏项**即时不可逆（无二次确认）**时才用 `.pop-divider` 隔开。**判例**：回收站事件菜单 `恢复` ┄ `永久删除`（即时无确认 → **保留**分割线）；笔记本菜单 `重命名` `删除`（删除走二次确认卡 → **不夹线**、相邻）。强调色仅用于极少处（单选勾）。**判例**：`.ti-menu`（§5.3 笔记本行）、`.timeline-action-menu`（§6.2 事件行），2026-06-26 由 32px/184px 统一收紧为本紧凑度量。
 - **中栏工具条弹层（单一锚点·互斥）**：时间定位、列设置等工具弹层共用工具条右侧同一锚点（`.tl-pop`，相对 `.tl-bar` 定位 `top:calc(100%+6px); right:12px`），**任一时刻只开一个**（互斥），点击弹层外或 `Esc` 关闭；宽度按列宽夹取 `min(320px, calc(100%-20px))`，绝不溢出中栏或跨栏重叠。禁止把每个工具各自锚在自己按钮上、且能并存——那会导致弹层重叠。
-- **列表式菜单/属性行**：单选菜单（如主筛选）只在当前项右侧打勾 + 整行极淡底，**不画复选框**；属性/列行 = 类型图标 + 名称 + 右侧操作（显隐眼睛等），强调色仅用于极少处（当前项勾选）。参考 Notion 克制。
+- **列表式菜单/属性行**：单选/多选菜单只在当前项**右侧打勾(check) + 整行极淡底，不画复选框**（**判例**：属性选择下拉 `.optpick-pop` = 色点 + 名称 + 选中右侧打勾；主筛选同理）；属性/列行 = 类型图标 + 名称 + 右侧操作（显隐眼睛等），强调色仅用于极少处（当前项勾选/打勾）。参考 Notion 克制。
+
+## 2.2 组件系统令牌（尺寸 / 动画 / 状态·强制 · 颜色除外）
+
+> **颜色**经主题系统（`docs/appearance-system-design.md`）由用户自定义；**尺寸 / 圆角 / 动画 / 状态**为固定设计标准，**不可随意造值**。新增任何组件：尺寸取尺寸令牌、动画取动画令牌、状态取下表、颜色取色彩令牌。（2026-06-26 全量收敛散值为令牌。）
+
+### 图标尺寸（三档令牌）
+- `--icon-rail:18px`（总功能区 ribbon，最大）／`--icon-bar:16px`（三栏顶部工具条 `pane-head` / `tl-bar` / `actionbar` / `pane-foot`、行内操作 `.ti-act`/`.row-act`）／`--icon-menu:15px`（弹层·菜单项图标 `.pop-item-ic`、选择项打勾 `.opt-check`、列设置眼睛 `.col-eye` 等）。**禁止散写 14/15/16/18 魔法值**。
+
+### 按钮 / 控件尺寸（令牌）
+- 图标按钮 `.iconbtn` = `--btn:30px`（顶部工具条标准；`.lg` 为同值语义别名）；`.iconbtn.sm` = `--btn-sm:26px`（密集处：组头、批量条）。行内悬停操作 `.ti-act`/`.row-act`、列眼睛 `.col-eye`、搜索框 `.searchbox`/`.sb-icon` 均取 `--btn`/`--btn-sm`。热区区间 26–34px。
+- 圆角 `--radius-lg/--radius/--radius-sm`；输入控件最小高 30px、无边框（§2.1）。
+
+### 交互动画（两档令牌 + 统一缓动）
+- **缓动一律 `--ease`**（`cubic-bezier(.32,.08,.24,1)`），**禁止裸 transition 无缓动**。
+- **`--motion-base:0.12s`** = 微交互（hover 底/文字、图标按钮反馈、操作组淡入、小幅 transform/旋转、计数互斥淡出）；**`--motion-slow:0.22s`** = 布局/展开（三栏 grid、搜索框宽度、右栏展开）。**禁止散写 0.1/0.15/0.16/0.18/0.24 等杂值**。
+
+### 状态约定（颜色取主题令牌，结构固定）
+| 状态 | 视觉 | 类 |
+|---|---|---|
+| 悬停 / 键盘聚焦 | `--bg-hover` 底 + `--text` | `:hover` / `.is-active` |
+| 选中 / 激活 | `--accent-soft` 底 + `--accent` | `.on` |
+| 主操作 | `--accent` 实底 + `--accent-contrast` | `.primary` |
+| 危险（破坏项） | 文字与图标 `#b0524c` | `.danger` |
+| 禁用 | `opacity:.55` + `not-allowed` | `:disabled`；`<label>` 类不接受 `:disabled`，用 **`.is-disabled`** |
+
+**判例**：右栏「添加附件」为 `<label class="iconbtn">`，上传中加 `.is-disabled`，与同排按钮的禁用态一致（2026-06-26）。
 
 ## 3. 布局与外壳（自适应 + 可拖拽 + 右栏按需展开）
 
@@ -70,7 +102,7 @@
 | 用途 | key | Lucide |
 |---|---|---|
 | 品牌/笔记本 | book / folder | BookOpen / Folder |
-| 视图：全部/今天/本周/收藏/回收站 | library/calendar/clock/star/trash | Library, CalendarDays, Clock, Star, Trash2 |
+| 视图：全部/今天/本周/收藏/回收站 | library/calendar/clock/star/archive | Library, CalendarDays, Clock, Star, Archive |
 | 笔记本节点 | notebook | NotebookText |
 | 标签 | hash | Hash |
 | 统计 | bar | BarChart3 |
@@ -80,7 +112,8 @@
 | 列设置 | columns | Columns3 |
 | 显示预览 | alignLeft | AlignLeft |
 | 新建时间点 | plusCircle | CirclePlus |
-| 新建笔记 / 新建笔记本 | squarePen / folderPlus | SquarePen, FolderPlus |
+| 列表追加·次级新增（新建笔记本组头 + / `新增`行 / 新建列 / 新建选项 / 行内 ⊕ 新建笔记）| plusSign | Plus |（2026-06-26：**纯 + = 次级/列表追加**，圆 + 仅留工具条主操作；统一 §2.1 新增入口分级）
+| 行更多操作（行 ⋯ 菜单：重命名/删除等）| more | MoreHorizontal |（2026-06-26 列表行悬停操作组，§2.1）
 | 排序 / 全部折叠 | arrowUpDown / fold | ArrowUpDown, ChevronsDownUp |
 | 展开折叠箭头 | chevronDown / chevronRight | ChevronDown, ChevronRight |
 | 收藏/置顶/回收/保存 | star/pin/trash/save | Star, Pin, Trash2, Save |
@@ -100,17 +133,17 @@
 结构 = `ribbon(44px) + pane(1fr)`；pane = `pane-head + pane-scroll + pane-foot`。
 
 ### 5.1 Ribbon（最左竖条）
-- 顶部图标：品牌(book，紫底)、笔记本(folder，默认 active)、搜索(search)、收藏(star)、标签(hash)、统计(bar)；`flex:1` 间隔后底部：回收站(trash)。
+- 顶部图标：品牌(book，紫底)、笔记本(folder，默认 active)、搜索(search)、收藏(star)、标签(hash)、统计(bar)。〔回收站已从 ribbon 移除（D2，2026-06-26）：回收站本质是「删除筛选视图」，统一由 §5.3 视图组入口承载，图标改 archive（D4）以与删除动作 trash 区分。〕
 - 单选高亮 `.rb.active`（强调色软底）。搜索点中展开中栏搜索框。生产可作为 pane 切换器（Files/Search/Tags/Stats）。
 
 ### 5.2 Pane Head（工具条）
-- 左侧标题 `笔记本`；右侧纯图标：新建笔记(squarePen)、新建笔记本(folderPlus)、排序(arrowUpDown)、全部折叠(fold)。
+- 左侧标题 `笔记本`；右侧纯图标精简为 **全部折叠(fold) + 多选(listChecks)** 两枚（D1，2026-06-26）。〔新建笔记移除（创建统一归中栏 `+`）；新建笔记本＝分组头右侧 `+`(plusSign) **或**列表底部常驻 `新增` 行触发，输入为「笔记本」列表**底部内联行**（Notion 式，见 §2.1 列表式新增；2026-06-26 由顶部浮动框改），不再浮于面板顶部；排序空壳移除（移动/排序并入 Phase 2）；删除当前笔记本下沉为笔记本行 hover 浮现，见 §5.3。〕
 
 ### 5.3 Pane Scroll（分组文件树）
 四个可折叠分组（`.tg`，组头 `chevron + 小标题大写 + 组内动作图标`，hover 露出动作图标）：
 
 1. **视图**：全部笔记/今天/本周/收藏/回收站（`.ti.leaf`：图标 + 名称 + 计数）。语义沿用冻结基准 §3：均按当前 topic + 主筛选统计。
-2. **笔记本**（文件树）：每个专题是可展开 `.ti.folder`（chevron + folder 图标 + 名称 + 计数），展开显示其**时代(era)** 子项（`.ti.leaf`，`--depth:1`，缩进 + 引导竖线）。子项点击=按 era 过滤中栏。`近代史` 默认展开，其余折叠。
+2. **笔记本**（文件树）：每个专题是可展开 `.ti.folder`（chevron + folder 图标 + 名称 + 计数），展开显示其**时代(era)** 子项（`.ti.leaf`，`--depth:1`，缩进 + 引导竖线）。子项点击=按 era 过滤中栏（era 为派生筛选、非用户对象，**无行操作**）。`近代史` 默认展开，其余折叠。**hover/选中/菜单打开该行时**，右侧计数槽淡入**操作组**（`.ti-acts`，绝对叠加、计数互斥淡出、不改行高，见 §2.1 列表行悬停操作组）：`⋯`(more) 打开行菜单（**重命名** = 就地内联编辑、**删除**(`.danger`，复用现有删除确认卡)；二者同组相邻、不夹分割线）、`⊕`(plusSign) = 在此笔记本新建笔记（非当前专题则先切换再进创建态）；`创建副本/移动/排序`属 Phase 2。列表**底部常驻一枚低调 `新增`(plusSign) 行**（`.ti-add`，=新建笔记本），触发后于列表末尾就地展开**干净内联创建行**（`.ti-create`：folder 图标 + 无边框输入，无 ✓/✗ 按钮，Enter/失焦存、Esc 弃）——Notion 式，见 §2.1 列表式新增。
 3. **标签**：`.ti.leaf.tag`（色点 + 名称 + 计数），点击=按 tag 叠加过滤。
 4. **统计**：仅 3 个 mini 数字（笔记 / 本周新增 / 收藏）。**已删除「标签分布」「年代活动」两个图表**。
 
@@ -136,7 +169,7 @@
 ### 6.2 列表结构
 - 吸顶列头（`.tl-cols`，`grid-template-columns:var(--rowgrid)`，随激活列动态生成）。
 - 按 **时代分组**：分组头 = 大圆点(强调色) + 时代名 + `起–止年份 · 条数`。
-- 事件行 `.row`（grid 对齐）：`rdot | 时间 | 事件(标题 + 灰度预览 + 附件夹子) | [地点] | [类型] | [来源] | 标签色点 | ★`。
+- 事件行 `.row`（grid 对齐）：`rdot | 时间 | 事件(标题 + 灰度预览 + 附件夹子) | [地点] | [类型] | [来源] | 标签色点 | ★`。**hover/选中该行**时，★ 左侧淡入 `删除(trash)` 行内动作（`.row-act`，绝对叠加、渐变遮罩匹配行底色、不改行高）：非回收站视图=移入回收站，回收站视图=永久删除；`移动到其他笔记本`属 Phase 2。
 - **关联时间线**：每个 `.era` 一条连续脊线（`--rail`），行小圆点（空心→hover 描边强调色→active 实心）。
 
 ### 6.3 行高 + 显示预览（重点）

@@ -30,9 +30,14 @@
   --radius-pill: 999px;
   --icon-rail: 18px;
   --icon-bar: 16px;
+  --icon-menu: 15px;
+  --btn: 30px;
+  --btn-sm: 26px;
   --tn-font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   --tn-font-num: "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --ease: cubic-bezier(0.32, 0.08, 0.24, 1);
+  --motion-base: 0.12s;
+  --motion-slow: 0.22s;
   --t-war: #c05a52;
   --t-politics: #5f78c2;
   --t-culture: #b0863e;
@@ -91,7 +96,7 @@ button {
   display: grid;
   grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
   background: var(--bg-timeline);
-  transition: grid-template-columns 0.22s var(--ease);
+  transition: grid-template-columns var(--motion-slow) var(--ease);
 }
 
 .timeline-workspace.app.right-closed {
@@ -113,14 +118,14 @@ button {
 }
 
 .iconbtn {
-  width: 30px;
-  height: 30px;
+  width: var(--btn);
+  height: var(--btn);
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.12s var(--ease), color 0.12s var(--ease), opacity 0.12s var(--ease);
+  transition: background var(--motion-base) var(--ease), color var(--motion-base) var(--ease), opacity var(--motion-base) var(--ease);
 }
 
 .iconbtn:hover:not(:disabled) {
@@ -142,15 +147,23 @@ button {
   background: var(--accent-hover);
 }
 
+/* Label-based iconbtns (e.g. 添加附件 file picker) can't take :disabled — this
+   mirrors the global button:disabled look so busy states stay consistent. */
+.iconbtn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .iconbtn.sm {
-  width: 26px;
-  height: 26px;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
 }
 
 /* Top-bar function buttons share one size across all three columns. */
 .iconbtn.lg {
-  width: 30px;
-  height: 30px;
+  width: var(--btn);
+  height: var(--btn);
 }
 
 .timeline-lucide-icon {
@@ -192,7 +205,7 @@ button {
   width: 2px;
   transform: translateX(-50%);
   background: transparent;
-  transition: background 0.12s var(--ease);
+  transition: background var(--motion-base) var(--ease);
 }
 
 .resizer:hover::after {
@@ -236,7 +249,7 @@ button {
   border-radius: var(--radius-sm);
   color: var(--text-faint);
   cursor: pointer;
-  transition: color 0.12s, background 0.12s;
+  transition: color var(--motion-base) var(--ease), background var(--motion-base) var(--ease);
 }
 
 .rb:hover {
@@ -288,14 +301,7 @@ button {
   padding: 5px 6px 8px;
 }
 
-.topic-inline-create {
-  display: grid;
-  gap: 8px;
-  padding: 4px 6px 10px;
-}
-
 /* Input standard — borderless, soft fill, 13px (spec §2.1). */
-.topic-inline-create input,
 .detail-inline-input,
 .detail-inline-search input,
 .detail-title-field input,
@@ -313,7 +319,6 @@ button {
   padding: 0 10px;
 }
 
-.topic-inline-create input:focus,
 .detail-inline-input:focus,
 .detail-inline-search input:focus,
 .detail-field-item input:focus,
@@ -325,12 +330,6 @@ button {
   outline: none;
   background: var(--bg-surface);
   box-shadow: inset 0 0 0 1.5px var(--accent-line);
-}
-
-.topic-inline-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
 }
 
 .tg {
@@ -359,7 +358,7 @@ button {
   display: grid;
   place-items: center;
   flex: none;
-  transition: transform 0.15s var(--ease);
+  transition: transform var(--motion-base) var(--ease);
 }
 
 .tg-name {
@@ -368,6 +367,10 @@ button {
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+
+.tg-head .iconbtn {
+  color: var(--text-faint);
 }
 
 .tg:hover .tg-head .iconbtn {
@@ -395,11 +398,47 @@ button {
   color: var(--text);
   position: relative;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--motion-base) var(--ease);
 }
 
 .ti:hover {
   background: var(--bg-hover);
+}
+
+/* Notion-style inline "new notebook" row — sits at the BOTTOM of the 笔记本 list,
+   reusing .ti.folder metrics so it aligns with notebook rows. Clean and borderless
+   (no box, no ✓/✗ buttons): a subtly highlighted row with an inline field that
+   commits on Enter/blur. Must follow .ti:hover so its background wins by source order. */
+.ti-create,
+.ti-create:hover {
+  background: var(--bg-hover);
+  cursor: text;
+}
+
+.ti-create-input {
+  min-width: 0;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  padding: 0;
+}
+
+.ti-create-input:focus {
+  outline: none;
+}
+
+/* Persistent "新增" affordance pinned under the list (Notion's "+ 新增"): a muted,
+   low-key add row that brightens on hover. Reuses .ti.leaf metrics for alignment. */
+.ti-add .ti-ic,
+.ti-add .ti-name {
+  color: var(--text-faint);
+}
+
+.ti-add:hover .ti-ic,
+.ti-add:hover .ti-name {
+  color: var(--text-muted);
 }
 
 .ti.active {
@@ -417,7 +456,7 @@ button {
   display: grid;
   place-items: center;
   color: var(--text-faint);
-  transition: transform 0.15s var(--ease);
+  transition: transform var(--motion-base) var(--ease);
 }
 
 .ti.collapsed .ti-chev {
@@ -625,13 +664,13 @@ button {
 .searchbox {
   display: flex;
   align-items: center;
-  width: 30px;
-  height: 30px;
+  width: var(--btn);
+  height: var(--btn);
   flex: none;
   border-radius: var(--radius);
   background: transparent;
   overflow: hidden;
-  transition: width 0.24s var(--ease), background 0.18s var(--ease);
+  transition: width var(--motion-slow) var(--ease), background var(--motion-base) var(--ease);
 }
 
 .searchbox.open {
@@ -656,7 +695,7 @@ button {
   font-size: 13px;
   padding: 0;
   opacity: 0;
-  transition: opacity 0.16s var(--ease);
+  transition: opacity var(--motion-base) var(--ease);
 }
 
 /* Padding only once open, so the collapsed input never steals width and clips the icon. */
@@ -667,14 +706,14 @@ button {
 
 .searchbox .sb-icon {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: var(--btn);
+  height: var(--btn);
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.12s var(--ease), background 0.12s var(--ease);
+  transition: color var(--motion-base) var(--ease), background var(--motion-base) var(--ease);
 }
 
 .searchbox:not(.open) .sb-icon:hover {
@@ -797,7 +836,7 @@ button {
   text-align: left;
   border-radius: 7px;
   cursor: pointer;
-  transition: background 0.1s var(--ease);
+  transition: background var(--motion-base) var(--ease);
 }
 
 .row::after {
@@ -950,7 +989,7 @@ button {
   color: var(--text-faint);
   justify-self: center;
   opacity: 0;
-  transition: opacity 0.1s, color 0.1s;
+  transition: opacity var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
 }
 
 .row:hover .c-star,
@@ -963,10 +1002,90 @@ button {
   color: var(--t-culture);
 }
 
+/* List-row hover actions (spec §2.1 列表行悬停操作组). One button look, shared by
+   the left tree and the middle row. Actions are absolutely overlaid on the right
+   edge so the row never reflows or changes height (AGENTS §9: 行高固定); the resting
+   trailing slot (count / —) fades out beneath them, and a row-tinted backdrop masks
+   any content underneath so a long name never bleeds through. */
+.ti-act,
+.row-act {
+  display: grid;
+  place-items: center;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: opacity var(--motion-base) var(--ease), background var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
+}
+
+.ti-act .timeline-lucide-icon,
+.row-act .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+}
+
+.ti-act:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Left tree: a hover-revealed action CLUSTER (Notion: ⋯ then ⊕). It floats over the
+   row's right edge, masking the row base; the mask follows resting vs active bg. */
+.ti-acts {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-sidebar);
+  transition: opacity var(--motion-base) var(--ease);
+}
+
+.ti:hover .ti-acts,
+.ti.menu-open .ti-acts {
+  opacity: 1;
+}
+
+.ti:hover .ti-cnt,
+.ti.menu-open .ti-cnt {
+  opacity: 0;
+}
+
+.ti.active .ti-acts {
+  background: linear-gradient(var(--accent-soft-2), var(--accent-soft-2)), var(--bg-sidebar);
+}
+
+/* Middle row: a single delete action overlaid left of the star. */
+.row-act {
+  position: absolute;
+  top: 50%;
+  right: 38px;
+  transform: translateY(-50%);
+  opacity: 0;
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-timeline);
+}
+
+.row:hover .row-act {
+  opacity: 1;
+}
+
+.row-act:hover {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-timeline);
+  color: var(--text);
+}
+
+/* Shared popover chrome — THE single source of truth for every floating surface
+   (toolbar popovers, field editors, select dropdowns, row action menus, config
+   panels). Owns only the container shell; width / position / row density are set
+   per-surface modifier (spec §2.1 弹层家族). Compose as class="popover <modifier>". */
 .popover {
   position: absolute;
   z-index: 40;
-  width: 220px;
   padding: 8px;
   background: var(--bg-detail);
   border: 1px solid var(--border);
@@ -1012,14 +1131,19 @@ button {
   cursor: pointer;
 }
 
-.pop-item:hover {
+/* Menu-item highlight = the one current-state signal (spec §2.1 菜单项选中/高亮态):
+   hover and keyboard/programmatic .is-active are identical — a full-row soft fill,
+   inset from the menu edge by the container padding (floats, never meets the border),
+   no outline / shadow / weight change / accent. */
+.pop-item:hover,
+.pop-item.is-active {
   background: var(--bg-hover);
 }
 
 /* Leading type / view glyph on list rows. */
 .pop-item-ic {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
   color: var(--text-faint);
   flex: none;
 }
@@ -1088,8 +1212,40 @@ button {
   cursor: default;
 }
 
-.pop-item.is-locked:hover {
+.pop-item.is-locked:hover,
+.pop-item.is-locked.is-active {
   background: none;
+}
+
+/* Left-tree row "⋯ more" menu (spec §2.1): a fixed overlay anchored under the
+   button, above the scroll-clipping pane. Reuses .popover chrome + .pop-item rows;
+   the destructive 删除 sits below a divider (spec §2.1 分割线分组). */
+.ti-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: transparent;
+}
+
+/* Compact action-menu metric (§2.1): row menus pack tighter than config popovers
+   — 28px rows, 4px chrome, snug width — matching Notion's ⋯ menu density. */
+.ti-menu {
+  position: fixed;
+  z-index: 51;
+  width: 152px;
+  padding: 4px;
+}
+
+/* Compact action-menu rows — shared by both row action menus (§2.1 展开菜单). */
+.ti-menu .pop-item,
+.timeline-action-menu .pop-item {
+  min-height: 28px;
+  gap: 8px;
+}
+
+.pop-item.danger,
+.pop-item.danger .pop-item-ic {
+  color: #b0524c;
 }
 
 /* Custom column row = pop-item + type badge + edit / delete. */
@@ -1110,8 +1266,8 @@ button {
 }
 
 .col-eye {
-  width: 26px;
-  height: 26px;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -1136,8 +1292,8 @@ button {
 }
 
 .col-eye .timeline-lucide-icon {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
 }
 
 /* Secondary actions stay hidden until the row is hovered or being edited. */
@@ -1146,7 +1302,7 @@ button {
   gap: 2px;
   flex: none;
   opacity: 0;
-  transition: opacity 0.1s var(--ease);
+  transition: opacity var(--motion-base) var(--ease);
 }
 
 .col-row:hover .col-row-act,
@@ -1154,7 +1310,17 @@ button {
   opacity: 1;
 }
 
+/* Persistent list-append "新建列" row — same low-key invitation as .ti-add
+   (spec §2.1 新增入口①): plain + icon, faint, brightens to muted on hover. */
 .col-add {
+  color: var(--text-faint);
+}
+
+.col-add .pop-item-ic {
+  color: inherit;
+}
+
+.col-add:hover {
   color: var(--text-muted);
 }
 
@@ -1260,7 +1426,7 @@ button {
   margin: -3px -8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+  transition: background var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
 }
 
 .meta-trigger:hover {
@@ -1273,16 +1439,10 @@ button {
   color: var(--accent);
 }
 
+/* Field-editor popover (date / era inputs) — shares .popover chrome; positioning only. */
 .meta-pop {
-  position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 40;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-detail);
-  box-shadow: var(--shadow-pop);
 }
 
 .meta-pop-date {
@@ -1663,36 +1823,18 @@ button {
   z-index: 50;
 }
 
+/* Event-row action menu — shares .popover chrome; fixed-anchored + compact metric. */
 .timeline-action-menu {
   position: fixed;
   right: 54px;
   top: 125px;
-  z-index: 40;
-  width: 184px;
+  width: 168px;
   display: grid;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-detail);
-  box-shadow: var(--shadow-pop);
+  padding: 4px;
 }
 
-.timeline-action-menu button {
-  min-height: 32px;
-  border-radius: var(--radius-sm);
-  text-align: left;
-  padding: 0 10px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.timeline-action-menu button:hover {
-  background: var(--bg-hover);
-}
-
-.timeline-action-menu button.danger {
-  color: #b0524c;
-}
+/* Event-row menu items now share .pop-item (rows / hover-active / danger come from
+   the unified popover system); only the menu's anchor + density live above. */
 
 .timeline-modal-backdrop {
   z-index: 80;
@@ -1842,18 +1984,13 @@ select:focus-visible {
   height: 11px;
 }
 
+/* Select dropdown (options + right checkmark) — shares .popover chrome; sizes to control. */
 .optpick-pop {
-  position: absolute;
-  z-index: 40;
   top: calc(100% + 4px);
   left: 0;
   width: 100%;
   min-width: 200px;
   padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-pop);
 }
 
 .optpick-search {
@@ -1898,7 +2035,9 @@ select:focus-visible {
 }
 
 .optpick-opt:hover,
-.optpick-create:hover {
+.optpick-opt.is-active,
+.optpick-create:hover,
+.optpick-create.is-active {
   background: var(--bg-hover);
 }
 
@@ -1925,8 +2064,8 @@ select:focus-visible {
 }
 
 .opt-check .timeline-lucide-icon {
-  width: 14px;
-  height: 14px;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
 }
 
 .optpick-create {
@@ -1934,8 +2073,8 @@ select:focus-visible {
 }
 
 .optpick-create .timeline-lucide-icon {
-  width: 14px;
-  height: 14px;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
   color: var(--text-faint);
 }
 

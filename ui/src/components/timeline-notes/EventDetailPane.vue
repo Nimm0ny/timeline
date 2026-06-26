@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
       <div class="actionbar">
         <span class="spacer"></span>
         <template v-if="inEditMode">
-          <label class="iconbtn" title="添加附件">
+          <label class="iconbtn" :class="{ 'is-disabled': uploading }" title="添加附件">
             <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
             <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
           </label>
@@ -617,9 +617,6 @@ onBeforeUnmount(() => {
           @click="inEditMode ? (draft.favorite = !draft.favorite) : emit('toggle-favorite', props.event)"
         >
           <TimelineLucideIcon name="star" :stroke-width="1.8" />
-        </button>
-        <button type="button" class="iconbtn" title="置顶（暂未接线）" disabled>
-          <TimelineLucideIcon name="pin" :stroke-width="1.8" />
         </button>
         <button type="button" class="iconbtn" title="回收站操作" @click="emit('open-menu', props.event || draft)">
           <TimelineLucideIcon name="trash" :stroke-width="1.8" />
@@ -660,7 +657,7 @@ onBeforeUnmount(() => {
               <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
               <span>{{ draftDisplayDate }}</span>
             </button>
-            <div v-if="dateEditorOpen" class="meta-pop" @click.stop>
+            <div v-if="dateEditorOpen" class="popover meta-pop" @click.stop>
               <div class="meta-pop-date">
                 <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" aria-label="年" />
                 <span>年</span>
@@ -683,7 +680,7 @@ onBeforeUnmount(() => {
               <span>{{ `${props.topicTitle} · ${draft.era || "未分期"}` }}</span>
               <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
             </button>
-            <div v-if="eraEditorOpen" class="meta-pop" @click.stop>
+            <div v-if="eraEditorOpen" class="popover meta-pop" @click.stop>
               <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
             </div>
           </span>

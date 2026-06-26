@@ -134,7 +134,7 @@ onBeforeUnmount(() => {
       <span v-else class="optpick-ph">{{ props.placeholder }}</span>
     </button>
 
-    <div v-if="open" class="optpick-pop" @click.stop>
+    <div v-if="open" class="popover optpick-pop" @click.stop>
       <input
         ref="inputRef"
         v-model="query"
@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
           </span>
         </button>
         <button v-if="canCreate" type="button" class="optpick-create" @click="createOption">
-          <TimelineLucideIcon name="plus" :stroke-width="1.8" />
+          <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
           <span>新建「{{ query.trim() }}」</span>
         </button>
         <p v-if="!filtered.length && !canCreate" class="optpick-empty">暂无选项</p>

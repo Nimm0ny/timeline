@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { buildPropertyRows } from "@/utils/timelineNotes";
@@ -49,7 +49,9 @@ const props = defineProps({
 
 const emit = defineEmits([
   "create-event",
+  "create-event-in-topic",
   "create-topic",
+  "rename-topic",
   "select-topic",
   "select-era",
   "update:filter",
@@ -73,6 +75,114 @@ const state = reactive({
 
 const topicName = ref("");
 const creatingTopic = ref(false);
+const topicCreateRef = ref(null);
+const topicInputRef = ref(null);
+
+// Notion-style notebook creation: a clean inline row at the BOTTOM of the 笔记本
+// list (where the new notebook — ordered by id asc — actually lands), opened from
+// either the group-head + or the persistent "新增" row. No floating box, no ✓/✗
+// buttons — a borderless field that commits on Enter/blur and cancels on Esc.
+function startCreateTopic() {
+  state.sections.topics = false;
+  creatingTopic.value = true;
+  nextTick(() => {
+    topicInputRef.value?.focus();
+    topicCreateRef.value?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function cancelCreateTopic() {
+  creatingTopic.value = false;
+  topicName.value = "";
+}
+
+// Commit-on-blur (Notion): clicking away saves a named draft, discards an empty one.
+function onCreateBlur() {
+  if (topicName.value.trim()) {
+    submitTopic();
+  } else {
+    cancelCreateTopic();
+  }
+}
+
+// Notion-style row hover actions (§2.1 列表行悬停操作组): each notebook row reveals
+// a right-edge cluster on hover/active/menu-open — ⊕ (new note here) + ⋯ (more menu:
+// rename / delete). Resting count fades out beneath it; nothing reflows.
+const topicMenu = ref(null); // { topic, x, y } | null
+const renamingTopicId = ref(null);
+const renameValue = ref("");
+const renameInputRef = ref(null);
+
+function openTopicMenu(topic, event) {
+  // Anchor a fixed-position menu under the ⋯ button, clamped to the viewport so it
+  // never overflows (the pane scroll-clips, so the menu lives at the overlay layer).
+  const rect = event.currentTarget.getBoundingClientRect();
+  const width = 152;
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const y = Math.min(rect.bottom + 4, window.innerHeight - 96);
+  topicMenu.value = { topic, x, y };
+}
+
+function closeTopicMenu() {
+  topicMenu.value = null;
+}
+
+function onPaneScroll() {
+  if (topicMenu.value) closeTopicMenu();
+}
+
+function createInTopic(topicId) {
+  closeTopicMenu();
+  emit("create-event-in-topic", topicId);
+}
+
+// Inline rename reuses the borderless create-row field (one list-edit grammar):
+// commit on Enter/blur (when changed & non-empty), cancel on Esc.
+function startRenameTopic(topic) {
+  closeTopicMenu();
+  renamingTopicId.value = topic.id;
+  renameValue.value = topic.title || topic.name || "";
+  nextTick(() => {
+    renameInputRef.value?.focus();
+    renameInputRef.value?.select?.();
+  });
+}
+
+function cancelRenameTopic() {
+  renamingTopicId.value = null;
+  renameValue.value = "";
+}
+
+function submitRenameTopic() {
+  const id = renamingTopicId.value;
+  if (id == null) return;
+  const next = renameValue.value.trim().slice(0, CONTENT_LIMITS.topicTitle);
+  const topic = props.topics.find((item) => item.id === id);
+  const current = (topic?.title || topic?.name || "").trim();
+  renamingTopicId.value = null;
+  renameValue.value = "";
+  if (next && next !== current) emit("rename-topic", { id, title: next });
+}
+
+function onRenameBlur() {
+  if (renamingTopicId.value != null) submitRenameTopic();
+}
+
+function deleteFromMenu(topic) {
+  closeTopicMenu();
+  emit("delete-topic", topic.id);
+}
+
+function onMenuKeydown(event) {
+  if (event.key === "Escape") closeTopicMenu();
+}
+
+watch(topicMenu, (value) => {
+  if (value) document.addEventListener("keydown", onMenuKeydown);
+  else document.removeEventListener("keydown", onMenuKeydown);
+});
+
+onBeforeUnmount(() => document.removeEventListener("keydown", onMenuKeydown));
 
 // Batch multi-select for notebooks: a pane-head toggle reveals row checkboxes;
 // row clicks then toggle selection instead of navigating, and a batch bar offers
@@ -107,7 +217,6 @@ const RIBBON_PANELS = {
   star: { title: "收藏", sections: ["views", "topics"], tree: true },
   tags: { title: "属性", sections: ["properties"], tree: false },
   stats: { title: "统计", sections: ["stats"], tree: false },
-  trash: { title: "回收站", sections: ["views", "topics"], tree: true },
 };
 const activePanel = computed(() => RIBBON_PANELS[state.ribbon] || RIBBON_PANELS.files);
 const panelHas = (section) => activePanel.value.sections.includes(section);
@@ -154,7 +263,7 @@ const quickFilters = computed(() => [
   { id: "today", label: "今天", count: countForFilter("today"), icon: "calendar" },
   { id: "week", label: "本周", count: countForFilter("week"), icon: "clock" },
   { id: "favorite", label: "收藏", count: countForFilter("favorite"), icon: "star" },
-  { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "trash" },
+  { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "archive" },
 ]);
 
 const eraRows = computed(() => {
@@ -304,34 +413,12 @@ watch(
       <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="state.ribbon = 'stats'">
         <TimelineLucideIcon name="bar" :stroke-width="1.8" />
       </button>
-      <span class="sp"></span>
-      <button class="rb" :class="{ active: state.ribbon === 'trash' }" title="回收站" @click="state.ribbon = 'trash'">
-        <TimelineLucideIcon name="trash" :stroke-width="1.8" />
-      </button>
     </div>
 
     <div class="pane">
       <div class="pane-head">
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
-          <button
-            v-if="props.activeTopicId && !selectMode"
-            type="button"
-            class="iconbtn"
-            title="删除当前笔记本"
-            @click="emit('delete-topic', props.activeTopicId)"
-          >
-            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
-          </button>
-          <button v-if="!selectMode" type="button" class="iconbtn" title="新建笔记" @click="emit('create-event')">
-            <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
-          </button>
-          <button v-if="!selectMode" type="button" class="iconbtn" title="新建笔记本" @click="creatingTopic = !creatingTopic">
-            <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
-          </button>
-          <button v-if="!selectMode" type="button" class="iconbtn" title="排序">
-            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.8" />
-          </button>
           <button v-if="!selectMode" type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
             <TimelineLucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.8" />
           </button>
@@ -357,25 +444,7 @@ watch(
         </button>
       </div>
 
-      <div class="pane-scroll scroll">
-        <div v-if="creatingTopic" class="topic-inline-create">
-          <input
-            v-model="topicName"
-            type="text"
-            :maxlength="CONTENT_LIMITS.topicTitle"
-            placeholder="新笔记本名称"
-            @keyup.enter="submitTopic"
-          />
-          <div class="topic-inline-actions">
-            <button type="button" class="iconbtn sm" @click="creatingTopic = false">
-              <TimelineLucideIcon name="close" :stroke-width="1.8" />
-            </button>
-            <button type="button" class="iconbtn sm primary" @click="submitTopic">
-              <TimelineLucideIcon name="check" :stroke-width="1.8" />
-            </button>
-          </div>
-        </div>
-
+      <div class="pane-scroll scroll" @scroll="onPaneScroll">
         <div v-if="panelHas('views')" class="tg" :class="{ collapsed: state.sections.views }">
           <div class="tg-head" @click="toggleSection('views')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
@@ -402,8 +471,8 @@ watch(
           <div class="tg-head" @click="toggleSection('topics')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
             <span class="tg-name">笔记本</span>
-            <button type="button" class="iconbtn sm" title="新建笔记本" @click.stop="creatingTopic = !creatingTopic">
-              <TimelineLucideIcon name="folderPlus" :stroke-width="1.8" />
+            <button type="button" class="iconbtn sm" :class="{ on: creatingTopic }" title="新建笔记本" @click.stop="startCreateTopic">
+              <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
             </button>
           </div>
           <div class="tg-body">
@@ -411,13 +480,29 @@ watch(
             <p v-else-if="props.error" class="sidebar-copy">{{ props.error }}</p>
             <template v-else>
               <div v-for="topic in props.topics" :key="topic.id">
+                <div v-if="renamingTopicId === topic.id" class="ti folder ti-create">
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
+                  <input
+                    :ref="(el) => (renameInputRef.value = el)"
+                    v-model="renameValue"
+                    class="ti-create-input"
+                    type="text"
+                    :maxlength="CONTENT_LIMITS.topicTitle"
+                    @keyup.enter="submitRenameTopic"
+                    @keyup.esc="cancelRenameTopic"
+                    @blur="onRenameBlur"
+                  />
+                </div>
                 <button
+                  v-else
                   type="button"
                   class="ti folder"
                   :class="{
                     active: !selectMode && topic.id === props.activeTopicId,
                     selected: selectMode && isTopicSelected(topic.id),
                     collapsed: state.topicCollapsed[topic.id],
+                    'menu-open': topicMenu && topicMenu.topic.id === topic.id,
                   }"
                   @click="toggleTopic(topic.id)"
                 >
@@ -428,6 +513,14 @@ watch(
                   <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
                   <span class="ti-name">{{ topic.title || topic.name }}</span>
                   <span class="ti-cnt">{{ topic.eventCount || 0 }}</span>
+                  <span v-if="!selectMode" class="ti-acts">
+                    <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(topic, $event)">
+                      <TimelineLucideIcon name="more" :stroke-width="1.8" />
+                    </span>
+                    <span class="ti-act" title="在此笔记本新建笔记" @click.stop="createInTopic(topic.id)">
+                      <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+                    </span>
+                  </span>
                 </button>
                 <div
                   v-if="!selectMode && topic.id === props.activeTopicId && !state.topicCollapsed[topic.id]"
@@ -451,6 +544,34 @@ watch(
                 </div>
               </div>
             </template>
+
+            <div v-if="creatingTopic" ref="topicCreateRef" class="ti folder ti-create">
+              <span class="ti-chev"></span>
+              <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
+              <input
+                ref="topicInputRef"
+                v-model="topicName"
+                class="ti-create-input"
+                type="text"
+                :maxlength="CONTENT_LIMITS.topicTitle"
+                placeholder="新笔记本名称"
+                @keyup.enter="submitTopic"
+                @keyup.esc="cancelCreateTopic"
+                @blur="onCreateBlur"
+              />
+            </div>
+
+            <button
+              v-if="!props.loading"
+              type="button"
+              class="ti leaf ti-add"
+              title="新建笔记本"
+              @click="startCreateTopic"
+            >
+              <span class="ti-chev"></span>
+              <span class="ti-ic"><TimelineLucideIcon name="plusSign" :stroke-width="1.8" /></span>
+              <span class="ti-name">新增</span>
+            </button>
           </div>
         </div>
 
@@ -537,6 +658,19 @@ watch(
         </button>
         <button type="button" class="iconbtn" title="设置" @click="emit('open-settings')">
           <TimelineLucideIcon name="settings" :stroke-width="1.8" />
+        </button>
+      </div>
+    </div>
+
+    <div v-if="topicMenu" class="ti-menu-backdrop" @click="closeTopicMenu" @contextmenu.prevent="closeTopicMenu">
+      <div class="popover ti-menu" :style="{ left: topicMenu.x + 'px', top: topicMenu.y + 'px' }" @click.stop>
+        <button type="button" class="pop-item" @click="startRenameTopic(topicMenu.topic)">
+          <TimelineLucideIcon name="squarePen" :stroke-width="1.8" class="pop-item-ic" />
+          <span class="lbl">重命名</span>
+        </button>
+        <button type="button" class="pop-item danger" @click="deleteFromMenu(topicMenu.topic)">
+          <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
+          <span class="lbl">删除</span>
         </button>
       </div>
     </div>

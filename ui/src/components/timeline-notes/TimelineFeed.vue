@@ -127,6 +127,12 @@ function submitBatch(action) {
   if (selectedIds.value.length) emit(action, [...selectedIds.value]);
 }
 
+// Single-row delete (hover-revealed): reuse the batch endpoints with a one-id
+// array — trash view permanently purges (page confirms), otherwise soft-trash.
+function deleteRow(event) {
+  emit(props.trashView ? "batch-permanent-delete" : "batch-trash", [event.id]);
+}
+
 // Drop selected ids that are no longer in the visible list (filter/search change).
 watch(
   () => props.groups,
@@ -453,6 +459,14 @@ onBeforeUnmount(() => {
                 {{ eventColumnValue(event, column) }}
               </span>
             </template>
+            <span
+              v-if="!selectMode"
+              class="row-act"
+              :title="props.trashView ? '永久删除' : '移入回收站'"
+              @click.stop="deleteRow(event)"
+            >
+              <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+            </span>
             <span
               class="c-star"
               :class="{ on: event.favorite }"

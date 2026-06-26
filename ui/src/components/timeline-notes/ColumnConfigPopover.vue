@@ -166,7 +166,7 @@ function submitColumns() {
     </template>
 
     <button type="button" class="pop-item col-add" @click="addColumn">
-      <TimelineLucideIcon name="plus" :stroke-width="1.8" class="pop-item-ic" />
+      <TimelineLucideIcon name="plusSign" :stroke-width="1.8" class="pop-item-ic" />
       <span class="lbl">新建列</span>
     </button>
   </div>

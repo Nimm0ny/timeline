@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
 import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
+import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
@@ -386,6 +387,28 @@ function startCreateEvent() {
   });
 }
 
+// Row "⊕" affordance: create a note inside a specific notebook, switching to it
+// first if it isn't already active (mirrors selectTopic + startCreateEvent).
+function createEventInTopic(topicId) {
+  if (!topicId) return;
+  runOrConfirm(async () => {
+    if (topicId !== state.activeTopicId) {
+      state.propertyFilter = { key: "", value: "" };
+      state.activeEra = "";
+      state.searchQuery = "";
+      await loadWorkspace({
+        preferredTopicId: topicId,
+        preferredEventId: null,
+        preferredMode: "view",
+        openDetail: false,
+      });
+    }
+    state.detailMode = "create";
+    state.rightOpen = true;
+    await syncRouteState({ topicId, eventId: state.selectedEventId, mode: "create" });
+  });
+}
+
 function startEditSelectedEvent() {
   if (!selectedEvent.value || selectedEvent.value.deletedAt) return;
   state.detailMode = "edit";
@@ -474,6 +497,25 @@ async function createTopic(name) {
     await syncRouteState({ topicId: created.id, eventId: null });
   } catch (error) {
     pushToast(`创建笔记本失败：${error.message}`, "error");
+  }
+}
+
+// Inline rename from the row "⋯" menu. Sends only the title (meta fields are
+// independently optional server-side, so columns/subtitle are untouched) and
+// patches the local list in place — no event reload, order is by id asc.
+async function renameTopic({ id, title } = {}) {
+  const name = (title || "").trim();
+  if (!id || !name) return;
+  try {
+    const meta = await api.updateTopicMeta(id, { title: name });
+    const topic = state.topics.find((item) => item.id === id);
+    if (topic) topic.title = meta.title;
+    if (id === state.activeTopicId && state.activeTopicMeta) {
+      state.activeTopicMeta = { ...state.activeTopicMeta, title: meta.title };
+    }
+    pushToast(`已重命名为：${meta.title}`);
+  } catch (error) {
+    pushToast(`重命名失败：${error.message}`, "error");
   }
 }
 
@@ -801,7 +843,9 @@ watch(
       :loading="state.loading"
       :error="state.error"
       @create-event="startCreateEvent"
+      @create-event-in-topic="createEventInTopic"
       @create-topic="createTopic"
+      @rename-topic="renameTopic"
       @delete-topic="requestDeleteTopic"
       @batch-delete-topics="requestBatchDeleteTopics"
       @focus-search="focusFeedSearch"
@@ -867,14 +911,23 @@ watch(
     <div v-if="state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
 
     <div v-if="state.menuEvent" class="timeline-menu-backdrop" @click="closeEventMenu">
-      <div class="timeline-action-menu" @click.stop>
+      <div class="popover timeline-action-menu" @click.stop>
         <template v-if="state.menuEvent.deletedAt">
-          <button type="button" @click="restoreEvent(state.menuEvent)">恢复</button>
+          <button type="button" class="pop-item" @click="restoreEvent(state.menuEvent)">
+            <TimelineLucideIcon name="restore" :stroke-width="1.8" class="pop-item-ic" />
+            <span class="lbl">恢复</span>
+          </button>
           <span class="pop-divider"></span>
-          <button type="button" class="danger" @click="permanentlyDeleteEvent(state.menuEvent)">永久删除</button>
+          <button type="button" class="pop-item danger" @click="permanentlyDeleteEvent(state.menuEvent)">
+            <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
+            <span class="lbl">永久删除</span>
+          </button>
         </template>
         <template v-else>
-          <button type="button" @click="moveEventToTrash(state.menuEvent)">移入回收站</button>
+          <button type="button" class="pop-item" @click="moveEventToTrash(state.menuEvent)">
+            <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
+            <span class="lbl">移入回收站</span>
+          </button>
         </template>
       </div>
     </div>

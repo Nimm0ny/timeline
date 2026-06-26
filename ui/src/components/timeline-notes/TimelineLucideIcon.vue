@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import {
   AlignLeft,
+  Archive,
   ArrowRight,
   ArrowUpDown,
   BarChart3,
@@ -35,6 +36,7 @@ import {
   NotebookText,
   Paperclip,
   Pin,
+  Plus,
   RotateCcw,
   Save,
   Search,
@@ -62,6 +64,7 @@ const icons = {
   arrowRight: ArrowRight,
   arrowUpDown: ArrowUpDown,
   alignLeft: AlignLeft,
+  archive: Archive,
   bar: BarChart3,
   book: BookOpen,
   calendar: CalendarDays,
@@ -99,6 +102,7 @@ const icons = {
   pin: Pin,
   plus: CirclePlus,
   plusCircle: CirclePlus,
+  plusSign: Plus,
   restore: RotateCcw,
   save: Save,
   search: Search,
