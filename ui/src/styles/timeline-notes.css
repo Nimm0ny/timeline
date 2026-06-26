@@ -1426,14 +1426,6 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  /* Reset native <button> chrome so the read-mode era button has the exact same
-     box as the edit-mode .meta-trigger (which cancels its own padding via negative
-     margin). Without this the button's default 6px padding shifts the era text on
-     edit toggle, breaking the 阅读↔编辑 zero-displacement invariant. */
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
   font-size: 13px;
   color: var(--text-muted);
 }

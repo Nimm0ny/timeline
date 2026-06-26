@@ -663,10 +663,10 @@ onBeforeUnmount(() => {
             </div>
           </span>
 
-          <button v-if="!inEditMode" type="button" class="meta meta-group" title="所属分组">
+          <span v-if="!inEditMode" class="meta meta-group" title="所属分组">
             <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
             <span>{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</span>
-          </button>
+          </span>
           <span v-else class="meta-pop-wrap">
             <button type="button" class="meta meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
               <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
