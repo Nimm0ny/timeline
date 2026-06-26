@@ -27,10 +27,12 @@ function renderInline(value) {
 }
 
 export function plainTextFromMarkdown(markdown) {
+  const imagePlaceholder = "TIMELINEIMAGEPLACEHOLDER";
   return String(markdown || "")
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, " $1 ")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, ` ${imagePlaceholder} `)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, " $1 ")
     .replace(/[`#>*_\-\[\]()]/g, " ")
+    .replaceAll(imagePlaceholder, "[图片]")
     .replace(/\s+/g, " ")
     .trim();
 }

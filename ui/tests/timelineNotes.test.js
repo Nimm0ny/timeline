@@ -97,6 +97,18 @@ test("buildEventPreview strips markdown and truncates to the requested length", 
   assert.equal(preview, "Heading This timeline...");
 });
 
+test("buildEventPreview uses a stable placeholder for markdown images", () => {
+  const preview = buildEventPreview(
+    {
+      bodyMarkdown: "正文前 ![现场照片](/images/site.png) 正文后 [来源](https://example.com)",
+      items: [],
+    },
+    80
+  );
+
+  assert.equal(preview, "正文前 [图片] 正文后 来源");
+});
+
 test("buildEventPreview and search can use lightweight index preview text", () => {
   const event = { headline: "Index Row", preview: "轻量索引预览文本", extra: {} };
 

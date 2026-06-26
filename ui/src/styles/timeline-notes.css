@@ -1955,6 +1955,124 @@ button {
   flex-direction: column;
 }
 
+.related-preview-popover {
+  position: fixed;
+  z-index: 79;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(260px, calc(100vh - 24px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-detail);
+  box-shadow: var(--shadow-pop);
+}
+
+.related-preview-popover.pinned {
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--accent-line);
+}
+
+.related-preview-pointer {
+  position: absolute;
+  top: var(--related-anchor-y, 38px);
+  width: 14px;
+  height: 14px;
+  background: var(--bg-detail);
+  border-top: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+}
+
+.related-preview-popover.place-left .related-preview-pointer {
+  right: -8px;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.related-preview-popover.place-right .related-preview-pointer {
+  left: -8px;
+  transform: translateY(-50%) rotate(225deg);
+}
+
+.related-preview-head {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.related-preview-title {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.related-preview-kicker {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.related-preview-title h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 16px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-preview-actions,
+.related-preview-meta,
+.related-preview-meta span {
+  display: flex;
+  align-items: center;
+}
+
+.related-preview-actions {
+  gap: 4px;
+}
+
+.related-preview-meta {
+  gap: 14px;
+  padding: 11px 18px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.related-preview-meta span {
+  min-width: 0;
+  gap: 7px;
+}
+
+.related-preview-meta .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+  color: var(--text-faint);
+}
+
+.related-preview-text,
+.related-preview-state {
+  margin: 0;
+  padding: 14px 16px 18px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.8;
+  overflow: auto;
+}
+
+.related-preview-state {
+  color: var(--text-muted);
+}
+
+.related-preview-state.error {
+  color: var(--t-war);
+}
+
 .command-search-field {
   height: 58px;
   display: grid;

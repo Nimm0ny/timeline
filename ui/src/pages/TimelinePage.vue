@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import CommandPalette from "@/components/timeline-notes/CommandPalette.vue";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
 import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
+import RelatedEventPreviewPopover from "@/components/timeline-notes/RelatedEventPreviewPopover.vue";
 import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
@@ -126,6 +127,13 @@ const state = reactive({
   commandResults: [],
   commandLoading: false,
   commandError: "",
+  relatedPreviewOpen: false,
+  relatedPreviewEventId: null,
+  relatedPreviewLoading: false,
+  relatedPreviewError: "",
+  relatedPreviewPinned: false,
+  relatedPreviewPlacement: "left",
+  relatedPreviewStyle: {},
   topicCreateRequestKey: 0,
   editPreview: null,
 });
@@ -134,6 +142,7 @@ let resizeCleanup = null;
 let detailRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
+let relatedPreviewRequestSeq = 0;
 
 function normalizeMediaConfig(media = {}) {
   const source = media && typeof media === "object" ? media : {};
@@ -168,6 +177,15 @@ const selectedEventIndex = computed(
     null
 );
 const selectedEvent = computed(() => selectedEventDetail.value || selectedEventIndex.value);
+const relatedPreviewDetail = computed(() => timelineStore.detailById(state.relatedPreviewEventId));
+const relatedPreviewIndex = computed(
+  () => timelineStore.state.eventsIndex.find((event) => event.id === Number(state.relatedPreviewEventId)) || null
+);
+const relatedPreviewEvent = computed(() => relatedPreviewDetail.value || relatedPreviewIndex.value);
+const relatedPreviewTopicTitle = computed(() => {
+  const topicId = relatedPreviewEvent.value?.topicId;
+  return (topicId && timelineStore.topicById(topicId)?.title) || activeTopicTitle.value;
+});
 const detailRequiresFullEvent = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
 const detailPaneEvent = computed(() => {
   if (state.detailMode === "create") return null;
@@ -406,6 +424,7 @@ async function loadWorkspace(options = {}) {
 
 function runOrConfirm(action) {
   if ((state.detailMode === "edit" || state.detailMode === "create") && state.detailDirty) {
+    closeRelatedPreview();
     state.pendingAction = action;
     state.confirmUnsaved = true;
     return;
@@ -609,48 +628,141 @@ function saveAndContinue() {
   state.pendingAction = null;
 }
 
-function selectEvent(eventId) {
-  runOrConfirm(async () => {
-    const event = timelineStore.state.eventsIndex.find((item) => item.id === Number(eventId));
-    if (isGlobalFavoritesMode.value && event?.topicId) {
-      state.collectionMode = "";
-      state.sidebarFilter = "all";
-      state.propertyFilter = { key: "", value: "" };
-      state.activeEra = "";
-      state.locateDate = "";
-      state.searchQuery = "";
-      applyWorkspaceSelection({
-        preferredTopicId: event.topicId,
-        preferredEventId: event.id,
-        preferredMode: "view",
-        openDetail: true,
-      });
-      state.detailError = "";
-      state.rightOpen = true;
-      closeMobileSidebar();
-      await syncRouteState({
-        topicId: event.topicId,
-        eventId: event.id,
-        filter: "all",
-        propertyFilter: { key: "", value: "" },
-        era: "",
-        date: "",
-        mode: "view",
-      });
-      return;
-    }
-
-    state.selectedEventId = eventId;
-    state.detailMode = "view";
+async function applyEventSelection(eventId) {
+  const id = Number(eventId);
+  const event = timelineStore.state.eventsIndex.find((item) => item.id === id);
+  if (event?.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
+    state.collectionMode = "";
+    state.sidebarFilter = "all";
+    state.propertyFilter = { key: "", value: "" };
+    state.activeEra = "";
+    state.locateDate = "";
+    state.searchQuery = "";
+    applyWorkspaceSelection({
+      preferredTopicId: event.topicId,
+      preferredEventId: event.id,
+      preferredMode: "view",
+      openDetail: true,
+    });
     state.detailError = "";
     state.rightOpen = true;
-    await syncRouteState({ eventId, mode: "view" });
-  });
+    closeMobileSidebar();
+    await syncRouteState({
+      topicId: event.topicId,
+      eventId: event.id,
+      filter: "all",
+      propertyFilter: { key: "", value: "" },
+      era: "",
+      date: "",
+      mode: "view",
+    });
+    return;
+  }
+
+  state.selectedEventId = id;
+  state.detailMode = "view";
+  state.detailError = "";
+  state.rightOpen = true;
+  await syncRouteState({ eventId: id, mode: "view" });
 }
 
-function openRelatedEvent(eventId) {
-  if (!state.events.some((event) => event.id === eventId)) return;
-  selectEvent(eventId);
+function selectEvent(eventId) {
+  runOrConfirm(() => applyEventSelection(eventId));
+}
+
+function relatedPreviewPosition(anchor) {
+  if (typeof window === "undefined") {
+    return { placement: "left", style: {} };
+  }
+  const width = 360;
+  const estimatedHeight = 230;
+  const gap = 14;
+  const margin = 12;
+  const viewportWidth = window.innerWidth || 1920;
+  const viewportHeight = window.innerHeight || 1080;
+  const target = anchor || {
+    top: viewportHeight * 0.35,
+    bottom: viewportHeight * 0.35 + 40,
+    left: viewportWidth - state.rightWidth,
+    right: viewportWidth - margin,
+    height: 40,
+  };
+  const canPlaceLeft = target.left - width - gap >= margin;
+  const placement = canPlaceLeft ? "left" : "right";
+  const rawLeft = placement === "left" ? target.left - width - gap : target.right + gap;
+  const left = clamp(rawLeft, margin, Math.max(margin, viewportWidth - width - margin));
+  const top = clamp(target.top - 8, margin, Math.max(margin, viewportHeight - estimatedHeight - margin));
+  const anchorY = clamp(target.top + target.height / 2 - top, 22, estimatedHeight - 22);
+  return {
+    placement,
+    style: {
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+      "--related-anchor-y": `${Math.round(anchorY)}px`,
+    },
+  };
+}
+
+async function openRelatedPreview(payload, { pinned = false } = {}) {
+  if (state.relatedPreviewPinned && !pinned) return;
+  const id = Number(payload?.id ?? payload);
+  if (!id) return;
+  const seq = ++relatedPreviewRequestSeq;
+  const position = relatedPreviewPosition(payload?.anchor);
+  state.relatedPreviewEventId = id;
+  state.relatedPreviewOpen = true;
+  state.relatedPreviewPinned = Boolean(pinned);
+  state.relatedPreviewPlacement = position.placement;
+  state.relatedPreviewStyle = position.style;
+  state.relatedPreviewError = "";
+
+  if (timelineStore.detailById(id)) {
+    state.relatedPreviewLoading = false;
+    return;
+  }
+
+  state.relatedPreviewLoading = true;
+  try {
+    await timelineStore.ensureEventDetail(id);
+    if (seq === relatedPreviewRequestSeq) syncActiveTopicFromStore();
+  } catch (error) {
+    if (seq === relatedPreviewRequestSeq) {
+      state.relatedPreviewError = error.message || "关联事件加载失败";
+    }
+  } finally {
+    if (seq === relatedPreviewRequestSeq) state.relatedPreviewLoading = false;
+  }
+}
+
+function previewRelatedEvent(payload) {
+  openRelatedPreview(payload, { pinned: false });
+}
+
+function pinRelatedEvent(payload) {
+  openRelatedPreview(payload, { pinned: true });
+}
+
+function hideRelatedPreview(eventId) {
+  if (state.relatedPreviewPinned) return;
+  if (eventId && Number(eventId) !== Number(state.relatedPreviewEventId)) return;
+  closeRelatedPreview();
+}
+
+function closeRelatedPreview() {
+  relatedPreviewRequestSeq += 1;
+  state.relatedPreviewOpen = false;
+  state.relatedPreviewEventId = null;
+  state.relatedPreviewLoading = false;
+  state.relatedPreviewError = "";
+  state.relatedPreviewPinned = false;
+  state.relatedPreviewStyle = {};
+}
+
+function openRelatedPreviewFull() {
+  const id = Number(state.relatedPreviewEventId);
+  if (!id) return;
+  closeRelatedPreview();
+  runOrConfirm(() => applyEventSelection(id));
 }
 
 function closeDetailPane() {
@@ -1331,12 +1443,27 @@ watch(
       @close="closeDetailPane"
       @edit="startEditSelectedEvent"
       @open-menu="openEventMenu"
-      @open-related="openRelatedEvent"
+      @preview-related="previewRelatedEvent"
+      @hide-related-preview="hideRelatedPreview"
+      @pin-related="pinRelatedEvent"
       @save="saveEvent"
       @toggle-favorite="toggleFavorite"
       @create-option="addPropertyOption"
       @dirty-change="state.detailDirty = $event"
       @preview-change="state.editPreview = $event"
+    />
+
+    <RelatedEventPreviewPopover
+      :open="state.relatedPreviewOpen"
+      :event="relatedPreviewEvent"
+      :topic-title="relatedPreviewTopicTitle"
+      :loading="state.relatedPreviewLoading"
+      :error="state.relatedPreviewError"
+      :pinned="state.relatedPreviewPinned"
+      :placement="state.relatedPreviewPlacement"
+      :style-vars="state.relatedPreviewStyle"
+      @close="closeRelatedPreview"
+      @open-full="openRelatedPreviewFull"
     />
 
     <div v-if="!isMobile" id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>

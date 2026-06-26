@@ -68,7 +68,9 @@ const emit = defineEmits([
   "close",
   "edit",
   "open-menu",
-  "open-related",
+  "preview-related",
+  "hide-related-preview",
+  "pin-related",
   "save",
   "toggle-favorite",
   "dirty-change",
@@ -466,6 +468,41 @@ function removeRelatedEvent(eventId) {
   draft.relatedEventIds = draft.relatedEventIds.filter((id) => id !== eventId);
 }
 
+function relatedAnchorPayload(item, event) {
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  return {
+    id: item?.id,
+    anchor: rect
+      ? {
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        }
+      : null,
+  };
+}
+
+function previewRelatedEvent(item, event) {
+  if (inEditMode.value) return;
+  emit("preview-related", relatedAnchorPayload(item, event));
+}
+
+function hideRelatedPreview(item) {
+  if (inEditMode.value) return;
+  emit("hide-related-preview", item?.id);
+}
+
+function activateRelatedEvent(item, event) {
+  if (inEditMode.value) {
+    removeRelatedEvent(item.id);
+    return;
+  }
+  emit("pin-related", relatedAnchorPayload(item, event));
+}
+
 function submit() {
   const dateYear = Number.parseInt(draft.dateYear, 10);
   const dateMonth = Number.parseInt(draft.dateMonth, 10);
@@ -845,7 +882,11 @@ onBeforeUnmount(() => {
               :key="item.id"
               type="button"
               class="lrow"
-              @click="inEditMode ? removeRelatedEvent(item.id) : emit('open-related', item.id)"
+              @mouseenter="previewRelatedEvent(item, $event)"
+              @mouseleave="hideRelatedPreview(item)"
+              @focus="previewRelatedEvent(item, $event)"
+              @blur="hideRelatedPreview(item)"
+              @click="activateRelatedEvent(item, $event)"
             >
               <span class="lrow-ic"><TimelineLucideIcon name="calendar" :stroke-width="1.8" /></span>
               <div class="lrow-main">
