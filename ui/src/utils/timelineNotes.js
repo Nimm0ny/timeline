@@ -168,6 +168,12 @@ export function buildTimelineGridTemplate(columns) {
   ].join(" ");
 }
 
+export function buildGlobalFavoriteEvents(events) {
+  return [...(events || [])]
+    .filter((event) => event?.favorite && !event?.deletedAt)
+    .sort(compareTimelineEvents);
+}
+
 export function optionMeta(column, id) {
   const found = (column?.options || []).find((option) => option.id === id);
   return found || { id, label: id, color: "var(--accent)" };

@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ColumnConfigPopover from "@/components/timeline-notes/ColumnConfigPopover.vue";
+import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
   buildEventPreview,
@@ -28,6 +29,10 @@ const props = defineProps({
   topicTitle: {
     type: String,
     default: "",
+  },
+  topics: {
+    type: Array,
+    default: () => [],
   },
   eventCount: {
     type: Number,
@@ -64,6 +69,22 @@ const props = defineProps({
   showPreview: {
     type: Boolean,
     default: true,
+  },
+  showSource: {
+    type: Boolean,
+    default: false,
+  },
+  globalFavoritesMode: {
+    type: Boolean,
+    default: false,
+  },
+  showColumnControls: {
+    type: Boolean,
+    default: true,
+  },
+  searchPlaceholder: {
+    type: String,
+    default: "搜索当前时间线",
   },
   searchRequestKey: {
     type: Number,
@@ -148,6 +169,7 @@ watch(
 );
 
 function togglePopover(name) {
+  if (name === "columns" && !props.showColumnControls) return;
   activePopover.value = activePopover.value === name ? "" : name;
 }
 
@@ -234,6 +256,13 @@ watch(
 );
 
 watch(
+  () => props.showColumnControls,
+  (enabled) => {
+    if (!enabled && activePopover.value === "columns") activePopover.value = "";
+  }
+);
+
+watch(
   () => props.locateDate,
   (value) => {
     locatorValue.value = value || "";
@@ -284,7 +313,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="col timeline" :class="{ 'preview-off': !props.showPreview }">
+  <section class="col timeline" :class="{ 'preview-off': !props.showPreview, 'source-on': props.showSource }">
     <div class="tl-bar">
       <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
@@ -298,7 +327,7 @@ onBeforeUnmount(() => {
             ref="searchInputRef"
             :value="props.searchQuery"
             type="search"
-            placeholder="搜索当前时间线"
+            :placeholder="props.searchPlaceholder"
             @input="emit('update:searchQuery', $event.target.value)"
             @blur="closeSearchIfEmpty"
           />
@@ -318,6 +347,7 @@ onBeforeUnmount(() => {
         </button>
 
         <button
+          v-if="props.showColumnControls"
           id="colBtn"
           type="button"
           class="iconbtn lg"
@@ -371,7 +401,7 @@ onBeforeUnmount(() => {
         </form>
 
         <ColumnConfigPopover
-          v-else-if="activePopover === 'columns'"
+          v-else-if="activePopover === 'columns' && props.showColumnControls"
           :columns="props.columns"
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"
@@ -390,7 +420,7 @@ onBeforeUnmount(() => {
         </button>
       </template>
       <template v-else>
-        <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量收藏" @click="submitBatch('batch-favorite')">
+        <button v-if="!props.globalFavoritesMode" type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量收藏" @click="submitBatch('batch-favorite')">
           <TimelineLucideIcon name="star" :stroke-width="1.8" />
         </button>
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量移入回收站" @click="submitBatch('batch-trash')">
@@ -445,6 +475,7 @@ onBeforeUnmount(() => {
                 <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                   <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
                 </span>
+                <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
                 <span class="ev-sum">{{ buildEventPreview(event, 90) }}</span>
               </span>
               <span v-else-if="isOptionColumn(column)" class="c-tags">

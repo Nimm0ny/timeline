@@ -25,6 +25,14 @@ const props = defineProps({
     type: String,
     default: "all",
   },
+  globalFavoriteCount: {
+    type: Number,
+    default: 0,
+  },
+  globalFavoritesActive: {
+    type: Boolean,
+    default: false,
+  },
   columns: {
     type: Array,
     default: () => [],
@@ -59,7 +67,9 @@ const emit = defineEmits([
   "delete-topic",
   "batch-delete-topics",
   "focus-search",
+  "open-global-favorites",
   "open-settings",
+  "select-ribbon",
 ]);
 
 const state = reactive({
@@ -214,7 +224,7 @@ function submitBatchDelete() {
 const RIBBON_PANELS = {
   files: { title: "笔记本", sections: ["views", "topics"], tree: true },
   search: { title: "搜索", sections: ["views", "topics"], tree: true },
-  star: { title: "收藏", sections: ["views", "topics"], tree: true },
+  star: { title: "收藏", sections: ["globalFavorites"], tree: false },
   tags: { title: "属性", sections: ["properties"], tree: false },
   stats: { title: "统计", sections: ["stats"], tree: false },
 };
@@ -337,9 +347,18 @@ function toggleTopic(topicId) {
   emit("select-topic", topicId);
 }
 
+function selectRibbon(ribbon) {
+  state.ribbon = ribbon;
+  emit("select-ribbon", ribbon);
+}
+
 function focusSearch() {
-  state.ribbon = "search";
+  selectRibbon("search");
   emit("focus-search");
+}
+
+function openGlobalFavorites() {
+  emit("open-global-favorites");
 }
 
 function submitTopic() {
@@ -390,6 +409,14 @@ watch(
     }
   }
 );
+
+watch(
+  () => props.globalFavoritesActive,
+  (active) => {
+    if (active) state.ribbon = "star";
+    else if (state.ribbon === "star") state.ribbon = "files";
+  }
+);
 </script>
 
 <template>
@@ -398,19 +425,19 @@ watch(
       <button class="rb brand" :title="props.brand">
         <TimelineLucideIcon name="book" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" @click="state.ribbon = 'files'">
+      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" @click="selectRibbon('files')">
         <TimelineLucideIcon name="folder" :stroke-width="1.8" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" @click="focusSearch">
         <TimelineLucideIcon name="search" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="state.ribbon = 'star'">
+      <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="openGlobalFavorites">
         <TimelineLucideIcon name="star" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="属性" @click="state.ribbon = 'tags'">
+      <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="属性" @click="selectRibbon('tags')">
         <TimelineLucideIcon name="sliders" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="state.ribbon = 'stats'">
+      <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="selectRibbon('stats')">
         <TimelineLucideIcon name="bar" :stroke-width="1.8" />
       </button>
     </div>
@@ -445,6 +472,23 @@ watch(
       </div>
 
       <div class="pane-scroll scroll" @scroll="onPaneScroll">
+        <div v-if="panelHas('globalFavorites')" class="tg">
+          <div class="tg-body">
+            <button
+              type="button"
+              class="ti leaf global-favorite-entry"
+              :class="{ active: props.globalFavoritesActive }"
+              @click="emit('open-global-favorites')"
+            >
+              <span class="ti-chev"></span>
+              <span class="ti-ic"><TimelineLucideIcon name="star" :stroke-width="1.8" /></span>
+              <span class="ti-name">跨笔记本收藏</span>
+              <span class="ti-cnt">{{ props.globalFavoriteCount }}</span>
+            </button>
+            <p v-if="!props.globalFavoriteCount" class="sidebar-copy">暂无跨笔记本收藏。</p>
+          </div>
+        </div>
+
         <div v-if="panelHas('views')" class="tg" :class="{ collapsed: state.sections.views }">
           <div class="tg-head" @click="toggleSection('views')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>

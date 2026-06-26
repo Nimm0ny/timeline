@@ -13,6 +13,7 @@ import { useTimelineStore } from "@/composables/useTimelineStore";
 import { useViewport } from "@/composables/useViewport";
 import {
   compareTimelineEvents,
+  buildGlobalFavoriteEvents,
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
@@ -100,6 +101,7 @@ const state = reactive({
   selectedEventId: null,
   detailMode: "view",
   sidebarFilter: "all",
+  collectionMode: "",
   propertyFilter: { key: "", value: "" },
   activeEra: "",
   locateDate: "",
@@ -144,9 +146,18 @@ const activeTopicTitle = computed(
   () => state.activeTopicMeta?.title || state.topics.find((topic) => topic.id === state.activeTopicId)?.title || "编年"
 );
 
+const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
+const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineStore.state.eventsIndex));
+const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
+const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
 const selectedEventDetail = computed(() => timelineStore.detailById(state.selectedEventId));
-const selectedEventIndex = computed(() => state.events.find((event) => event.id === state.selectedEventId) || null);
+const selectedEventIndex = computed(
+  () =>
+    state.events.find((event) => event.id === state.selectedEventId) ||
+    timelineStore.state.eventsIndex.find((event) => event.id === state.selectedEventId) ||
+    null
+);
 const selectedEvent = computed(() => selectedEventDetail.value || selectedEventIndex.value);
 const detailRequiresFullEvent = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
 const detailPaneEvent = computed(() => {
@@ -219,13 +230,23 @@ function applyPreviewOverlay(event, preview) {
   };
 }
 
-function previewedEvents() {
+function withPreviewOverlay(events) {
   const preview = state.editPreview;
-  if (!preview || !preview.id) return state.events;
-  return state.events.map((event) => (event.id === preview.id ? applyPreviewOverlay(event, preview) : event));
+  if (!preview || !preview.id) return events;
+  return events.map((event) => (event.id === preview.id ? applyPreviewOverlay(event, preview) : event));
+}
+
+function previewedEvents() {
+  return withPreviewOverlay(isGlobalFavoritesMode.value ? globalFavoriteEvents.value : state.events);
 }
 
 function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
+  if (isGlobalFavoritesMode.value) {
+    return [...previewedEvents()]
+      .filter((event) => matchesEventSearch(event, search, []))
+      .sort(compareTimelineEvents);
+  }
+
   // The row being edited stays visible even if the live draft no longer matches
   // the active property/era/search, so it never vanishes mid-edit under a filter.
   // Never exempt it into the trash view (a live row must not appear there).
@@ -244,6 +265,8 @@ const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "e
 
 const feedEmptyReason = computed(() => {
   if (state.error) return "";
+  if (isGlobalFavoritesMode.value && state.searchQuery.trim()) return "跨笔记本收藏中没有找到记录。";
+  if (isGlobalFavoritesMode.value) return "暂无跨笔记本收藏。";
   if (!state.activeTopicId) return "先创建或选择一个笔记本。";
   if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
   if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
@@ -381,6 +404,39 @@ function runOrConfirm(action) {
   action();
 }
 
+function exitGlobalFavoritesMode({ reselect = true } = {}) {
+  if (!isGlobalFavoritesMode.value) return;
+  state.collectionMode = "";
+  if (reselect) setDefaultSelection();
+}
+
+function handleSidebarRibbon(ribbon) {
+  if (ribbon !== "star") exitGlobalFavoritesMode();
+}
+
+function openGlobalFavorites() {
+  runOrConfirm(async () => {
+    state.collectionMode = "favorites";
+    state.sidebarFilter = "all";
+    state.propertyFilter = { key: "", value: "" };
+    state.activeEra = "";
+    state.locateDate = "";
+    state.searchQuery = "";
+    state.detailMode = "view";
+    state.rightOpen = false;
+    setDefaultSelection();
+    closeMobileSidebar();
+    await syncRouteState({
+      eventId: null,
+      mode: "view",
+      filter: "all",
+      propertyFilter: { key: "", value: "" },
+      era: "",
+      date: "",
+    });
+  });
+}
+
 function closeUnsavedDialog() {
   state.confirmUnsaved = false;
   state.pendingAction = null;
@@ -422,6 +478,35 @@ function saveAndContinue() {
 
 function selectEvent(eventId) {
   runOrConfirm(async () => {
+    const event = timelineStore.state.eventsIndex.find((item) => item.id === Number(eventId));
+    if (isGlobalFavoritesMode.value && event?.topicId) {
+      state.collectionMode = "";
+      state.sidebarFilter = "all";
+      state.propertyFilter = { key: "", value: "" };
+      state.activeEra = "";
+      state.locateDate = "";
+      state.searchQuery = "";
+      applyWorkspaceSelection({
+        preferredTopicId: event.topicId,
+        preferredEventId: event.id,
+        preferredMode: "view",
+        openDetail: true,
+      });
+      state.detailError = "";
+      state.rightOpen = true;
+      closeMobileSidebar();
+      await syncRouteState({
+        topicId: event.topicId,
+        eventId: event.id,
+        filter: "all",
+        propertyFilter: { key: "", value: "" },
+        era: "",
+        date: "",
+        mode: "view",
+      });
+      return;
+    }
+
     state.selectedEventId = eventId;
     state.detailMode = "view";
     state.detailError = "";
@@ -449,6 +534,7 @@ function startCreateEvent() {
       pushToast("请先选择一个笔记本", "error");
       return;
     }
+    exitGlobalFavoritesMode();
     closeMobileSidebar();
     state.mobileSearchOpen = false;
     state.detailMode = "create";
@@ -462,6 +548,7 @@ function startCreateEvent() {
 function createEventInTopic(topicId) {
   if (!topicId) return;
   runOrConfirm(async () => {
+    exitGlobalFavoritesMode({ reselect: false });
     if (topicId !== state.activeTopicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
@@ -536,8 +623,9 @@ async function saveEvent(payload) {
 }
 
 async function selectTopic(topicId) {
-  if (topicId === state.activeTopicId) return;
+  if (topicId === state.activeTopicId && !isGlobalFavoritesMode.value) return;
   runOrConfirm(async () => {
+    exitGlobalFavoritesMode({ reselect: false });
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
@@ -604,6 +692,7 @@ function applyFilterState({ filter = state.sidebarFilter, propertyFilter = state
 
 function updateSidebarFilter(filter) {
   runOrConfirm(async () => {
+    exitGlobalFavoritesMode();
     applyFilterState({ filter });
     closeMobileSidebar();
     await syncRouteState({ filter, eventId: state.rightOpen ? state.selectedEventId : null });
@@ -612,6 +701,7 @@ function updateSidebarFilter(filter) {
 
 function updatePropertyFilter(propertyFilter) {
   runOrConfirm(async () => {
+    exitGlobalFavoritesMode();
     applyFilterState({ propertyFilter });
     closeMobileSidebar();
     await syncRouteState({ propertyFilter, eventId: state.rightOpen ? state.selectedEventId : null });
@@ -620,6 +710,7 @@ function updatePropertyFilter(propertyFilter) {
 
 function updateActiveEra(era) {
   runOrConfirm(async () => {
+    exitGlobalFavoritesMode();
     applyFilterState({ era });
     closeMobileSidebar();
     await syncRouteState({ era, eventId: state.rightOpen ? state.selectedEventId : null });
@@ -642,9 +733,11 @@ function locateDate(value) {
 async function toggleFavorite(event) {
   if (!event || event.deletedAt) return;
   try {
+    const wasGlobalFavorites = isGlobalFavoritesMode.value;
     const result = await api.updateEventFavorite(event.id, !event.favorite);
     timelineStore.upsertEvent(result);
     syncActiveTopicFromStore();
+    if (wasGlobalFavorites) setDefaultSelection();
   } catch (error) {
     pushToast(`收藏更新失败：${error.message}`, "error");
   }
@@ -712,7 +805,8 @@ function togglePreview() {
 // Note-level batch ops: run the existing per-event state patches over the
 // selected ids, then reconcile the view. Each is resilient to partial failure.
 async function runBatch(ids, perEvent, doneLabel) {
-  const targets = state.events.filter((event) => ids.includes(event.id));
+  const sourceEvents = isGlobalFavoritesMode.value ? globalFavoriteEvents.value : state.events;
+  const targets = sourceEvents.filter((event) => ids.includes(event.id));
   if (!targets.length) return;
   let done = 0;
   try {
@@ -994,7 +1088,7 @@ watch(
   >
     <MobileTopBar
       v-if="isMobile"
-      :title="activeTopicTitle"
+      :title="feedTitle"
       :count="visibleEvents.length"
       :search-query="state.searchQuery"
       :search-open="state.mobileSearchOpen"
@@ -1012,6 +1106,8 @@ watch(
       :events="state.events"
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
+      :global-favorite-count="globalFavoriteEvents.length"
+      :global-favorites-active="isGlobalFavoritesMode"
       :columns="topicColumns"
       :property-filter="state.propertyFilter"
       :active-era="state.activeEra"
@@ -1025,7 +1121,9 @@ watch(
       @batch-delete-topics="requestBatchDeleteTopics"
       @focus-search="focusFeedSearch"
       @open-settings="openSettings"
+      @open-global-favorites="openGlobalFavorites"
       @select-era="updateActiveEra"
+      @select-ribbon="handleSidebarRibbon"
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
       @update:property-filter="updatePropertyFilter"
@@ -1034,19 +1132,24 @@ watch(
     <TimelineFeed
       :loading="state.loading"
       :error="state.error"
-      :has-topic="Boolean(state.activeTopicId)"
-      :topic-title="activeTopicTitle"
+      :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"
+      :topic-title="feedTitle"
+      :topics="state.topics"
       :event-count="visibleEvents.length"
       :empty-reason="feedEmptyReason"
       :search-query="state.searchQuery"
       :groups="groupedEvents"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
-      :columns="topicColumns"
+      :columns="feedColumns"
       :column-saving="state.columnSaving"
       :show-preview="state.showPreview"
+      :show-source="isGlobalFavoritesMode"
+      :global-favorites-mode="isGlobalFavoritesMode"
+      :show-column-controls="!isGlobalFavoritesMode"
+      :search-placeholder="isGlobalFavoritesMode ? '搜索跨本收藏' : '搜索当前时间线'"
       :search-request-key="state.searchRequestKey"
-      :trash-view="state.sidebarFilter === 'trash'"
+      :trash-view="!isGlobalFavoritesMode && state.sidebarFilter === 'trash'"
       :mobile="isMobile"
       @create-event="startCreateEvent"
       @locate-date="locateDate"

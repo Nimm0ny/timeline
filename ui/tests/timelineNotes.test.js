@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildEditorDraft,
   buildEventPreview,
+  buildGlobalFavoriteEvents,
   buildPropertyRows,
   buildReadableDetailGroups,
   buildTimelineGridTemplate,
@@ -101,6 +102,20 @@ test("buildEventPreview and search can use lightweight index preview text", () =
 
   assert.equal(buildEventPreview(event, 20), "轻量索引预览文本");
   assert.equal(groupTimelineEvents([event], "era", "索引").length, 1);
+});
+
+test("buildGlobalFavoriteEvents returns live favorites across topics in timeline order", () => {
+  const rows = buildGlobalFavoriteEvents([
+    { id: 5, topicId: 2, dateKey: 19110101, favorite: true },
+    { id: 2, topicId: 1, dateKey: 18400101, favorite: true },
+    { id: 3, topicId: 1, dateKey: 18400201, favorite: false },
+    { id: 4, topicId: 3, dateKey: 18400301, favorite: true, deletedAt: "2026-01-01T00:00:00Z" },
+  ]);
+
+  assert.deepEqual(rows.map((event) => [event.id, event.topicId]), [
+    [2, 1],
+    [5, 2],
+  ]);
 });
 
 test("search can use lightweight index full search text outside preview", () => {
