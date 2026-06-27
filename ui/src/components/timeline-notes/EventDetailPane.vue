@@ -4,6 +4,7 @@ import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
+import MarkdownLiveEditor from "@/components/timeline-notes/MarkdownLiveEditor.vue";
 import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
@@ -78,7 +79,7 @@ const emit = defineEmits([
   "create-option",
 ]);
 
-const bodyEditableRef = ref(null);
+const bodyEditorRef = ref(null);
 const initialSnapshot = ref("");
 const uploading = ref(false);
 const sessionUploads = ref([]);
@@ -87,9 +88,10 @@ const relatedSearchQuery = ref("");
 const showRelatedSearch = ref(false);
 const relatedSearchInputRef = ref(null);
 const modalAttachment = ref(null);
-const dragActive = ref(false);
 const dateEditorOpen = ref(false);
 const eraEditorOpen = ref(false);
+const editorResetSeq = ref(0);
+const createSessionSeq = ref(0);
 
 const draft = reactive(buildEditorDraft(null, props.topicColumns));
 
@@ -98,6 +100,10 @@ const isDeleted = computed(() => Boolean(props.event?.deletedAt || draft.deleted
 const topicColumns = computed(() => normalizeTopicColumns(props.topicColumns));
 const readableGroups = computed(() => buildReadableDetailGroups(props.event));
 const renderedBody = computed(() => renderMarkdownToHtml(props.event?.bodyMarkdown || ""));
+const editorDocumentKey = computed(() => {
+  if (draft.id) return `event:${draft.id}:${editorResetSeq.value}`;
+  return `create:${createSessionSeq.value}:${editorResetSeq.value}`;
+});
 
 // Unified property section: option-typed properties edit via OptionPicker, free
 // ones via inline inputs. Every property renders in BOTH read and edit modes
@@ -191,77 +197,6 @@ function handleDocumentPointer(event) {
   closeMetaEditors();
 }
 
-function inlineToMarkdown(node) {
-  if (!node) return "";
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
-  if (node.nodeType !== Node.ELEMENT_NODE) return "";
-
-  const children = Array.from(node.childNodes).map(inlineToMarkdown).join("");
-  const tag = node.nodeName.toLowerCase();
-  if (tag === "strong" || tag === "b") return `**${children}**`;
-  if (tag === "em" || tag === "i") return `*${children}*`;
-  if (tag === "code") return `\`${node.textContent || ""}\``;
-  if (tag === "a") return `[${children || node.textContent || ""}](${node.getAttribute("href") || ""})`;
-  if (tag === "img") return `![${node.getAttribute("alt") || ""}](${node.getAttribute("src") || ""})`;
-  if (tag === "br") return "\n";
-  return children;
-}
-
-function blockToMarkdown(node) {
-  if (!node) return "";
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent?.trim() || "";
-  if (node.nodeType !== Node.ELEMENT_NODE) return "";
-
-  const tag = node.nodeName.toLowerCase();
-  if (tag === "h1" || tag === "h2" || tag === "h3") {
-    const level = Number(tag[1]);
-    return `${"#".repeat(level)} ${inlineToMarkdown(node).trim()}`.trim();
-  }
-  if (tag === "blockquote") {
-    return inlineToMarkdown(node)
-      .split("\n")
-      .map((line) => (line.trim() ? `> ${line.trim()}` : ">"))
-      .join("\n");
-  }
-  if (tag === "ul") {
-    return Array.from(node.children)
-      .map((item) => `- ${inlineToMarkdown(item).trim()}`.trim())
-      .join("\n");
-  }
-  if (tag === "img") {
-    return inlineToMarkdown(node);
-  }
-  if (tag === "div" && node.classList.contains("body-editable")) {
-    return Array.from(node.childNodes)
-      .map(blockToMarkdown)
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  return inlineToMarkdown(node).trim();
-}
-
-function editableRootToMarkdown() {
-  if (!bodyEditableRef.value) return draft.bodyMarkdown || "";
-  return Array.from(bodyEditableRef.value.childNodes)
-    .map(blockToMarkdown)
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-}
-
-function syncEditableBody(markdown) {
-  if (!bodyEditableRef.value) return;
-  const html = renderMarkdownToHtml(markdown || "");
-  const nextHtml = html || "<p><br></p>";
-  if (bodyEditableRef.value.innerHTML !== nextHtml) {
-    bodyEditableRef.value.innerHTML = nextHtml;
-  }
-}
-
-function handleBodyInput() {
-  draft.bodyMarkdown = editableRootToMarkdown();
-}
-
 function openAttachment(attachment) {
   modalAttachment.value = attachment;
 }
@@ -322,10 +257,11 @@ function applyDraft(sourceEvent) {
   relatedSearchQuery.value = "";
   showRelatedSearch.value = false;
   closeMetaEditors();
-  nextTick(() => {
-    syncEditableBody(draft.bodyMarkdown);
-    initialSnapshot.value = snapshotDraft();
-  });
+  if (!sourceEvent) {
+    createSessionSeq.value += 1;
+  }
+  editorResetSeq.value += 1;
+  initialSnapshot.value = snapshotDraft();
 }
 
 async function cleanupTransientUploads() {
@@ -365,8 +301,11 @@ function buildAttachmentFromUpload(result, file) {
 }
 
 function appendMarkdownBlock(markdownText, notice = "已插入正文") {
-  draft.bodyMarkdown = [String(draft.bodyMarkdown || "").trim(), markdownText].filter(Boolean).join("\n\n");
-  nextTick(() => syncEditableBody(draft.bodyMarkdown));
+  if (bodyEditorRef.value?.insertBlock) {
+    draft.bodyMarkdown = bodyEditorRef.value.insertBlock(markdownText);
+  } else {
+    draft.bodyMarkdown = [String(draft.bodyMarkdown || "").trim(), markdownText].filter(Boolean).join("\n\n");
+  }
   if (notice) pushToast(notice);
 }
 
@@ -419,30 +358,6 @@ async function uploadAttachment(event, options) {
   const files = Array.from(event.target.files || []);
   await uploadFiles(files, options);
   event.target.value = "";
-}
-
-function handleEditablePaste(event) {
-  const files = Array.from(event.clipboardData?.files || []);
-  if (!files.length) return;
-  event.preventDefault();
-  uploadDroppedImages(files);
-}
-
-function handleEditableDrop(event) {
-  event.preventDefault();
-  dragActive.value = false;
-  uploadDroppedImages(Array.from(event.dataTransfer?.files || []));
-}
-
-function handleEditableDragOver(event) {
-  event.preventDefault();
-  dragActive.value = true;
-}
-
-function handleEditableDragLeave(event) {
-  if (!event.currentTarget.contains(event.relatedTarget)) {
-    dragActive.value = false;
-  }
 }
 
 function removeAttachment(index) {
@@ -504,6 +419,9 @@ function activateRelatedEvent(item, event) {
 }
 
 function submit() {
+  if (bodyEditorRef.value?.getMarkdown) {
+    draft.bodyMarkdown = bodyEditorRef.value.getMarkdown();
+  }
   const dateYear = Number.parseInt(draft.dateYear, 10);
   const dateMonth = Number.parseInt(draft.dateMonth, 10);
   const dateDay = Number.parseInt(draft.dateDay, 10);
@@ -557,6 +475,9 @@ function discardDraft() {
 }
 
 function markSaved() {
+  if (bodyEditorRef.value?.getMarkdown) {
+    draft.bodyMarkdown = bodyEditorRef.value.getMarkdown();
+  }
   sessionUploads.value = [];
   pendingDeleteImages.value = [];
   initialSnapshot.value = snapshotDraft();
@@ -602,15 +523,6 @@ watch(
     }
   },
   { deep: true }
-);
-
-watch(
-  () => draft.bodyMarkdown,
-  (value) => {
-    if (inEditMode.value) {
-      nextTick(() => syncEditableBody(value));
-    }
-  }
 );
 
 onMounted(() => {
@@ -734,20 +646,16 @@ onBeforeUnmount(() => {
           </span>
         </div>
 
-        <section class="body-wrap" :class="{ editing: inEditMode, dragging: dragActive }">
-          <div
+        <section class="body-wrap" :class="{ editing: inEditMode }">
+          <MarkdownLiveEditor
             v-if="inEditMode"
-            ref="bodyEditableRef"
-            class="body markdown-body body-editable"
-            contenteditable="true"
-            spellcheck="false"
-            @click="handleBodyClick"
-            @input="handleBodyInput"
-            @paste="handleEditablePaste"
-            @drop="handleEditableDrop"
-            @dragover="handleEditableDragOver"
-            @dragleave="handleEditableDragLeave"
-          ></div>
+            ref="bodyEditorRef"
+            v-model="draft.bodyMarkdown"
+            :document-key="editorDocumentKey"
+            @open-image="openAttachment"
+            @paste-files="uploadDroppedImages"
+            @drop-files="uploadDroppedImages"
+          />
           <div
             v-else
             class="body markdown-body"

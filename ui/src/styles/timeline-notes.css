@@ -1627,13 +1627,65 @@ button {
   min-height: 280px;
 }
 
-/* Seamless editor: the contenteditable body never shows a focus ring or border,
-   so read <-> edit stays zero-displacement (spec §7.2). Caret signals focus. */
-.body-editable,
-.body-editable:focus,
-.body-editable:focus-visible {
+/* Seamless editor: CM6 owns input, while the right pane keeps the same plain
+   document surface as read mode. Caret movement is the only focus signal. */
+.markdown-live-editor,
+.markdown-live-editor:focus,
+.markdown-live-editor:focus-visible,
+.markdown-live-editor .cm-editor,
+.markdown-live-editor .cm-editor.cm-focused {
   outline: none;
   border: 0;
+}
+
+.markdown-live-editor .cm-editor {
+  background: transparent;
+  color: var(--text);
+  font-family: var(--tn-font);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.markdown-live-editor .cm-scroller {
+  overflow: visible;
+  font-family: var(--tn-font);
+  line-height: inherit;
+}
+
+.markdown-live-editor .cm-content {
+  padding: 0;
+  caret-color: var(--accent);
+  min-height: 220px;
+}
+
+.markdown-live-editor .cm-line {
+  padding: 0;
+}
+
+.markdown-live-editor .cm-gutters {
+  display: none;
+}
+
+.markdown-live-editor .cm-selectionBackground,
+.markdown-live-editor.cm-focused .cm-selectionBackground,
+.markdown-live-editor .cm-focused .cm-selectionBackground {
+  background: var(--accent-weak);
+}
+
+.markdown-live-editor .cm-md-image-widget {
+  margin: 0;
+  padding: 16px 0;
+}
+
+.markdown-live-editor .cm-md-image-widget img {
+  margin: 0;
+}
+
+.markdown-live-editor .cm-md-image-widget figcaption {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .markdown-body h1,
