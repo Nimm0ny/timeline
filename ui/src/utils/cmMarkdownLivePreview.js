@@ -54,23 +54,7 @@ export function collectMarkdownImageTokens(markdownText, activeLineRanges = []) 
   lines.forEach((line) => {
     const lineFrom = offset;
     const lineTo = offset + line.length;
-    const isActive = activeLineRanges.some((range) => rangeIntersectsLine(range, lineFrom, lineTo));
-
-    if (!isActive) {
-      IMAGE_MARKDOWN_RE.lastIndex = 0;
-      let match = IMAGE_MARKDOWN_RE.exec(line);
-      while (match) {
-        tokens.push({
-          from: lineFrom + match.index,
-          to: lineFrom + match.index + match[0].length,
-          alt: match[1] || "",
-          src: match[2] || "",
-          lineFrom,
-          lineTo,
-        });
-        match = IMAGE_MARKDOWN_RE.exec(line);
-      }
-    }
+    collectMarkdownImageTokensFromLine(tokens, line, lineFrom, lineTo, activeLineRanges);
 
     offset = lineTo + 1;
   });
@@ -78,8 +62,49 @@ export function collectMarkdownImageTokens(markdownText, activeLineRanges = []) 
   return tokens;
 }
 
+function collectMarkdownImageTokensFromLine(tokens, lineText, lineFrom, lineTo, activeLineRanges) {
+  const isActive = activeLineRanges.some((range) => rangeIntersectsLine(range, lineFrom, lineTo));
+
+  if (isActive) {
+    return;
+  }
+
+  IMAGE_MARKDOWN_RE.lastIndex = 0;
+  let match = IMAGE_MARKDOWN_RE.exec(lineText);
+  while (match) {
+    tokens.push({
+      from: lineFrom + match.index,
+      to: lineFrom + match.index + match[0].length,
+      alt: match[1] || "",
+      src: match[2] || "",
+      lineFrom,
+      lineTo,
+    });
+    match = IMAGE_MARKDOWN_RE.exec(lineText);
+  }
+}
+
+export function collectMarkdownImageTokensFromDoc(doc, activeLineRanges = []) {
+  const tokens = [];
+  const cursor = doc.iterLines();
+  let offset = 0;
+
+  for (let step = cursor.next(); !step.done; step = cursor.next()) {
+    const lineFrom = offset;
+    const lineTo = offset + step.value.length;
+    collectMarkdownImageTokensFromLine(tokens, step.value, lineFrom, lineTo, activeLineRanges);
+    offset = lineTo + 1;
+  }
+
+  return tokens;
+}
+
 function selectionLineRanges(state) {
   return lineRangesForDocumentRanges(state.doc, state.selection.ranges);
+}
+
+export function activeLineRangesSignature(lineRanges) {
+  return lineRanges.map((range) => `${range.from}:${range.to}`).join("|");
 }
 
 class MarkdownImageWidget extends WidgetType {
@@ -128,10 +153,9 @@ class MarkdownImageWidget extends WidgetType {
   }
 }
 
-function buildImageDecorationSet(state, options) {
+function buildImageDecorationSet(state, options, activeLineRanges = selectionLineRanges(state)) {
   const builder = new RangeSetBuilder();
-  const markdownText = state.doc.toString();
-  const tokens = collectMarkdownImageTokens(markdownText, selectionLineRanges(state));
+  const tokens = collectMarkdownImageTokensFromDoc(state.doc, activeLineRanges);
 
   tokens.forEach((token) => {
     builder.add(
@@ -147,19 +171,46 @@ function buildImageDecorationSet(state, options) {
   return builder.finish();
 }
 
+function buildImageDecorationState(state, options) {
+  const activeLineRanges = selectionLineRanges(state);
+  const activeSignature = activeLineRangesSignature(activeLineRanges);
+
+  return {
+    activeSignature,
+    decorations: buildImageDecorationSet(state, options, activeLineRanges),
+  };
+}
+
 export function markdownImageBlockWidgetField(options = {}) {
   return StateField.define({
     create(state) {
-      return buildImageDecorationSet(state, options);
+      return buildImageDecorationState(state, options);
     },
     update(value, transaction) {
-      if (transaction.docChanged || transaction.selection) {
-        return buildImageDecorationSet(transaction.state, options);
+      if (transaction.docChanged) {
+        return buildImageDecorationState(transaction.state, options);
       }
-      return value.map(transaction.changes);
+
+      const decorations = value.decorations.map(transaction.changes);
+
+      if (transaction.selection) {
+        const activeLineRanges = selectionLineRanges(transaction.state);
+        const activeSignature = activeLineRangesSignature(activeLineRanges);
+
+        if (activeSignature === value.activeSignature) {
+          return { activeSignature, decorations };
+        }
+
+        return {
+          activeSignature,
+          decorations: buildImageDecorationSet(transaction.state, options, activeLineRanges),
+        };
+      }
+
+      return { ...value, decorations };
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (value) => value.decorations);
     },
   });
 }
