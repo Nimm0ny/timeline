@@ -1615,16 +1615,18 @@ button {
 
 .body-wrap {
   margin-top: 20px;
+  /* Read .body and the CM6 editor must share font metrics, otherwise the same
+     source renders to different heights and everything below (property section)
+     shifts on read<->edit toggle. The editor inherits these; read .body sets the
+     same 15px/1.85 explicitly. */
+  font-size: 15px;
+  line-height: 1.85;
 }
 
 .body {
   color: var(--text);
   font-size: 15px;
   line-height: 1.85;
-}
-
-.body-editor {
-  min-height: 280px;
 }
 
 /* Seamless editor: CM6 owns input, while the right pane keeps the same plain
@@ -1655,7 +1657,9 @@ button {
 .markdown-live-editor .cm-content {
   padding: 0;
   caret-color: var(--accent);
-  min-height: 220px;
+  /* No edit-only min-height: it forced the body block to 220px in edit while
+     read stayed content-height, pushing the property section down ~164px. The
+     editor now grows from content, matching read (right-pane zero-shift). */
 }
 
 .markdown-live-editor .cm-line {
@@ -2413,6 +2417,22 @@ select:focus-visible {
   font-size: 13px;
 }
 
+/* Property free-value input: same Notion-style affordance as the option control
+   — transparent at rest (no fill/border/shadow), a subtle background only on
+   hover/focus, never a focus ring. 11px inset matches the read-mode value. The
+   .detail-inline-input class is used only here, so this never touches the title
+   / search / column-config inputs that share the base input rule above. */
+.detail-inline-input {
+  background: transparent;
+  padding: 0 11px;
+}
+
+.detail-inline-input:hover,
+.detail-inline-input:focus {
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+
 /* OptionPicker */
 .optpick {
   position: relative;
@@ -2425,10 +2445,14 @@ select:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  /* No horizontal padding so a chip/placeholder lines up with the read-mode
+     value (value-column left), keeping read<->edit seamless. */
+  padding: 3px 0;
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
+  /* Notion-style: transparent at rest (no fill, no border, no shadow); the
+     hover/open rule below is the only affordance. */
+  background: transparent;
   text-align: left;
   cursor: pointer;
 }
@@ -2441,12 +2465,13 @@ select:focus-visible {
 .optpick-ph {
   color: var(--text-faint);
   font-size: 13px;
+  /* Align the empty placeholder with the read-mode 「—」 (11px value inset). */
+  padding-left: 11px;
 }
 
-.optpick .ptag {
-  min-height: 24px;
-  padding: 0 5px 0 9px;
-}
+/* .optpick chips reuse the read-mode .ptag verbatim (28px tall, dot 11px in),
+   so with the transparent control above a selected option sits pixel-identical
+   in read and edit — the chip is the only mark, exactly like read mode. */
 
 .ptag-x {
   display: inline-grid;
