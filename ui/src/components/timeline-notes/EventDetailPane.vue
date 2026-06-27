@@ -1,10 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
-import MarkdownLiveEditor from "@/components/timeline-notes/MarkdownLiveEditor.vue";
 import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
@@ -78,6 +77,8 @@ const emit = defineEmits([
   "preview-change",
   "create-option",
 ]);
+
+const MarkdownLiveEditor = defineAsyncComponent(() => import("@/components/timeline-notes/MarkdownLiveEditor.vue"));
 
 const bodyEditorRef = ref(null);
 const initialSnapshot = ref("");
