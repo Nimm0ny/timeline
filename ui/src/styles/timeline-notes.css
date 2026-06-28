@@ -1098,13 +1098,15 @@ button {
 }
 
 /* Color dots sit beside CJK labels in both the feed (.td) and the property/picker
-   chips (.ptag). align-items:center centers each dot to the text's line box, but
-   Noto Sans SC's ascent-heavy metrics put the glyph's optical center ~0.5px below
-   that — so the dot reads slightly high. Nudge it down onto the glyph's visual
-   center (one shared correction so the two never drift). */
+   chips (.ptag). align-items:center centers each dot to the text's *line box*, but
+   the eye aligns to the glyph's visual weight — and in Noto Sans SC the CJK ink
+   centroid sits ~0.75px below the line-box center (ascent-heavy metrics + the
+   character mass leaning low). A line-box-centered dot therefore reads high. Nudge
+   it down onto the glyph centroid (measured via canvas ink centroid; one shared
+   correction so the feed and pane dots don't drift). */
 .td i,
 .ptag i {
-  transform: translateY(0.5px);
+  transform: translateY(0.75px);
 }
 
 /* Overflow indicator: chips beyond FEED_CHIP_LIMIT collapse to a muted "+N"
