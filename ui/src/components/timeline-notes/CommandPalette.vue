@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import BaseModal from "@/components/BaseModal.vue";
+import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 
@@ -187,8 +188,8 @@ watch(
           >
             <template v-if="item.type === 'event'">
               <span class="command-row-main">
-                <span class="command-row-title">{{ item.value.headline }}</span>
-                <span class="command-row-sub">{{ item.value.snippet || "—" }}</span>
+                <span class="command-row-title"><HighlightedText :text="item.value.headline" :query="props.query" /></span>
+                <span class="command-row-sub"><HighlightedText :text="item.value.snippet || '—'" :query="props.query" /></span>
               </span>
               <span class="command-row-meta">
                 <NotebookChip :topic-id="item.value.topicId" :topics="props.topics" />
@@ -198,7 +199,7 @@ watch(
 
             <template v-else-if="item.type === 'topic'">
               <span class="command-row-main">
-                <span class="command-row-title">{{ item.value.title || item.value.name }}</span>
+                <span class="command-row-title"><HighlightedText :text="item.value.title || item.value.name" :query="props.query" /></span>
                 <span class="command-row-sub">笔记本</span>
               </span>
               <span class="command-row-meta">
