@@ -15,6 +15,7 @@ htmlcov/
 # Local QA and browser profiles
 .tmp-qa/
 .agents/
+.playwright-cli/
 
 # Runtime data and secrets
 data/timeline.db
