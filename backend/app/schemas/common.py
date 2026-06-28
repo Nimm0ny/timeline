@@ -22,7 +22,7 @@ class OptionDef(BaseModel):
 class ColumnDef(BaseModel):
     key: str
     label: str
-    # text | number | date | select | multiselect
+    # text | number | date | checkbox | url | email | phone | select | multiselect
     type: str = "text"
     width: int = 96
     order: int = 0

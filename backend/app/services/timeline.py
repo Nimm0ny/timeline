@@ -31,8 +31,9 @@ COLUMN_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 # columns (date + headline) are reserved; type/tags are ordinary, deletable
 # properties seeded by default (see DEFAULT_TOPIC_COLUMNS).
 RESERVED_COLUMN_KEYS = {"title", "time"}
-COLUMN_TYPES = {"text", "number", "date", "select", "multiselect"}
+COLUMN_TYPES = {"text", "number", "date", "checkbox", "url", "email", "phone", "select", "multiselect"}
 OPTION_COLUMN_TYPES = {"select", "multiselect"}
+CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 
 # Seeded into every new notebook; both are deletable like any other property.
 DEFAULT_TOPIC_COLUMNS = [
@@ -320,7 +321,10 @@ def normalize_extra(payload: dict, topic: Topic | None) -> dict:
             else:  # select
                 single = str(value or "")
                 normalized[name] = single if single in valid else ""
-        else:
+        elif column_type == "checkbox":
+            truthy = value is True or str(value).strip().lower() in CHECKBOX_TRUE
+            normalized[name] = "true" if truthy else "false"
+        else:  # text / number / date / url / email / phone — free string value
             normalized[name] = "" if value is None else str(value)
     return normalized
 

@@ -10,9 +10,11 @@ import {
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   groupTimelineEvents,
+  isCheckboxChecked,
   matchesPropertyFilter,
   normalizeEventExtra,
   normalizeTopicColumns,
+  propertyHref,
   resolvePropertyChips,
 } from "../src/utils/timelineNotes.js";
 
@@ -236,4 +238,32 @@ test("buildPropertyRows reports option usage counts across events", () => {
   assert.equal(tags.options.find((option) => option.value === "war").count, 1);
   assert.equal(tags.options.find((option) => option.value === "politics").count, 1);
   assert.equal(tags.options.find((option) => option.value === "reform").count, 1);
+});
+
+test("normalizeEventExtra coerces checkbox values to canonical true/false", () => {
+  const cols = [{ key: "done", label: "完成", type: "checkbox" }];
+  assert.deepEqual(normalizeEventExtra({ done: "true" }, cols), { done: "true" });
+  assert.deepEqual(normalizeEventExtra({ done: "1" }, cols), { done: "true" });
+  assert.deepEqual(normalizeEventExtra({ done: true }, cols), { done: "true" });
+  assert.deepEqual(normalizeEventExtra({ done: "false" }, cols), { done: "false" });
+  assert.deepEqual(normalizeEventExtra({ done: "" }, cols), { done: "false" });
+});
+
+test("isCheckboxChecked reads canonical and loose truthy strings", () => {
+  assert.equal(isCheckboxChecked("true"), true);
+  assert.equal(isCheckboxChecked("YES"), true);
+  assert.equal(isCheckboxChecked(true), true);
+  assert.equal(isCheckboxChecked("false"), false);
+  assert.equal(isCheckboxChecked(""), false);
+  assert.equal(isCheckboxChecked(undefined), false);
+});
+
+test("propertyHref builds safe hrefs and neutralizes script schemes", () => {
+  assert.equal(propertyHref("url", "example.com"), "https://example.com");
+  assert.equal(propertyHref("url", "http://a.test"), "http://a.test");
+  assert.equal(propertyHref("url", "javascript:alert(1)"), "https://javascript:alert(1)");
+  assert.equal(propertyHref("email", "a@b.com"), "mailto:a@b.com");
+  assert.equal(propertyHref("phone", "+1 (415) 555-0172"), "tel:+14155550172");
+  assert.equal(propertyHref("url", ""), "");
+  assert.equal(propertyHref("text", "x"), "");
 });

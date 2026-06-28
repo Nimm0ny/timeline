@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import { PROPERTY_TYPE_ICONS as TYPE_ICON } from "@/utils/timelineNotes";
 
 const props = defineProps({
   columns: {
@@ -25,15 +26,6 @@ const BUILTIN_LOCKED = [
   { key: "time", label: "时间", icon: "calendar" },
   { key: "title", label: "事件", icon: "alignLeft" },
 ];
-
-// Notion-style: each property carries a small type glyph.
-const TYPE_ICON = {
-  text: "alignLeft",
-  number: "hash",
-  date: "calendar",
-  select: "list",
-  multiselect: "hash",
-};
 
 function syncColumns(source) {
   draft.columns = (Array.isArray(source) ? source : []).map((column, index) => ({
@@ -147,9 +139,13 @@ function submitColumns() {
         <label>
           <span>类型</span>
           <select v-model="column.type">
-            <option value="text">text</option>
-            <option value="number">number</option>
-            <option value="date">date</option>
+            <option value="text">文本</option>
+            <option value="number">数字</option>
+            <option value="date">日期</option>
+            <option value="checkbox">复选</option>
+            <option value="url">链接</option>
+            <option value="email">邮箱</option>
+            <option value="phone">电话</option>
             <option value="select">单选</option>
             <option value="multiselect">多选</option>
           </select>

@@ -11,9 +11,14 @@ import {
   buildReadableDetailGroups,
   formatEventDate,
   formatEventDisplayDate,
+  isCheckboxChecked,
+  isCheckboxColumn,
+  isLinkColumn,
   isOptionColumn,
   normalizeEventExtra,
   normalizeTopicColumns,
+  propertyHref,
+  propertyTypeIcon,
   resolvePropertyChips,
 } from "@/utils/timelineNotes";
 import { renderMarkdownToHtml } from "@/utils/markdownPreview";
@@ -68,6 +73,7 @@ const emit = defineEmits([
   "close",
   "edit",
   "open-menu",
+  "move-to-trash",
   "preview-related",
   "hide-related-preview",
   "pin-related",
@@ -78,9 +84,15 @@ const emit = defineEmits([
   "create-option",
 ]);
 
-const MarkdownLiveEditor = defineAsyncComponent(() => import("@/components/timeline-notes/MarkdownLiveEditor.vue"));
+// Keep the CM6 editor in its own lazy chunk, but expose the loader so we can warm
+// it while the user is still reading (see onMounted) — otherwise entering edit
+// mounts it a frame late, collapsing the body and flashing the rows below.
+const loadMarkdownLiveEditor = () => import("@/components/timeline-notes/MarkdownLiveEditor.vue");
+const MarkdownLiveEditor = defineAsyncComponent(loadMarkdownLiveEditor);
 
 const bodyEditorRef = ref(null);
+const bodyWrapRef = ref(null);
+const bodyMinHeight = ref(0);
 const initialSnapshot = ref("");
 const uploading = ref(false);
 const sessionUploads = ref([]);
@@ -91,6 +103,10 @@ const relatedSearchInputRef = ref(null);
 const modalAttachment = ref(null);
 const dateEditorOpen = ref(false);
 const eraEditorOpen = ref(false);
+const kebabOpen = ref(false);
+const addPropOpen = ref(false);
+const trashArmed = ref(false);
+const revealedKeys = ref(new Set());
 const editorResetSeq = ref(0);
 const createSessionSeq = ref(0);
 
@@ -115,6 +131,26 @@ function chipsFor(column) {
 
 function onCreateOption(payload) {
   emit("create-option", payload);
+}
+
+// Obsidian-style metadata: every property row carries a small type icon so the
+// 属性 area reads as scannable metadata (date/group join the same list). Glyphs
+// come from the shared PROPERTY_TYPE_ICONS map (see utils/timelineNotes).
+function propertyIcon(column) {
+  return propertyTypeIcon(column?.type);
+}
+
+function freeInputType(column) {
+  if (column?.type === "number") return "number";
+  if (column?.type === "date") return "date";
+  if (column?.type === "url") return "url";
+  if (column?.type === "email") return "email";
+  if (column?.type === "phone") return "tel";
+  return "text";
+}
+
+function setCheckbox(column, event) {
+  draft.extra[column.key] = event.target.checked ? "true" : "false";
 }
 
 const selectedRelatedEvents = computed(() => {
@@ -154,7 +190,33 @@ const hasAttachments = computed(
 const hasRelated = computed(
   () => (inEditMode.value ? selectedRelatedEvents.value : readableGroups.value.relatedEvents).length > 0
 );
-const showPropertySection = computed(() => topicColumns.value.length > 0);
+// 属性「有就显示，没有就不显示」：阅读态只渲染有值属性，全空则整区隐藏；
+// 编辑态显示有值 + 用户经「+属性」展开的空属性，底部列出其余未填项供按需添加。
+function columnHasReadValue(column) {
+  // Mirror columnHasDraftValue's emptiness test (trim, not truthiness) so a
+  // whitespace-only value can't show in read yet hide in edit (a 1-row shift).
+  if (isOptionColumn(column)) return chipsFor(column).length > 0;
+  return String(props.event?.extra?.[column.key] ?? "").trim() !== "";
+}
+function columnHasDraftValue(column) {
+  const value = draft.extra?.[column.key];
+  if (column.type === "multiselect") return Array.isArray(value) && value.length > 0;
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+const readingProperties = computed(() => topicColumns.value.filter(columnHasReadValue));
+const editingProperties = computed(() =>
+  topicColumns.value.filter((column) => columnHasDraftValue(column) || revealedKeys.value.has(column.key))
+);
+const addableProperties = computed(() =>
+  topicColumns.value.filter((column) => !columnHasDraftValue(column) && !revealedKeys.value.has(column.key))
+);
+const displayedProperties = computed(() => (inEditMode.value ? editingProperties.value : readingProperties.value));
+function revealProperty(key) {
+  const next = new Set(revealedKeys.value);
+  next.add(key);
+  revealedKeys.value = next;
+}
+// 属性区恒显（日期/分组每条笔记必有）；类型/标签/自定义为空则不渲染该行。
 const showAttachmentSection = computed(() => hasAttachments.value);
 const showRelatedSection = computed(() => hasRelated.value || (inEditMode.value && showRelatedSearch.value));
 
@@ -192,9 +254,52 @@ function closeMetaEditors() {
   eraEditorOpen.value = false;
 }
 
+function toggleKebab() {
+  kebabOpen.value = !kebabOpen.value;
+  if (kebabOpen.value) closeMetaEditors();
+  else trashArmed.value = false;
+}
+
+function closeKebab() {
+  kebabOpen.value = false;
+  trashArmed.value = false;
+}
+
+function toggleAddProp() {
+  addPropOpen.value = !addPropOpen.value;
+}
+
+function closeAddProp() {
+  addPropOpen.value = false;
+}
+
+// 回收站二段确认：普通笔记点一下 armed（原地转红「移入回收站」），再点执行移入；
+// 已在回收站的笔记仍走父级弹层（恢复 / 永久删除两个操作）。
+function onTrashClick() {
+  if (isDeleted.value) {
+    emit("open-menu", props.event || draft);
+    closeKebab();
+    return;
+  }
+  if (!trashArmed.value) {
+    trashArmed.value = true;
+    return;
+  }
+  emit("move-to-trash", props.event || draft);
+  closeKebab();
+}
+
 function handleDocumentPointer(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (kebabOpen.value && !target?.closest(".kebab-wrap")) {
+    kebabOpen.value = false;
+    trashArmed.value = false;
+  }
+  if (addPropOpen.value && !target?.closest(".detail-prop-add")) {
+    addPropOpen.value = false;
+  }
   if (!dateEditorOpen.value && !eraEditorOpen.value) return;
-  if (event.target instanceof Element && event.target.closest(".meta-pop-wrap")) return;
+  if (target?.closest(".meta-pop-wrap")) return;
   closeMetaEditors();
 }
 
@@ -215,6 +320,12 @@ function handleBodyClick(event) {
       mimeType: "image/*",
     });
   }
+}
+
+// Release the body-height placeholder once the CM6 editor is live and holding its
+// own height (paired with the flush:'pre' capture below) — see read→edit no-flash.
+function onEditorReady() {
+  bodyMinHeight.value = 0;
 }
 
 function snapshotDraft() {
@@ -257,7 +368,9 @@ function applyDraft(sourceEvent) {
   draft.extra = next.extra;
   relatedSearchQuery.value = "";
   showRelatedSearch.value = false;
+  revealedKeys.value = new Set();
   closeMetaEditors();
+  addPropOpen.value = false;
   if (!sourceEvent) {
     createSessionSeq.value += 1;
   }
@@ -489,6 +602,18 @@ defineExpose({ discardDraft, markSaved, submit });
 watch(isDirty, (value) => emit("dirty-change", value), { immediate: true });
 watch(livePreview, (value) => emit("preview-change", value), { immediate: true });
 
+// Read→edit swaps the read HTML body for the async-mounted CM6 editor. Capture the
+// read body's height BEFORE the DOM swaps (flush: 'pre') and pin it as a min-height,
+// so the body never collapses during the async mount gap (which flashed the rows
+// below up then back). onEditorReady() releases it once the editor holds its height.
+watch(
+  inEditMode,
+  (editing) => {
+    bodyMinHeight.value = editing ? bodyWrapRef.value?.offsetHeight || 0 : 0;
+  },
+  { flush: "pre" }
+);
+
 watch(
   () => [props.mode, props.event?.id],
   async ([mode, eventId], previous = []) => {
@@ -528,6 +653,8 @@ watch(
 
 onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointer);
+  // Prefetch the editor chunk during read so the read→edit swap is gap-free.
+  loadMarkdownLiveEditor();
 });
 
 onBeforeUnmount(() => {
@@ -560,16 +687,6 @@ onBeforeUnmount(() => {
           <TimelineLucideIcon name="arrowLeft" :stroke-width="1.8" />
         </button>
         <span class="spacer"></span>
-        <template v-if="inEditMode">
-          <label class="iconbtn" :class="{ 'is-disabled': uploading }" title="添加附件">
-            <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
-            <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
-          </label>
-          <button type="button" class="iconbtn" :class="{ on: showRelatedSearch }" title="关联事件" @click="revealRelatedEditor">
-            <TimelineLucideIcon name="link" :stroke-width="1.8" />
-          </button>
-          <span class="divider"></span>
-        </template>
         <button
           id="detailStar"
           type="button"
@@ -581,10 +698,6 @@ onBeforeUnmount(() => {
         >
           <TimelineLucideIcon name="star" :stroke-width="1.8" />
         </button>
-        <button type="button" class="iconbtn" title="回收站操作" @click="emit('open-menu', props.event || draft)">
-          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
-        </button>
-        <span class="divider"></span>
         <button v-if="inEditMode" type="button" class="iconbtn primary" :disabled="props.saving" title="保存" @click="submit">
           <TimelineLucideIcon name="save" :stroke-width="1.8" />
         </button>
@@ -599,6 +712,29 @@ onBeforeUnmount(() => {
         >
           <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.8" />
         </button>
+        <span class="divider"></span>
+        <div class="kebab-wrap">
+          <button type="button" class="iconbtn" :class="{ on: kebabOpen }" title="更多操作" @click.stop="toggleKebab">
+            <TimelineLucideIcon name="moreVertical" :stroke-width="1.8" />
+          </button>
+          <div v-if="kebabOpen" class="popover detail-kebab" @click.stop>
+            <template v-if="inEditMode">
+              <label class="pop-item" :class="{ 'is-disabled': uploading }">
+                <TimelineLucideIcon class="pop-item-ic" name="paperclip" :stroke-width="1.8" />
+                <span class="lbl">添加附件</span>
+                <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event); closeKebab()" />
+              </label>
+              <button type="button" class="pop-item" @click="revealRelatedEditor(); closeKebab()">
+                <TimelineLucideIcon class="pop-item-ic" name="link" :stroke-width="1.8" />
+                <span class="lbl">关联事件</span>
+              </button>
+            </template>
+            <button type="button" class="pop-item trash-item" :class="{ danger: trashArmed }" @click.stop="onTrashClick">
+              <TimelineLucideIcon class="pop-item-ic" name="trash" :stroke-width="1.8" />
+              <span class="lbl">{{ !isDeleted && trashArmed ? "移入回收站" : "回收站" }}</span>
+            </button>
+          </div>
+        </div>
         <button v-if="!props.mobile" id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
           <TimelineLucideIcon name="close" :stroke-width="1.8" />
         </button>
@@ -610,49 +746,155 @@ onBeforeUnmount(() => {
         </label>
         <h1 v-else class="detail-title">{{ props.event?.headline || "未命名事件" }}</h1>
 
-        <div class="meta-row">
-          <span v-if="!inEditMode" class="meta">
-            <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
-            <span>{{ formatEventDisplayDate(props.event) }}</span>
-          </span>
-          <span v-else class="meta-pop-wrap">
-            <button type="button" class="meta meta-trigger" :class="{ on: dateEditorOpen }" @click.stop="toggleDateEditor">
-              <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
-              <span>{{ draftDisplayDate }}</span>
-            </button>
-            <div v-if="dateEditorOpen" class="popover meta-pop" @click.stop>
-              <div class="meta-pop-date">
-                <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" aria-label="年" />
-                <span>年</span>
-                <input v-model="draft.dateMonth" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="月" />
-                <span>月</span>
-                <input v-model="draft.dateDay" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="日" />
-                <span>日</span>
+        <div class="pane-sec detail-meta-sec">
+          <div class="pane-sec-head">
+            <h3>属性</h3>
+            <div v-if="inEditMode && addableProperties.length" class="detail-prop-add">
+              <button type="button" class="pane-sec-add" :class="{ on: addPropOpen }" title="添加属性" @click.stop="toggleAddProp">
+                <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+              </button>
+              <div v-if="addPropOpen" class="popover detail-addprop-pop" @click.stop>
+                <button
+                  v-for="column in addableProperties"
+                  :key="column.key"
+                  type="button"
+                  class="pop-item"
+                  @click="revealProperty(column.key); closeAddProp()"
+                >
+                  <TimelineLucideIcon class="pop-item-ic" :name="propertyIcon(column)" :stroke-width="1.8" />
+                  <span class="lbl">{{ column.label }}</span>
+                </button>
               </div>
             </div>
-          </span>
-
-          <span v-if="!inEditMode" class="meta meta-group" title="所属分组">
-            <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
-            <span>{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</span>
-          </span>
-          <span v-else class="meta-pop-wrap">
-            <button type="button" class="meta meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
-              <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
-              <span>{{ `${props.topicTitle} · ${draft.era || "未分期"}` }}</span>
-            </button>
-            <div v-if="eraEditorOpen" class="popover meta-pop" @click.stop>
-              <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
+          </div>
+          <div class="detail-prop-list">
+            <!-- 日期：每条笔记必有，作为元数据首行；编辑态点开沿用现有日期弹层。 -->
+            <div class="detail-prop-item">
+              <span class="detail-prop-label">
+                <TimelineLucideIcon name="calendar" :stroke-width="1.8" />日期
+              </span>
+              <div class="detail-prop-value">
+                <strong v-if="!inEditMode">{{ formatEventDisplayDate(props.event) }}</strong>
+                <span v-else class="meta-pop-wrap">
+                  <button type="button" class="detail-meta-trigger" :class="{ on: dateEditorOpen }" @click.stop="toggleDateEditor">
+                    {{ draftDisplayDate }}
+                  </button>
+                  <div v-if="dateEditorOpen" class="popover meta-pop" @click.stop>
+                    <div class="meta-pop-date">
+                      <input v-model="draft.dateYear" class="meta-input" type="text" inputmode="numeric" maxlength="8" aria-label="年" />
+                      <span>年</span>
+                      <input v-model="draft.dateMonth" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="月" />
+                      <span>月</span>
+                      <input v-model="draft.dateDay" class="meta-input sm" type="text" inputmode="numeric" maxlength="2" aria-label="日" />
+                      <span>日</span>
+                    </div>
+                  </div>
+                </span>
+              </div>
             </div>
-          </span>
+            <!-- 分组：每条笔记必有（专题·时代）。 -->
+            <div class="detail-prop-item">
+              <span class="detail-prop-label">
+                <TimelineLucideIcon name="leaf" :stroke-width="1.8" />分组
+              </span>
+              <div class="detail-prop-value">
+                <strong v-if="!inEditMode">{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</strong>
+                <span v-else class="meta-pop-wrap">
+                  <button type="button" class="detail-meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
+                    {{ `${props.topicTitle} · ${draft.era || "未分期"}` }}
+                  </button>
+                  <div v-if="eraEditorOpen" class="popover meta-pop" @click.stop>
+                    <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
+                  </div>
+                </span>
+              </div>
+            </div>
+            <!-- 类型 / 标签 / 自定义属性 -->
+            <div
+              v-for="column in displayedProperties"
+              :key="column.key"
+              class="detail-prop-item"
+            >
+              <span class="detail-prop-label">
+                <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.8" />{{ column.label }}
+              </span>
+              <div class="detail-prop-value">
+                <template v-if="isOptionColumn(column)">
+                  <OptionPicker
+                    v-if="inEditMode"
+                    :column="column"
+                    v-model="draft.extra[column.key]"
+                    :placeholder="`选择${column.label}`"
+                    @create-option="onCreateOption"
+                  />
+                  <div v-else class="pane-tags">
+                    <span
+                      v-for="chip in chipsFor(column)"
+                      :key="chip.value"
+                      class="ptag"
+                      :style="{ '--dot': chip.color }"
+                    >
+                      <i></i>{{ chip.label }}
+                    </span>
+                  </div>
+                </template>
+                <template v-else-if="isCheckboxColumn(column)">
+                  <label class="detail-prop-check-wrap">
+                    <input
+                      type="checkbox"
+                      class="detail-prop-check"
+                      :checked="isCheckboxChecked(inEditMode ? draft.extra[column.key] : props.event?.extra?.[column.key])"
+                      :disabled="!inEditMode"
+                      @change="setCheckbox(column, $event)"
+                    />
+                  </label>
+                </template>
+                <template v-else-if="isLinkColumn(column)">
+                  <input
+                    v-if="inEditMode"
+                    v-model="draft.extra[column.key]"
+                    class="detail-inline-input"
+                    :type="freeInputType(column)"
+                    :placeholder="column.label"
+                  />
+                  <a
+                    v-else-if="props.event?.extra?.[column.key]"
+                    class="detail-prop-link"
+                    :href="propertyHref(column.type, props.event.extra[column.key])"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.8" />
+                    <span>{{ props.event.extra[column.key] }}</span>
+                  </a>
+                </template>
+                <template v-else>
+                  <input
+                    v-if="inEditMode"
+                    v-model="draft.extra[column.key]"
+                    class="detail-inline-input"
+                    :type="freeInputType(column)"
+                    :placeholder="column.label"
+                  />
+                  <strong v-else>{{ props.event?.extra?.[column.key] }}</strong>
+                </template>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <section class="body-wrap" :class="{ editing: inEditMode }">
+        <section
+          ref="bodyWrapRef"
+          class="body-wrap"
+          :class="{ editing: inEditMode }"
+          :style="bodyMinHeight ? { minHeight: `${bodyMinHeight}px` } : null"
+        >
           <MarkdownLiveEditor
             v-if="inEditMode"
             ref="bodyEditorRef"
             v-model="draft.bodyMarkdown"
             :document-key="editorDocumentKey"
+            @ready="onEditorReady"
             @open-image="openAttachment"
             @paste-files="uploadDroppedImages"
             @drop-files="uploadDroppedImages"
@@ -665,56 +907,13 @@ onBeforeUnmount(() => {
           ></div>
         </section>
 
-        <div v-if="showPropertySection" class="pane-sec">
-          <div class="pane-sec-head">
-            <h3>属性</h3>
-          </div>
-          <div class="detail-prop-list">
-            <div
-              v-for="column in topicColumns"
-              :key="column.key"
-              class="detail-prop-item"
-            >
-              <span class="detail-prop-label">{{ column.label }}</span>
-              <div class="detail-prop-value">
-                <template v-if="isOptionColumn(column)">
-                  <OptionPicker
-                    v-if="inEditMode"
-                    :column="column"
-                    v-model="draft.extra[column.key]"
-                    :placeholder="`选择${column.label}`"
-                    @create-option="onCreateOption"
-                  />
-                  <div v-else-if="chipsFor(column).length" class="pane-tags">
-                    <span
-                      v-for="chip in chipsFor(column)"
-                      :key="chip.value"
-                      class="ptag"
-                      :style="{ '--dot': chip.color }"
-                    >
-                      <i></i>{{ chip.label }}
-                    </span>
-                  </div>
-                  <strong v-else>—</strong>
-                </template>
-                <template v-else>
-                  <input
-                    v-if="inEditMode"
-                    v-model="draft.extra[column.key]"
-                    class="detail-inline-input"
-                    :type="column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'"
-                    :placeholder="column.label"
-                  />
-                  <strong v-else>{{ props.event?.extra?.[column.key] || "—" }}</strong>
-                </template>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div v-if="showAttachmentSection" class="pane-sec">
           <div class="pane-sec-head">
             <h3>附件 · {{ (inEditMode ? draft.attachments : readableGroups.attachments).length }}</h3>
+            <label v-if="inEditMode" class="pane-sec-add" :class="{ 'is-disabled': uploading }" title="添加附件">
+              <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+              <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
+            </label>
           </div>
           <div class="row-list">
             <div
@@ -766,6 +965,9 @@ onBeforeUnmount(() => {
         <div v-if="showRelatedSection" class="pane-sec">
           <div class="pane-sec-head">
             <h3>关联事件 · {{ (inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents).length }}</h3>
+            <button v-if="inEditMode" type="button" class="pane-sec-add" title="关联事件" @click="revealRelatedEditor">
+              <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+            </button>
           </div>
           <template v-if="inEditMode && showRelatedSearch">
             <label class="detail-inline-search">

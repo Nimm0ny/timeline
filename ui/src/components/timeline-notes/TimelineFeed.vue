@@ -9,6 +9,7 @@ import {
   buildVisibleTimelineColumns,
   dateKeyFromLocator,
   eventColumnValue,
+  isCheckboxChecked,
   isOptionColumn,
   resolvePropertyChips,
 } from "@/utils/timelineNotes";
@@ -504,6 +505,14 @@ onBeforeUnmount(() => {
                   <i></i>{{ chip.label }}
                 </span>
                 <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
+              </span>
+              <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
+                <TimelineLucideIcon
+                  v-if="isCheckboxChecked(event.extra?.[column.key])"
+                  name="check"
+                  :stroke-width="2.2"
+                />
+                <span v-else class="c-empty">—</span>
               </span>
               <span
                 v-else

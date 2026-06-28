@@ -305,7 +305,6 @@ button {
 .detail-inline-input,
 .detail-inline-search input,
 .detail-title-field input,
-.detail-field-item input,
 .col-grid input,
 .col-grid select,
 .pop-field input {
@@ -321,7 +320,6 @@ button {
 
 .detail-inline-input:focus,
 .detail-inline-search input:focus,
-.detail-field-item input:focus,
 .col-grid input:focus,
 .col-grid select:focus,
 .pop-field input:focus,
@@ -1259,6 +1257,23 @@ button {
   flex: none;
 }
 
+/* Right-pane actionbar ⋮ menu: anchors a .popover under the kebab button. */
+.kebab-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.detail-kebab {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 168px;
+}
+
+/* Two-step trash confirm: 点一下「回收站」原地转红「移入回收站」，再点执行。 */
+.detail-kebab .trash-item {
+  transition: color var(--motion-base, 0.12s) ease, background-color var(--motion-base, 0.12s) ease;
+}
+
 .pop-field {
   display: grid;
   gap: 6px;
@@ -1289,8 +1304,7 @@ button {
 }
 
 .pop-label,
-.pop-note,
-.detail-field-item span {
+.pop-note {
   color: var(--text-faint);
   font-size: 11px;
 }
@@ -1513,19 +1527,6 @@ button {
   padding: 0;
 }
 
-.detail-field-item {
-  display: grid;
-  gap: 4px;
-}
-
-.meta-row {
-  display: flex;
-  align-items: center;
-  gap: 8px 16px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
 .meta {
   display: inline-flex;
   align-items: center;
@@ -1614,11 +1615,14 @@ button {
 }
 
 .body-wrap {
-  margin-top: 20px;
+  /* Body now sits below the 属性 metadata area; a divider groups them (spec §7.2
+     reordered to Obsidian metadata-first). */
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
   /* Read .body and the CM6 editor must share font metrics, otherwise the same
-     source renders to different heights and everything below (property section)
-     shifts on read<->edit toggle. The editor inherits these; read .body sets the
-     same 15px/1.85 explicitly. */
+     source renders to different heights and everything below shifts on
+     read<->edit toggle. The editor inherits these; read .body sets the same. */
   font-size: 15px;
   line-height: 1.85;
 }
@@ -1670,10 +1674,21 @@ button {
   display: none;
 }
 
+/* CodeMirror inserts zero-width <img class="cm-widgetBuffer"> spacers at every
+   replace/atomic decoration boundary (i.e. around each concealed marker). The
+   read-mode `.markdown-body img` border/margin/radius must NOT bleed onto them,
+   otherwise every hidden marker leaves a tiny gray box. Real images are rendered
+   inside .cm-md-image-widget and keep their styling. */
+.markdown-live-editor img.cm-widgetBuffer {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .markdown-live-editor .cm-selectionBackground,
 .markdown-live-editor.cm-focused .cm-selectionBackground,
 .markdown-live-editor .cm-focused .cm-selectionBackground {
-  background: var(--accent-weak);
+  background: var(--accent-soft-2);
 }
 
 .markdown-live-editor .cm-md-image-widget {
@@ -1687,9 +1702,71 @@ button {
 
 .markdown-live-editor .cm-md-image-widget figcaption {
   margin-top: 7px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* Live Preview 渲染元素（隐藏标记后的所见即所得）。全部取自既有令牌，并与读模式
+   .markdown-body 对应样式对齐，保证阅读↔编辑零位移。 */
+.markdown-live-editor .cm-md-bullet {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.markdown-live-editor .cm-md-task {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0 2px 0 0;
+  vertical-align: -2px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: background var(--motion-base) var(--ease), border-color var(--motion-base) var(--ease);
+}
+
+.markdown-live-editor .cm-md-task:hover {
+  border-color: var(--accent);
+}
+
+.markdown-live-editor .cm-md-task:checked {
+  border-color: var(--accent);
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-6'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+
+.markdown-live-editor .cm-md-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-underline-offset: 2px;
+}
+
+.markdown-live-editor .cm-md-link:hover {
+  text-decoration: underline;
+}
+
+.markdown-live-editor .cm-md-inline-code {
+  background: var(--bg-surface-2);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.markdown-live-editor .cm-md-hr {
+  display: block;
+  height: 0;
+  margin: 6px 0;
+  border-top: 1px solid var(--border-strong);
+}
+
+.markdown-live-editor .cm-md-quote-line {
+  border-left: 3px solid var(--accent-line);
+  padding-left: 12px;
+  background: var(--accent-soft);
+  color: var(--text-muted);
 }
 
 .markdown-body h1,
@@ -1712,7 +1789,8 @@ button {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
-.markdown-body ul {
+.markdown-body ul,
+.markdown-body ol {
   margin: 0 0 13px;
   padding-left: 20px;
 }
@@ -1723,6 +1801,40 @@ button {
 
 .markdown-body li::marker {
   color: var(--accent);
+}
+
+.markdown-body hr {
+  height: 0;
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--border-strong);
+}
+
+/* Read-mode task list mirrors the editor's live-preview checkbox so read↔edit
+   stay visually consistent. Display-only (no save flow in read mode). */
+.markdown-body .md-task-item {
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: -20px;
+}
+
+.markdown-body .md-task {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  align-self: center;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.markdown-body .md-task[data-checked] {
+  border-color: var(--accent);
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-6'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
 }
 
 .markdown-body code {
@@ -1779,15 +1891,21 @@ button {
   gap: 6px;
 }
 
-.pane-tags {
+/* Chip rows share ONE box so toggling read<->edit never moves a chip: read uses
+   .pane-tags, edit uses .optpick-control. The geometry (display/gap/min-height/
+   padding) is defined once here; each selector adds only its own extras below. */
+.pane-tags,
+.optpick-control {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  min-height: 30px;
   gap: 8px;
+  min-height: 30px;
+  padding: 0;
 }
 
 .ptag {
+  position: relative;
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -1806,13 +1924,11 @@ button {
   background: var(--accent);
 }
 
-.detail-field-list,
 .related-results {
   display: grid;
   gap: 8px;
 }
 
-.detail-field-item strong,
 .detail-empty p,
 .timeline-confirm-card p {
   color: var(--text-muted);
@@ -2393,7 +2509,8 @@ select:focus-visible {
   min-height: 30px;
   display: flex;
   align-items: center;
-  max-width: 140px;
+  gap: 7px;
+  max-width: 150px;
   color: var(--text-muted);
   font-size: 12px;
   white-space: nowrap;
@@ -2401,8 +2518,162 @@ select:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* Obsidian-style metadata: each property row leads with a small type icon. */
+.detail-prop-label .timeline-lucide-icon {
+  flex: 0 0 auto;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
+  color: var(--text-faint);
+}
+
+/* 属性 area sits directly under the title as the first block — no top divider
+   (it's the leading section); the body below carries the first divider. */
+.detail-meta-sec {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Date / group edit trigger: same footprint as the read value (.detail-prop-value
+   > strong) so the metadata row doesn't shift on read<->edit. Notion-style:
+   transparent at rest, soft hover fill, no border. */
+.detail-meta-trigger {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-base, 0.12s) var(--ease);
+}
+
+.detail-meta-trigger:hover,
+.detail-meta-trigger.on {
+  background: var(--bg-hover);
+}
+
+/* checkbox 属性：读/编辑同一控件（读态 disabled），与任务清单复选框同款观感。
+   外层 label 对齐其它属性值的 30px/11px 占位，保证行高与读↔编辑零位移。 */
+.detail-prop-check-wrap {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+}
+
+.detail-prop-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: background var(--motion-base, 0.12s) var(--ease), border-color var(--motion-base, 0.12s) var(--ease);
+}
+
+.detail-prop-check:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+.detail-prop-check:checked {
+  border-color: var(--accent);
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-6'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+
+.detail-prop-check:disabled {
+  cursor: default;
+}
+
+/* url / email / phone 属性：读态可点击，与其它值同 30px/11px 占位。 */
+.detail-prop-link {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.detail-prop-link:hover {
+  text-decoration: underline;
+}
+
+.detail-prop-link .timeline-lucide-icon {
+  flex: 0 0 auto;
+  width: var(--icon-menu);
+  height: var(--icon-menu);
+}
+
+/* 中栏 checkbox 单元格：勾选显强调色对勾，未选显「—」。 */
+.c-check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.c-check .timeline-lucide-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+
 .detail-prop-value {
   min-width: 0;
+}
+
+/* Edit-mode「添加属性」lives in the 属性 section head as a「+」(like 附件/关联),
+   so it adds no block height between metadata and body — read<->edit stays
+   zero-shift. The「+」opens a popover of the still-empty properties. */
+.detail-prop-add {
+  position: relative;
+}
+
+.detail-addprop-pop {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 168px;
+  padding: 4px;
+}
+
+/* Section-head「+」for 附件 / 关联 (only when the section already has content). */
+.pane-sec-add {
+  display: inline-grid;
+  place-items: center;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background var(--motion-base, 0.12s) var(--ease), color var(--motion-base, 0.12s) var(--ease);
+}
+
+.pane-sec-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pane-sec-add.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pane-sec-add .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
 }
 
 /* Empty「—」/ free-value text aligns with option chips: same 11px content inset
@@ -2439,15 +2710,9 @@ select:focus-visible {
 }
 
 .optpick-control {
+  /* Box geometry (display/gap/min-height/padding) comes from the shared
+     `.pane-tags, .optpick-control` rule above; keep only edit-only chrome here. */
   width: 100%;
-  min-height: 30px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  /* No horizontal padding so a chip/placeholder lines up with the read-mode
-     value (value-column left), keeping read<->edit seamless. */
-  padding: 3px 0;
   border: 0;
   border-radius: var(--radius-sm);
   /* Notion-style: transparent at rest (no fill, no border, no shadow); the
@@ -2473,13 +2738,30 @@ select:focus-visible {
    so with the transparent control above a selected option sits pixel-identical
    in read and edit — the chip is the only mark, exactly like read mode. */
 
+/* The remove (x) OVERLAYS the chip (absolute, zero layout cost) — it sits in the
+   chip's right padding and fades in on hover/focus. Because it never adds width,
+   the edit-mode chip is byte-identical in size to the read-mode chip (which has
+   no x), so switching read<->edit produces no resize/shift. */
 .ptag-x {
-  display: inline-grid;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: grid;
   place-items: center;
   width: 15px;
   height: 15px;
   border-radius: var(--radius-sm);
   color: var(--text-faint);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base, 0.12s) var(--ease);
+}
+
+.ptag:hover .ptag-x,
+.optpick-control:focus-within .ptag-x {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .ptag-x:hover {

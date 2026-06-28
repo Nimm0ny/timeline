@@ -7,11 +7,56 @@ import { plainTextFromMarkdown } from "./markdownPreview.js";
 // carry their own options; their values live in event.extra by option id.
 const RESERVED_COLUMN_KEYS = new Set(["title", "time"]);
 const COLUMN_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
-const COLUMN_TYPES = new Set(["text", "number", "date", "select", "multiselect"]);
+const COLUMN_TYPES = new Set(["text", "number", "date", "checkbox", "url", "email", "phone", "select", "multiselect"]);
 const OPTION_COLUMN_TYPES = new Set(["select", "multiselect"]);
+const LINK_COLUMN_TYPES = new Set(["url", "email", "phone"]);
+const CHECKBOX_TRUE = new Set(["true", "1", "yes", "on"]);
 
 export function isOptionColumn(column) {
   return OPTION_COLUMN_TYPES.has(column?.type);
+}
+
+export function isCheckboxColumn(column) {
+  return column?.type === "checkbox";
+}
+
+export function isLinkColumn(column) {
+  return LINK_COLUMN_TYPES.has(column?.type);
+}
+
+// Single source for property-type → glyph (Notion-style metadata icons), shared
+// by the detail pane (propertyIcon) and the column-config popover so the two can
+// never drift. Unknown/text falls back to alignLeft.
+export const PROPERTY_TYPE_ICONS = {
+  text: "alignLeft",
+  number: "hash",
+  date: "calendar",
+  checkbox: "checkSquare",
+  url: "link",
+  email: "mail",
+  phone: "phone",
+  select: "type",
+  multiselect: "list",
+};
+
+export function propertyTypeIcon(type) {
+  return PROPERTY_TYPE_ICONS[type] || PROPERTY_TYPE_ICONS.text;
+}
+
+export function isCheckboxChecked(value) {
+  return value === true || CHECKBOX_TRUE.has(String(value ?? "").trim().toLowerCase());
+}
+
+// Safe href for link-typed property values. url gets an https:// prefix when it
+// lacks an http(s) scheme (which also neutralizes javascript:/data: payloads);
+// email → mailto:, phone → tel:. Empty value yields "" (caller renders plain).
+export function propertyHref(type, value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (type === "email") return `mailto:${raw}`;
+  if (type === "phone") return `tel:${raw.replace(/[^\d+]/g, "")}`;
+  if (type === "url") return /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, "")}`;
+  return "";
 }
 
 function extractYearLabel(isoDate) {
@@ -261,6 +306,8 @@ export function normalizeEventExtra(extra, columns = []) {
       const valid = new Set((column.options || []).map((option) => option.id));
       const single = String(value ?? "");
       normalized[key] = valid.has(single) ? single : "";
+    } else if (column.type === "checkbox") {
+      normalized[key] = isCheckboxChecked(value) ? "true" : "false";
     } else {
       normalized[key] = value == null ? "" : String(value);
     }

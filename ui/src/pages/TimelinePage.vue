@@ -1443,6 +1443,7 @@ watch(
       @close="closeDetailPane"
       @edit="startEditSelectedEvent"
       @open-menu="openEventMenu"
+      @move-to-trash="moveEventToTrash"
       @preview-related="previewRelatedEvent"
       @hide-related-preview="hideRelatedPreview"
       @pin-related="pinRelatedEvent"

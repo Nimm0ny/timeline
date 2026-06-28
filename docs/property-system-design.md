@@ -31,8 +31,14 @@
 | text | 自由值 | `extra[key]` = 字符串 | 列表内只读 | 无边框输入 |
 | number | 自由值 | `extra[key]` = 字符串(数字文本) | 列表内只读 | number 输入 |
 | date | 自由值 | `extra[key]` = `YYYY-MM-DD` 字符串 | 列表内只读 | date 输入 |
+| **checkbox** | 布尔 | `extra[key]` = `"true"`/`"false"` | 对勾 / 「—」(只读) | 复选框开关 |
+| **url** | 自由值(链接) | `extra[key]` = 字符串 | 文本只读 | url 输入；读态可点 `<a>`(补 https) |
+| **email** | 自由值(链接) | `extra[key]` = 字符串 | 文本只读 | email 输入；读态可点 `mailto:` |
+| **phone** | 自由值(链接) | `extra[key]` = 字符串 | 文本只读 | tel 输入；读态可点 `tel:` |
 | **select** | 选项 | `extra[key]` = 单个 option id | 点击弹 OptionPicker | OptionPicker(单值) |
 | **multiselect** | 选项 | `extra[key]` = option id 数组 | 点击弹 OptionPicker | OptionPicker(多值 chips) |
+
+> **【2026-06-28 类型扩充】** 在 text/number/date/select/multiselect 基础上参考 Obsidian/Notion 增 `checkbox`(布尔开关)、`url`/`email`/`phone`(可点击链接，读态 `<a>`、`propertyHref` 安全前缀)。checkbox 值规范为 `"true"`/`"false"` 字符串（`normalize_extra`/`normalizeEventExtra` 强制），故「已添加但未勾」也算有值会显示；从未添加 = 不在 extra = 空隐藏。link 类空值不显示（同 text）。属性行类型图标 `propertyIcon`：checkbox→checkSquare、url→link、email→mail、phone→phone。
 
 - **类型** = 默认单选属性（`key:"type"`，一条笔记一个类型）。
 - **标签** = 默认多选属性（`key:"tags"`）。
@@ -123,7 +129,8 @@ Ribbon 图标由 `hash` 改注册「属性」图标（建议 Lucide `Tags` 或 `
 
 ### 5.4 右栏（`EventDetailPane.vue`）
 - 现「字段」区 + 独立「标签」小节 → 合并为统一「属性」区。
-- 按属性类型渲染当前笔记已设值；空显「—」；编辑态选项类用 OptionPicker、自由值用无边框输入。
+- 按属性类型渲染当前笔记**已设值的属性**；**空属性不显示（不再显「—」）**；编辑态显示有值属性 + 经「+属性」入口展开的未填项（选项类用 OptionPicker、自由值用无边框输入）。
+- **【2026-06-28 升级·Obsidian 元数据区】** 「属性」区上移到标题正下方、正文下移到属性区之下（见 `obsidian-minimal-implementation-spec §7.2`）：日期、分组(专题·时代) 也并为属性行（每条必有→属性区恒显，不再「全空隐藏」；类型/标签/自定义为空仍不渲染该行）。「+属性」由旧的「编辑态底部虚线 chip」改为**属性区头 `+`**，点开 popover 列未填属性——区头 `+` 不增块高度，read↔edit 零位移更干净（旧「底部 chip 增量」放宽不再需要）。附件/关联同款区头 `+`（仅区可见时；空区隐藏、首加走 ⋮）。
 
 ### 5.5 列设置（`ColumnConfigPopover.vue`）
 - 新建/编辑属性支持选 `multiselect`；选项类展开可就地增删选项（或跳左栏属性 Tab）。
@@ -146,7 +153,7 @@ Ribbon 图标由 `hash` 改注册「属性」图标（建议 Lucide `Tags` 或 `
 ## 9. 提交前自检（P3 专项，叠加 spec §14.2）
 - [ ] 迁移前已备份 `data/timeline.db`；迁移幂等、可回滚。
 - [ ] `tags_json`/`items[].tag` 代码层零引用；所有标签来源统一 `extra`。
-- [ ] 未知 option id / 未定义属性键被后端丢弃；空值显「—」，无臆造。
+- [ ] 未知 option id / 未定义属性键被后端丢弃；**空属性不渲染（右栏不再显「—」、全空隐藏属性区，经编辑态「+属性」入口填写）**，无臆造。
 - [ ] OptionPicker 遵 §2.1（无边框输入、单一弹层、Esc/外点关闭）。
 - [ ] 选项 `id` 稳定，改名不破坏事件关联；删除/合并按孤儿软删纪律。
 - [ ] 中栏选项单元格 `stopPropagation` 不误开右栏；自由值只读。
