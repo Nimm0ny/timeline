@@ -998,6 +998,15 @@ button {
   display: none;
 }
 
+/* Search-match highlight in the feed (title + preview). Reuses the theme-swapped
+   accent tokens so it adapts to light/dark, and carries no padding/border so it
+   never shifts the fixed row metrics (AGENTS §9 行高固定). */
+.tn-hl {
+  background: var(--accent-soft-2);
+  color: var(--accent-hover);
+  border-radius: 3px;
+}
+
 .clip {
   color: var(--text-faint);
   flex: none;

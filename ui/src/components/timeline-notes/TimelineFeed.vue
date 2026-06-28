@@ -5,6 +5,7 @@ import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
   buildEventPreview,
+  buildSearchHighlightSegments,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   dateKeyFromLocator,
@@ -194,6 +195,13 @@ function rowGrid() {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
   const events = props.groups.flatMap((group) => group.items);
   return buildTimelineGridTemplate(props.columns, props.emptyColumnKeys, timelineTimeColumnWidth(events));
+}
+
+// Segments of `text` with the active search query marked, so the feed shows why a
+// row matched (esp. body/preview hits the title doesn't reveal). Off-search this
+// is a single plain segment, so the rendered text is unchanged.
+function highlightSegments(text) {
+  return buildSearchHighlightSegments(text, props.searchQuery);
 }
 
 function setRowRef(id, element) {
@@ -494,12 +502,12 @@ onBeforeUnmount(() => {
             <template v-for="column in visibleColumns()" :key="column.key">
               <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)">{{ eventColumnValue(event, column) }}</span>
               <span v-else-if="column.key === 'title'" class="c-title">
-                <b class="ev-name" :title="eventColumnValue(event, column)">{{ eventColumnValue(event, column) }}</b>
+                <b class="ev-name" :title="eventColumnValue(event, column)"><template v-for="(seg, i) in highlightSegments(eventColumnValue(event, column))" :key="i"><mark v-if="seg.hit" class="tn-hl">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template></template></b>
                 <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                   <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
                 </span>
                 <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
-                <span class="ev-sum">{{ buildEventPreview(event, 90) }}</span>
+                <span class="ev-sum"><template v-for="(seg, i) in highlightSegments(buildEventPreview(event, 90))" :key="i"><mark v-if="seg.hit" class="tn-hl">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template></template></span>
               </span>
               <span v-else-if="isOptionColumn(column)" class="c-tags">
                 <span
@@ -508,7 +516,7 @@ onBeforeUnmount(() => {
                   class="td"
                   :style="{ '--dot': chip.color }"
                 >
-                  <i></i>{{ chip.label }}
+                  <i></i><template v-for="(seg, i) in highlightSegments(chip.label)" :key="i"><mark v-if="seg.hit" class="tn-hl">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template></template>
                 </span>
                 <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
               </span>
@@ -525,9 +533,7 @@ onBeforeUnmount(() => {
                 class="c-source"
                 :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
                 :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
-              >
-                {{ eventColumnValue(event, column) }}
-              </span>
+              ><template v-for="(seg, i) in highlightSegments(eventColumnValue(event, column))" :key="i"><mark v-if="seg.hit" class="tn-hl">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template></template></span>
             </template>
             <span
               v-if="!selectMode"

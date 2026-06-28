@@ -438,6 +438,29 @@ export function matchesEventSearch(event, query, columns = []) {
   return haystack.includes(normalized);
 }
 
+// Split `text` into segments around case-insensitive occurrences of `query`,
+// flagging which are matches. Mirrors matchesEventSearch's semantics (the whole
+// trimmed query as one case-insensitive substring) so the feed highlights exactly
+// what the filter matched. Output preserves the source's original case. An empty
+// query (or no match) yields a single non-hit segment, so callers always v-for a
+// uniform shape; an empty string yields no segments.
+export function buildSearchHighlightSegments(text, query) {
+  const source = String(text ?? "");
+  if (!source) return [];
+  const needle = String(query ?? "").trim().toLowerCase();
+  if (!needle) return [{ text: source, hit: false }];
+  const hay = source.toLowerCase();
+  const segments = [];
+  let from = 0;
+  for (let at = hay.indexOf(needle, from); at !== -1; at = hay.indexOf(needle, from)) {
+    if (at > from) segments.push({ text: source.slice(from, at), hit: false });
+    segments.push({ text: source.slice(at, at + needle.length), hit: true });
+    from = at + needle.length;
+  }
+  if (from < source.length) segments.push({ text: source.slice(from), hit: false });
+  return segments;
+}
+
 // True when the event matches a property=value filter (`{ key, value }`).
 export function matchesPropertyFilter(event, filter) {
   if (!filter || !filter.key) return true;

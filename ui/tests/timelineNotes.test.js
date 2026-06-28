@@ -7,6 +7,7 @@ import {
   buildGlobalFavoriteEvents,
   buildPropertyRows,
   buildReadableDetailGroups,
+  buildSearchHighlightSegments,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   emptyTimelineColumnKeys,
@@ -228,6 +229,31 @@ test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whit
   assert.equal(buildTimelineGridTemplate(cols), "28px 96px minmax(0,1fr) 96px 150px 92px 30px");
   assert.deepEqual(extra, { type: "a", tags: ["war"], place: "广州", source: "x" });
   assert.deepEqual(normalizeEventExtra({ type: "ghost" }, cols), { type: "" });
+});
+
+test("buildSearchHighlightSegments marks query hits case-insensitively, preserving source case", () => {
+  // No query → one plain segment (uniform shape for v-for); empty string → none.
+  assert.deepEqual(buildSearchHighlightSegments("孔子诞生", ""), [{ text: "孔子诞生", hit: false }]);
+  assert.deepEqual(buildSearchHighlightSegments("孔子诞生", "   "), [{ text: "孔子诞生", hit: false }]);
+  assert.deepEqual(buildSearchHighlightSegments("", "孔子"), []);
+
+  // Body-only match (the demonstrated 儒家 → 孔子诞生 case): the hit slice keeps
+  // the source's original characters, splitting the surrounding text out.
+  assert.deepEqual(buildSearchHighlightSegments("孔子创立儒家学说", "儒家"), [
+    { text: "孔子创立", hit: false },
+    { text: "儒家", hit: true },
+    { text: "学说", hit: false },
+  ]);
+
+  // Multiple + case-insensitive: matches found regardless of case, output keeps case.
+  assert.deepEqual(buildSearchHighlightSegments("Tang and TANG", "tang"), [
+    { text: "Tang", hit: true },
+    { text: " and ", hit: false },
+    { text: "TANG", hit: true },
+  ]);
+
+  // Leading/trailing hits don't emit empty neighbor segments.
+  assert.deepEqual(buildSearchHighlightSegments("孔子", "孔子"), [{ text: "孔子", hit: true }]);
 });
 
 test("timelineTimeColumnWidth widens only for BC dates carrying a real month/day", () => {
