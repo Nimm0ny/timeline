@@ -1757,6 +1757,17 @@ button {
   border-radius: 5px;
 }
 
+/* clown 预设的行内码固定色只命中读态真 <code>；编辑态行内码是 <span class="cm-md-inline-code">、
+   不被 clown 命中 → 读(粉)≠编辑(中性)。按 editor-cm6-design §5「live preview 需同步 clown 固定色
+   到 .markdown-live-editor」，此处镜像 clown 行内码样式（值同 :root[data-md=clown] .markdown-body code），
+   令 clown 下行内码读↔编辑同色同尺寸（padding 2px 5px）。非新增颜色，复用 clown 既有固定色。 */
+:root[data-md="clown"] .markdown-live-editor .cm-md-inline-code {
+  background: #f9f2f4;
+  color: #e6005c;
+  border-radius: 3px;
+  padding: 2px 5px;
+}
+
 /* 围栏代码块（编辑态）：逐行背景拼成一个盒。font/size/line-height/padding 与
    读模式 pre.md-code-block 逐项对齐（13px / 21px / 上下各 10px），折叠围栏后
    行数与读模式一致 → 总高 21N+20 相等，守 §9 读↔编辑零位移。 */
