@@ -7,8 +7,19 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function renderInline(value) {
-  let output = escapeHtml(value);
+// Reject schemes that execute script when placed in an href and rendered via
+// v-html. propertyHref guards link-typed property values the same way.
+function safeLinkHref(href) {
+  const raw = String(href || "").trim();
+  // Browsers ignore whitespace inside the scheme (e.g. "java\nscript:"), so
+  // strip it before testing for script-bearing schemes.
+  const scheme = raw.replace(/\s+/g, "").toLowerCase();
+  return /^(javascript|vbscript|data):/.test(scheme) ? "" : raw;
+}
+
+// Inline formatting for a code-free segment (image / link / strike / bold / em).
+function renderInlineSegment(segment) {
+  let output = segment;
 
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
     const safeAlt = escapeHtml(alt || "");
@@ -16,14 +27,31 @@ function renderInline(value) {
     return `<img class="timeline-markdown-image" src="${safeSrc}" alt="${safeAlt}" loading="lazy">`;
   });
   output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
-    const safeHref = escapeHtml(href || "");
-    return `<a class="timeline-markdown-link" href="${safeHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    const safeHref = safeLinkHref(href);
+    // Unsafe scheme → drop the anchor, render the (already-escaped) label as text.
+    if (!safeHref) return label;
+    return `<a class="timeline-markdown-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
-  output = output.replace(/`([^`]+)`/g, "<code>$1</code>");
+  output = output.replace(/~~([^~]+)~~/g, "<del>$1</del>");
   output = output.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   output = output.replace(/\*([^*]+)\*/g, "<em>$1</em>");
 
   return output;
+}
+
+function renderInline(value) {
+  const escaped = escapeHtml(value);
+  // Split on inline-code spans (kept as delimiters); only non-code segments get
+  // inline formatting, so markdown inside `code` stays literal — matching the
+  // editor's concealment and avoiding a double-render of e.g. `**x**`.
+  return escaped
+    .split(/(`[^`]+`)/g)
+    .map((segment) =>
+      segment.length > 1 && segment.startsWith("`") && segment.endsWith("`")
+        ? `<code>${segment.slice(1, -1)}</code>`
+        : renderInlineSegment(segment)
+    )
+    .join("");
 }
 
 export function plainTextFromMarkdown(markdown) {
@@ -31,7 +59,7 @@ export function plainTextFromMarkdown(markdown) {
   return String(markdown || "")
     .replace(/!\[[^\]]*\]\([^)]+\)/g, ` ${imagePlaceholder} `)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, " $1 ")
-    .replace(/[`#>*_\-\[\]()]/g, " ")
+    .replace(/[`#>*_~\-\[\]()]/g, " ")
     .replaceAll(imagePlaceholder, "[图片]")
     .replace(/\s+/g, " ")
     .trim();
@@ -45,12 +73,20 @@ export function renderMarkdownToHtml(markdown) {
 
   const lines = source.split("\n");
   const html = [];
-  let listOpen = false;
+  let listType = null; // "ul" | "ol" | null
 
   function closeList() {
-    if (listOpen) {
-      html.push("</ul>");
-      listOpen = false;
+    if (listType) {
+      html.push(listType === "ol" ? "</ol>" : "</ul>");
+      listType = null;
+    }
+  }
+
+  function openList(type) {
+    if (listType && listType !== type) closeList();
+    if (!listType) {
+      html.push(type === "ol" ? "<ol>" : "<ul>");
+      listType = type;
     }
   }
 
@@ -63,7 +99,14 @@ export function renderMarkdownToHtml(markdown) {
       continue;
     }
 
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    // 水平分隔线（--- / *** / ___，整行无其它内容）。
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      closeList();
+      html.push("<hr>");
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       closeList();
       const level = headingMatch[1].length;
@@ -78,12 +121,26 @@ export function renderMarkdownToHtml(markdown) {
       continue;
     }
 
+    // 任务列表项须先于普通无序列表判定（避免 [ ] 被当作正文）。
+    const taskMatch = trimmed.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
+    if (taskMatch) {
+      openList("ul");
+      const checked = taskMatch[1] !== " ";
+      const box = `<span class="md-task"${checked ? ' data-checked="true"' : ""} role="checkbox" aria-checked="${checked}"></span>`;
+      html.push(`<li class="md-task-item">${box}${renderInline(taskMatch[2])}</li>`);
+      continue;
+    }
+
+    const orderedMatch = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
+    if (orderedMatch) {
+      openList("ol");
+      html.push(`<li>${renderInline(orderedMatch[2])}</li>`);
+      continue;
+    }
+
     const listMatch = trimmed.match(/^[-*]\s+(.+)$/);
     if (listMatch) {
-      if (!listOpen) {
-        html.push("<ul>");
-        listOpen = true;
-      }
+      openList("ul");
       html.push(`<li>${renderInline(listMatch[1])}</li>`);
       continue;
     }

@@ -89,6 +89,16 @@ export function buildBlockInsertion(source, start, end, block) {
   return insertTextAtRange(value, `${prefix}${block}${suffix}`, safeStart, safeEnd);
 }
 
+// 选区是否与文档区间 [from,to] 相交（含边界接触）。Live preview 据此判定某个
+// markdown 构造（粗体/链接/列表行等）此刻该「显原文标记」还是「隐标记渲染」。
+export function selectionTouchesRange(ranges, from, to) {
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  return (Array.isArray(ranges) ? ranges : []).some(
+    (range) => range && range.from <= hi && range.to >= lo
+  );
+}
+
 export function filterRelatedEventCandidates(events, { currentId = null, selectedIds = [], query = "", limit = 8 } = {}) {
   const selected = new Set(selectedIds.map((id) => Number(id)));
   const normalizedQuery = normalizeSearch(query);
@@ -96,4 +106,36 @@ export function filterRelatedEventCandidates(events, { currentId = null, selecte
     .filter((event) => event?.id && event.id !== currentId && !event.deletedAt && !selected.has(Number(event.id)))
     .filter((event) => !normalizedQuery || eventSearchText(event).includes(normalizedQuery))
     .slice(0, limit);
+}
+
+const UNORDERED_LIST_ITEM_RE = /^(\s*)([-*+])(\s+)(\[[ xX]\]\s+)?(.*)$/;
+const ORDERED_LIST_ITEM_RE = /^(\s*)(\d+)([.)])(\s+)(.*)$/;
+const BLOCKQUOTE_LINE_RE = /^(\s*)(>+)(\s?)(.*)$/;
+
+// Markdown 续行：判断当前行是否为无序/任务/有序/引用项，返回下一行应自动补的前缀。
+// 空项（标记后无正文）返回 isEmpty=true，让调用方清空当前行以退出该结构。
+export function markdownListContinuation(lineText) {
+  const text = String(lineText ?? "");
+
+  const unordered = text.match(UNORDERED_LIST_ITEM_RE);
+  if (unordered) {
+    const [, indent, bullet, gap, task, content] = unordered;
+    const prefix = task ? `${indent}${bullet}${gap}[ ] ` : `${indent}${bullet}${gap}`;
+    return { isEmpty: !content.trim(), prefix };
+  }
+
+  const ordered = text.match(ORDERED_LIST_ITEM_RE);
+  if (ordered) {
+    const [, indent, num, delimiter, gap, content] = ordered;
+    const nextNumber = String(Number.parseInt(num, 10) + 1);
+    return { isEmpty: !content.trim(), prefix: `${indent}${nextNumber}${delimiter}${gap}` };
+  }
+
+  const quote = text.match(BLOCKQUOTE_LINE_RE);
+  if (quote) {
+    const [, indent, marks, gap, content] = quote;
+    return { isEmpty: !content.trim(), prefix: `${indent}${marks}${gap || " "}` };
+  }
+
+  return null;
 }

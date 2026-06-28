@@ -11,7 +11,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["update:modelValue", "open-image", "paste-files", "drop-files"]);
+const emit = defineEmits(["update:modelValue", "open-image", "paste-files", "drop-files", "ready"]);
 
 const rootRef = ref(null);
 let editorView = null;
@@ -101,7 +101,12 @@ function resetDocument(markdownText) {
 
 defineExpose({ focus, getMarkdown, insertBlock, replaceSelection, resetDocument });
 
-onMounted(createEditor);
+onMounted(() => {
+  createEditor();
+  // Lets the parent release the body-height placeholder once the editor is live,
+  // so the read→edit swap never collapses the body (no row flash).
+  emit("ready");
+});
 onBeforeUnmount(destroyEditor);
 
 watch(

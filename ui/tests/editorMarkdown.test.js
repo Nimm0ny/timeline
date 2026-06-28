@@ -7,6 +7,8 @@ import {
   buildAttachmentMarkdown,
   buildBlockInsertion,
   filterRelatedEventCandidates,
+  markdownListContinuation,
+  selectionTouchesRange,
   wrapMarkdownAtRange,
 } from "../src/utils/editorMarkdown.js";
 
@@ -70,4 +72,37 @@ test("related event search excludes unavailable candidates and matches metadata"
   });
 
   assert.deepEqual(results.map((event) => event.id), [3]);
+});
+
+test("markdown list continuation extends unordered, ordered, task, and quote lines", () => {
+  assert.deepEqual(markdownListContinuation("- 列表项"), { isEmpty: false, prefix: "- " });
+  assert.deepEqual(markdownListContinuation("* 星号项"), { isEmpty: false, prefix: "* " });
+  assert.deepEqual(markdownListContinuation("  - 缩进项"), { isEmpty: false, prefix: "  - " });
+  assert.deepEqual(markdownListContinuation("- [ ] 待办"), { isEmpty: false, prefix: "- [ ] " });
+  assert.deepEqual(markdownListContinuation("3. 第三条"), { isEmpty: false, prefix: "4. " });
+  assert.deepEqual(markdownListContinuation("> 引用句"), { isEmpty: false, prefix: "> " });
+});
+
+test("selectionTouchesRange reveals constructs the cursor is on or adjacent to", () => {
+  // Empty cursor inside and at both inclusive boundaries reveals (Typora feel).
+  assert.equal(selectionTouchesRange([{ from: 7, to: 7 }], 5, 10), true);
+  assert.equal(selectionTouchesRange([{ from: 5, to: 5 }], 5, 10), true);
+  assert.equal(selectionTouchesRange([{ from: 10, to: 10 }], 5, 10), true);
+  // Just outside either edge stays concealed.
+  assert.equal(selectionTouchesRange([{ from: 4, to: 4 }], 5, 10), false);
+  assert.equal(selectionTouchesRange([{ from: 11, to: 11 }], 5, 10), false);
+  // Multi-cursor: any range touching is enough.
+  assert.equal(selectionTouchesRange([{ from: 0, to: 1 }, { from: 9, to: 12 }], 5, 10), true);
+  // from/to order is normalized; bad input is safe.
+  assert.equal(selectionTouchesRange([{ from: 6, to: 6 }], 10, 5), true);
+  assert.equal(selectionTouchesRange([], 5, 10), false);
+  assert.equal(selectionTouchesRange(null, 5, 10), false);
+});
+
+test("markdown list continuation flags empty items so callers can exit the structure", () => {
+  assert.equal(markdownListContinuation("- ").isEmpty, true);
+  assert.equal(markdownListContinuation("1. ").isEmpty, true);
+  assert.equal(markdownListContinuation("> ").isEmpty, true);
+  assert.equal(markdownListContinuation("普通段落"), null);
+  assert.equal(markdownListContinuation(""), null);
 });
