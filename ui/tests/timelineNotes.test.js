@@ -310,9 +310,27 @@ test("date formatters collapse year-only precision but keep genuine days (and BC
   assert.equal(formatEventDisplayDate(fullDay), "1921年7月23日");
   assert.equal(formatEventDisplayDate(bcYear), "公元前5000年");
 
+  // BC dates with a real month/day use the CJK form in BOTH panes (the compact
+  // timeline would otherwise show a broken-looking "-551-09-28").
+  const bcFull = { dateParts: { year: -551, month: 9, day: 28 }, isoDate: "-551-09-28" };
+  assert.equal(formatEventDate(bcFull), "公元前551年9月28日");
+  assert.equal(formatEventDisplayDate(bcFull), "公元前551年9月28日");
+
   // No usable year → fall back to the precomputed displayLabel (or "").
   assert.equal(formatEventDisplayDate({ dateParts: { month: 5, day: 1 }, displayLabel: "约公元前" }), "约公元前");
   assert.equal(formatEventDisplayDate({ displayLabel: "未知" }), "未知");
+});
+
+test("groupTimelineEvents era subtitle renders BC year ranges as 公元前", () => {
+  const groups = groupTimelineEvents(
+    [
+      { id: 1, era: "史前时期", dateParts: { year: -1700000, month: 1, day: 1 }, dateKey: -17000000101 },
+      { id: 2, era: "史前时期", dateParts: { year: -700000, month: 1, day: 1 }, dateKey: -7000000101 },
+    ],
+    "era"
+  );
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].subtitle, "公元前1700000–公元前700000 · 2 条");
 });
 
 test("matchesPropertyFilter matches scalar and multi-value properties", () => {

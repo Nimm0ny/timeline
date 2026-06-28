@@ -32,3 +32,12 @@ def test_date_key_round_trip_and_display_label():
 def test_extract_headline_from_legacy_label():
     assert extract_headline_from_legacy_label("1840年1月1日 鸦片战争") == "鸦片战争"
     assert extract_headline_from_legacy_label("1841-02-15 Another Year") == "Another Year"
+    # CJK full-date prefixes (公元前 / 公元 / 7-digit years) are stripped too —
+    # DATE_LABEL_RE alone bailed on the non-digit lead and kept the whole string.
+    assert extract_headline_from_legacy_label("公元前1700000年01月01日 元谋人活动") == "元谋人活动"
+    assert extract_headline_from_legacy_label("公元前551年09月28日 孔子诞生") == "孔子诞生"
+    assert extract_headline_from_legacy_label("公元8年01月01日 王莽篡汉") == "王莽篡汉"
+    # No date prefix → returned unchanged (no over-stripping).
+    assert extract_headline_from_legacy_label("鸦片战争") == "鸦片战争"
+    # CJK date with no title → preserved verbatim (guard avoids an empty headline).
+    assert extract_headline_from_legacy_label("公元前1年1月1日") == "公元前1年1月1日"

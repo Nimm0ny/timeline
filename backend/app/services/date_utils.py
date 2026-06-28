@@ -8,6 +8,13 @@ DATE_LABEL_RE = re.compile(
     r"(?:日)?\s*(?P<headline>.*)$"
 )
 
+# Leading CJK full-date prefix ("公元前N年M月D日 …" / "公元N年…" / 7-digit years)
+# that DATE_LABEL_RE can't parse (it requires a leading ASCII digit). Used only to
+# strip the redundant date so the real headline survives.
+CJK_DATE_PREFIX_RE = re.compile(
+    r"^\s*(?:公元前|公元)?\s*-?\d{1,7}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日\s*"
+)
+
 
 def normalize_date_key(value) -> int:
     return int(round(float(value)))
@@ -100,6 +107,11 @@ def extract_headline_from_legacy_label(label: str, fallback: str = "") -> str:
     raw = str(label or "").strip()
     if not raw:
         return fallback.strip()
+    # CJK full-date prefix (e.g. "公元前1700000年01月01日 元谋人活动") — the ISO
+    # DATE_LABEL_RE bails on the non-digit lead, so strip it explicitly first.
+    cjk_stripped = CJK_DATE_PREFIX_RE.sub("", raw, count=1).strip()
+    if cjk_stripped and cjk_stripped != raw:
+        return cjk_stripped
     match = DATE_LABEL_RE.match(raw)
     if not match:
         return raw

@@ -158,8 +158,11 @@ function formatYearLabel(year) {
 // stored the same way and can't be told apart, so we never coarsen a real day.
 export function formatEventDate(event) {
   const parts = event?.dateParts;
-  if (parts && parts.year != null && parts.month === 1 && parts.day === 1) {
-    return formatYearLabel(parts.year);
+  if (parts && parts.year != null) {
+    if (parts.month === 1 && parts.day === 1) return formatYearLabel(parts.year);
+    // BC dates have no clean compact ISO ("-551-09-28" reads as broken) — use the
+    // CJK form, matching the detail pane. AD keeps the compact ISO below.
+    if (parts.year < 0) return `${formatYearLabel(parts.year)}年${parts.month}月${parts.day}日`;
   }
   if (event?.isoDate) return event.isoDate;
   if (!parts) return "";
@@ -434,7 +437,9 @@ function buildEraSubtitle(items) {
   if (!years.length) return `${items.length} 条`;
   const minYear = Math.min(...years);
   const maxYear = Math.max(...years);
-  return `${minYear === maxYear ? minYear : `${minYear}–${maxYear}`} · ${items.length} 条`;
+  // BC-aware (公元前N) so ancient-era ranges don't render as raw "-1700000".
+  const range = minYear === maxYear ? formatYearLabel(minYear) : `${formatYearLabel(minYear)}–${formatYearLabel(maxYear)}`;
+  return `${range} · ${items.length} 条`;
 }
 
 export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", columns = []) {
