@@ -12,7 +12,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
-    port: 5173,
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       "/api": "http://localhost:8000",
       "/theme": "http://localhost:8000",
