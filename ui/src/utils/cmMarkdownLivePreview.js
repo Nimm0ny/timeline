@@ -5,6 +5,7 @@ import { tags } from "@lezer/highlight";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import { EditorSelection, EditorState, RangeSetBuilder, StateField } from "@codemirror/state";
 import { markdownListContinuation, selectionTouchesRange } from "./editorMarkdown.js";
+import { scanFencedCodeBlocks } from "./markdownPreview.js";
 
 const IMAGE_MARKDOWN_RE = /!\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 
@@ -218,6 +219,90 @@ export function markdownImageBlockWidgetField(options = {}) {
   });
 }
 
+// ── 围栏代码块（```/~~~）─────────────────────────────────────────────────────
+// 围栏判定走 markdownPreview 的 scanFencedCodeBlocks（与读渲染器同一真源），
+// 此处只把 0 基行号描述换算成 doc 位置并产出装饰（行背景盒 + 折叠围栏行）。
+function buildCodeBlockDecorationSet(state) {
+  const { doc } = state;
+  const ranges = state.selection.ranges;
+  const decos = [];
+
+  for (const block of scanFencedCodeBlocks(doc.toString())) {
+    if (block.openLine + 1 > doc.lines) continue;
+    const openL = doc.line(block.openLine + 1);
+    const closeL =
+      block.closeLine != null && block.closeLine + 1 <= doc.lines ? doc.line(block.closeLine + 1) : null;
+    const lastContentL =
+      block.hasContent && block.contentToLine + 1 <= doc.lines ? doc.line(block.contentToLine + 1) : null;
+    const tailL = closeL || lastContentL || openL;
+    // 光标落在整块字符范围内即「活动」→ 显原文（含可编辑围栏）；否则折叠围栏。
+    const active = selectionTouchesRange(ranges, openL.from, tailL.to);
+    const folding = !active && block.hasContent && !!lastContentL;
+
+    const boxFromLine = folding ? block.contentFromLine : block.openLine;
+    const boxToLine = folding ? block.contentToLine : block.closeLine != null ? block.closeLine : block.contentToLine;
+    for (let n = boxFromLine; n <= boxToLine && n + 1 <= doc.lines; n += 1) {
+      const ln = doc.line(n + 1);
+      let cls = "cm-md-code-line";
+      if (n === boxFromLine) cls += " cm-md-code-first";
+      if (n === boxToLine) cls += " cm-md-code-last";
+      decos.push(Decoration.line({ class: cls }).range(ln.from));
+    }
+
+    if (folding) {
+      // 开围栏：收「前换行 + 围栏文本」（[prevL.to, openL.to]），保留围栏后的换行，
+      // 使首内容行仍是视觉行首、不丢行装饰。文首块无前行 → 退回收「围栏 + 后换行」。
+      if (block.openLine > 0) {
+        const prevL = doc.line(block.openLine); // 围栏前一行（1 基 = 0 基 openLine）
+        decos.push(Decoration.replace({}).range(prevL.to, openL.to));
+      } else {
+        const firstContentL = doc.line(block.contentFromLine + 1);
+        decos.push(Decoration.replace({}).range(openL.from, firstContentL.from));
+      }
+      if (closeL) {
+        // 闭围栏：收「前换行 + 围栏文本」→ 收进末内容行尾，闭围栏后行仍是行首。
+        decos.push(Decoration.replace({}).range(lastContentL.to, closeL.to));
+      }
+    }
+  }
+
+  return Decoration.set(decos, true);
+}
+
+function buildCodeBlockDecorationState(state) {
+  return {
+    activeSignature: activeLineRangesSignature(selectionLineRanges(state)),
+    decorations: buildCodeBlockDecorationSet(state),
+  };
+}
+
+// 跨行折叠（replace line breaks）只能由 StateField 提供，ViewPlugin 会抛
+// RangeError。缓存同图片 field：仅当文档变或活动行集变才重建。
+export function markdownCodeBlockField() {
+  return StateField.define({
+    create(state) {
+      return buildCodeBlockDecorationState(state);
+    },
+    update(value, transaction) {
+      if (transaction.docChanged) {
+        return buildCodeBlockDecorationState(transaction.state);
+      }
+      const decorations = value.decorations.map(transaction.changes);
+      if (transaction.selection) {
+        const activeSignature = activeLineRangesSignature(selectionLineRanges(transaction.state));
+        if (activeSignature === value.activeSignature) {
+          return { activeSignature, decorations };
+        }
+        return buildCodeBlockDecorationState(transaction.state);
+      }
+      return { ...value, decorations };
+    },
+    provide(field) {
+      return EditorView.decorations.from(field, (value) => value.decorations);
+    },
+  });
+}
+
 export function filesFromEvent(event, key) {
   return Array.from(event[key]?.files || []).filter(Boolean);
 }
@@ -236,7 +321,7 @@ export const markdownHighlightStyle = HighlightStyle.define([
   { tag: tags.strong, fontWeight: "700" },
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.strikethrough, textDecoration: "line-through" },
-  { tag: tags.monospace, fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)", fontSize: "0.92em" },
+  { tag: tags.monospace, fontFamily: "var(--tn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)", fontSize: "0.92em" },
   { tag: [tags.link, tags.url], color: "var(--accent)" },
   { tag: tags.quote, color: "var(--text-muted)" },
   { tag: tags.contentSeparator, color: "var(--text-faint)", fontWeight: "600" },
@@ -354,6 +439,11 @@ function buildLivePreviewDecorations(view) {
 
         // 图片由块级 image StateField 接管，跳过整棵子树避免装饰重叠。
         if (name === "Image") return false;
+
+        // 围栏代码块由 markdownCodeBlockField（StateField）接管：行背景盒 +
+        // 光标不在块内时折叠开/闭围栏行（跨行 replace 只能由 StateField 提供，
+        // ViewPlugin 不许）。此处跳过整棵子树，避免 CodeMark 等被二次装饰。
+        if (name === "FencedCode") return false;
 
         if (name === "HeaderMark") {
           if (!lineActive(node.from)) concealWithTrailingSpace(node.from, node.to);
@@ -544,6 +634,7 @@ export function createMarkdownEditorExtensions(options = {}) {
     EditorState.readOnly.of(!editable),
     EditorView.editable.of(editable),
     markdownImageBlockWidgetField({ onOpenImage: options.onOpenImage }),
+    markdownCodeBlockField(),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         options.onUpdate?.(update.state.doc.toString());

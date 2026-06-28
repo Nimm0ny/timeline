@@ -35,6 +35,8 @@
   --btn-sm: 26px;
   --tn-font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   --tn-font-num: "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 等宽栈：代码块读↔编辑共用同一字体，保证零位移（编辑器高亮 tags.monospace 也引用）。 */
+  --tn-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --ease: cubic-bezier(0.32, 0.08, 0.24, 1);
   --motion-base: 0.12s;
   --motion-slow: 0.22s;
@@ -1755,6 +1757,27 @@ button {
   border-radius: 5px;
 }
 
+/* 围栏代码块（编辑态）：逐行背景拼成一个盒。font/size/line-height/padding 与
+   读模式 pre.md-code-block 逐项对齐（13px / 21px / 上下各 10px），折叠围栏后
+   行数与读模式一致 → 总高 21N+20 相等，守 §9 读↔编辑零位移。 */
+.markdown-live-editor .cm-md-code-line {
+  background: var(--bg-surface-2);
+  font-family: var(--tn-font-mono);
+  font-size: 13px;
+  line-height: 21px;
+  padding: 0 14px;
+}
+
+.markdown-live-editor .cm-md-code-first {
+  padding-top: 10px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.markdown-live-editor .cm-md-code-last {
+  padding-bottom: 10px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
 .markdown-live-editor .cm-md-hr {
   display: block;
   height: 0;
@@ -1843,6 +1866,38 @@ button {
   padding: 1px 6px;
   border-radius: 5px;
   font-size: 13px;
+}
+
+/* 围栏代码块（读态）：与编辑态 .cm-md-code-line 逐项对齐（见上）。pre-wrap +
+   break-word 与编辑器 lineWrapping 一致换行；内层 code 清掉行内码的盒样式。 */
+.markdown-body pre.md-code-block {
+  margin: 0 0 13px;
+  padding: 10px 14px;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+.markdown-body pre.md-code-block code {
+  display: block;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-family: var(--tn-font-mono);
+  font-size: 13px;
+  line-height: 21px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* clown 预设的行内码样式 `.markdown-body code`（粉底/粉字/padding）特异性高于上面
+   的块规则，会渗到代码块内层 <code>，使读盒 ≠ 编辑盒（编辑器在 .markdown-body 之外、
+   不吃 clown）。此处按 clown 作用域中性化，守读↔编辑零位移。 */
+:root[data-md="clown"] .markdown-body pre.md-code-block code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
 }
 
 .markdown-body img {

@@ -65,6 +65,47 @@ export function plainTextFromMarkdown(markdown) {
     .trim();
 }
 
+// 围栏代码块（```/~~~）扫描器——读渲染器与 CM 编辑器共用此单一真源，保证两
+// 端对「哪几行是代码块」判定一致（读↔编辑零位移的前提）。返回 0 基行号描述。
+export function scanFencedCodeBlocks(text) {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    const open = lines[i].trim().match(/^(`{3,}|~{3,})(.*)$/);
+    // 反引号围栏的 info 串不得含反引号（否则不是合法围栏）。
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      const fenceChar = open[1][0];
+      const fenceLen = open[1].length;
+      const lang = open[2].trim().split(/\s+/)[0] || "";
+      let j = i + 1;
+      let closed = false;
+      for (; j < lines.length; j += 1) {
+        const close = lines[j].trim().match(/^(`{3,}|~{3,})$/);
+        if (close && close[1][0] === fenceChar && close[1].length >= fenceLen) {
+          closed = true;
+          break;
+        }
+      }
+      const contentFromLine = i + 1;
+      const contentToLine = (closed ? j : lines.length) - 1;
+      blocks.push({
+        openLine: i,
+        closeLine: closed ? j : null,
+        contentFromLine,
+        contentToLine,
+        hasContent: contentToLine >= contentFromLine,
+        closed,
+        lang,
+      });
+      i = closed ? j + 1 : lines.length;
+    } else {
+      i += 1;
+    }
+  }
+  return blocks;
+}
+
 export function renderMarkdownToHtml(markdown) {
   const source = String(markdown || "").replace(/\r\n/g, "\n");
   if (!source.trim()) {
@@ -72,6 +113,7 @@ export function renderMarkdownToHtml(markdown) {
   }
 
   const lines = source.split("\n");
+  const codeBlockByOpen = new Map(scanFencedCodeBlocks(source).map((block) => [block.openLine, block]));
   const html = [];
   let listType = null; // "ul" | "ol" | null
 
@@ -90,7 +132,21 @@ export function renderMarkdownToHtml(markdown) {
     }
   }
 
-  for (const rawLine of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    // 围栏代码块（``` / ~~~）：内容原样保留（HTML 转义、不套 inline markdown、
+    // 不当列表/标题），空白靠 CSS white-space: pre-wrap。判定走共享 scanner。
+    const codeBlock = codeBlockByOpen.get(i);
+    if (codeBlock) {
+      closeList();
+      const langClass = codeBlock.lang ? ` class="language-${escapeHtml(codeBlock.lang)}"` : "";
+      const body = codeBlock.hasContent ? lines.slice(codeBlock.contentFromLine, codeBlock.contentToLine + 1) : [];
+      const code = body.map((bodyLine) => escapeHtml(bodyLine)).join("\n");
+      html.push(`<pre class="md-code-block"><code${langClass}>${code}</code></pre>`);
+      i = codeBlock.closed ? codeBlock.closeLine : lines.length - 1; // 跳过整块（含闭合行）。
+      continue;
+    }
+
+    const rawLine = lines[i];
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
 
