@@ -943,6 +943,9 @@ button {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row.active .c-time {
@@ -962,7 +965,12 @@ button {
   font-weight: 500;
   color: var(--text-strong);
   white-space: nowrap;
-  flex: none;
+  /* Title keeps priority (grow 0, basis = content) while the summary yields and
+     clips first; a title longer than the whole cell clips itself, never bleeds. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row.active .ev-name {

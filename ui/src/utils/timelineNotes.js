@@ -217,21 +217,37 @@ export function normalizeTopicColumns(columns) {
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
 }
 
-export function buildVisibleTimelineColumns(columns, hiddenKeys = null) {
+// Time-column track width (px). Compact by default — AD dates render as short
+// ISO/year ("1921-07-23" ≈ 65px). BC dates carrying a real month/day use the long
+// CJK form ("公元前551年9月28日" ≈ 117px) and would overflow the compact track into
+// the title, so a set holding one widens to the WIDE track. The `.c-time` clip +
+// title tooltip still backstop the rare 4-digit-BC / test-data extremes (≥131px).
+export const TIME_COLUMN_WIDTH = 96;
+export const TIME_COLUMN_WIDTH_WIDE = 128;
+
+export function timelineTimeColumnWidth(events) {
+  const hasLongDate = (Array.isArray(events) ? events : []).some((event) => {
+    const parts = event?.dateParts;
+    return parts && parts.year != null && parts.year < 0 && !(parts.month === 1 && parts.day === 1);
+  });
+  return hasLongDate ? TIME_COLUMN_WIDTH_WIDE : TIME_COLUMN_WIDTH;
+}
+
+export function buildVisibleTimelineColumns(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH) {
   const properties = normalizeTopicColumns(columns).filter((column) => column.visible);
   const hidden = hiddenKeys instanceof Set ? hiddenKeys : Array.isArray(hiddenKeys) ? new Set(hiddenKeys) : null;
   const shown = hidden ? properties.filter((column) => !hidden.has(column.key)) : properties;
   return [
-    { key: "time", label: "时间", width: 96, builtIn: true, locked: true, type: "time" },
+    { key: "time", label: "时间", width: timeWidth, builtIn: true, locked: true, type: "time" },
     { key: "title", label: "事件", width: null, builtIn: true, locked: true, type: "title" },
     ...shown,
   ];
 }
 
-export function buildTimelineGridTemplate(columns, hiddenKeys = null) {
+export function buildTimelineGridTemplate(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH) {
   return [
     "28px",
-    ...buildVisibleTimelineColumns(columns, hiddenKeys).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
+    ...buildVisibleTimelineColumns(columns, hiddenKeys, timeWidth).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
     "30px",
   ].join(" ");
 }

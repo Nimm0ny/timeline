@@ -21,6 +21,7 @@ import {
   normalizeTopicColumns,
   propertyHref,
   resolvePropertyChips,
+  timelineTimeColumnWidth,
 } from "../src/utils/timelineNotes.js";
 
 const tagsColumn = {
@@ -227,6 +228,24 @@ test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whit
   assert.equal(buildTimelineGridTemplate(cols), "28px 96px minmax(0,1fr) 96px 150px 92px 30px");
   assert.deepEqual(extra, { type: "a", tags: ["war"], place: "广州", source: "x" });
   assert.deepEqual(normalizeEventExtra({ type: "ghost" }, cols), { type: "" });
+});
+
+test("timelineTimeColumnWidth widens only for BC dates carrying a real month/day", () => {
+  const adFull = { dateParts: { year: 1921, month: 7, day: 23 } };
+  const bcYearOnly = { dateParts: { year: -1700000, month: 1, day: 1 } }; // collapses to "公元前1700000"
+  const bcFull = { dateParts: { year: -551, month: 9, day: 28 } }; // "公元前551年9月28日" ≈ 117px > 96
+
+  // AD dates and year-only BC stay in the compact track.
+  assert.equal(timelineTimeColumnWidth([adFull, bcYearOnly]), 96);
+  assert.equal(timelineTimeColumnWidth([]), 96);
+  assert.equal(timelineTimeColumnWidth(null), 96);
+
+  // A single BC date with month/day widens the whole track so it stays visible.
+  assert.equal(timelineTimeColumnWidth([adFull, bcFull]), 128);
+
+  // The widened width threads through to the grid template's time slot.
+  assert.equal(buildTimelineGridTemplate([], null, 128), "28px 128px minmax(0,1fr) 30px");
+  assert.equal(buildVisibleTimelineColumns([], null, 128)[0].width, 128);
 });
 
 test("emptyTimelineColumnKeys hides columns with no value anywhere; built-ins and populated columns stay", () => {

@@ -12,6 +12,7 @@ import {
   isCheckboxChecked,
   isOptionColumn,
   resolvePropertyChips,
+  timelineTimeColumnWidth,
 } from "@/utils/timelineNotes";
 
 const props = defineProps({
@@ -191,7 +192,8 @@ function visibleColumns() {
 
 function rowGrid() {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
-  return buildTimelineGridTemplate(props.columns, props.emptyColumnKeys);
+  const events = props.groups.flatMap((group) => group.items);
+  return buildTimelineGridTemplate(props.columns, props.emptyColumnKeys, timelineTimeColumnWidth(events));
 }
 
 function setRowRef(id, element) {
@@ -490,9 +492,9 @@ onBeforeUnmount(() => {
             </span>
             <span v-else class="rdot"></span>
             <template v-for="column in visibleColumns()" :key="column.key">
-              <span v-if="column.key === 'time'" class="c-time">{{ eventColumnValue(event, column) }}</span>
+              <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)">{{ eventColumnValue(event, column) }}</span>
               <span v-else-if="column.key === 'title'" class="c-title">
-                <b class="ev-name">{{ eventColumnValue(event, column) }}</b>
+                <b class="ev-name" :title="eventColumnValue(event, column)">{{ eventColumnValue(event, column) }}</b>
                 <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                   <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
                 </span>
@@ -522,6 +524,7 @@ onBeforeUnmount(() => {
                 v-else
                 class="c-source"
                 :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
+                :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
               >
                 {{ eventColumnValue(event, column) }}
               </span>
