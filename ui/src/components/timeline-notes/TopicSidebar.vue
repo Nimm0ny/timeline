@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { buildPropertyRows } from "@/utils/timelineNotes";
+import { buildPropertyRows, compareTimelineEvents } from "@/utils/timelineNotes";
 
 const props = defineProps({
   brand: {
@@ -280,15 +280,24 @@ const quickFilters = computed(() => [
   { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "archive" },
 ]);
 
+// Era (time-period) rows for the active notebook, ordered chronologically to
+// mirror the center timeline's era grouping: both bucket events in
+// `compareTimelineEvents` order (earliest dateKey first, "更早" last) and keep
+// first-appearance order, so left-pane nav and center groups never disagree —
+// fitting a 编年/by-year product. Counts still run over all live events so the
+// list never blanks out under an active view filter.
 const eraRows = computed(() => {
-  const counts = new Map();
-  for (const event of liveEvents.value) {
+  const order = [];
+  const byEra = new Map();
+  for (const event of [...liveEvents.value].sort(compareTimelineEvents)) {
     const key = String(event?.era || "未分期").trim() || "未分期";
-    counts.set(key, (counts.get(key) || 0) + 1);
+    if (!byEra.has(key)) {
+      byEra.set(key, { era: key, count: 0 });
+      order.push(key);
+    }
+    byEra.get(key).count += 1;
   }
-  return [...counts.entries()]
-    .map(([era, count]) => ({ era, count }))
-    .sort((left, right) => right.count - left.count || left.era.localeCompare(right.era));
+  return order.map((key) => byEra.get(key));
 });
 
 // Properties (and their option counts) for the left "属性" tab. Counts run over

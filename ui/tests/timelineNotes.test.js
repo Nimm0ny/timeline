@@ -9,6 +9,11 @@ import {
   buildReadableDetailGroups,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
+  emptyTimelineColumnKeys,
+  eventColumnHasValue,
+  eventColumnValue,
+  formatEventDate,
+  formatEventDisplayDate,
   groupTimelineEvents,
   isCheckboxChecked,
   matchesPropertyFilter,
@@ -222,6 +227,92 @@ test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whit
   assert.equal(buildTimelineGridTemplate(cols), "28px 96px minmax(0,1fr) 96px 150px 92px 30px");
   assert.deepEqual(extra, { type: "a", tags: ["war"], place: "广州", source: "x" });
   assert.deepEqual(normalizeEventExtra({ type: "ghost" }, cols), { type: "" });
+});
+
+test("emptyTimelineColumnKeys hides columns with no value anywhere; built-ins and populated columns stay", () => {
+  const cols = normalizeTopicColumns([
+    { key: "type", label: "类型", type: "select", width: 96, order: 0, visible: true, options: [{ id: "a", label: "A" }] },
+    { key: "tags", label: "标签", type: "multiselect", width: 150, order: 1, visible: true, options: [{ id: "war", label: "战争" }] },
+    { key: "place", label: "地点", type: "text", width: 92, order: 2, visible: true },
+    { key: "done", label: "完成", type: "checkbox", width: 80, order: 3, visible: true },
+  ]);
+  const evs = [
+    { extra: { type: "", tags: ["war"], place: "", done: "false" } },
+    { extra: { type: "", tags: [], place: "", done: "true" } },
+  ];
+
+  // type & place are empty across every event; tags & done each have one value.
+  assert.deepEqual(emptyTimelineColumnKeys(cols, evs).sort(), ["place", "type"]);
+  // With no events, every visible property column counts as empty.
+  assert.deepEqual(emptyTimelineColumnKeys(cols, []).sort(), ["done", "place", "tags", "type"]);
+
+  // Built-ins always survive; hidden property columns drop, populated ones stay.
+  const hidden = emptyTimelineColumnKeys(cols, evs);
+  assert.deepEqual(
+    buildVisibleTimelineColumns(cols, hidden).map((column) => column.key),
+    ["time", "title", "tags", "done"]
+  );
+  // The grid loses exactly the dropped columns' tracks (type 96px, place 92px).
+  assert.equal(buildTimelineGridTemplate(cols, hidden), "28px 96px minmax(0,1fr) 150px 80px 30px");
+  // No hiddenKeys → unchanged (back-compat with existing callers/tests).
+  assert.deepEqual(
+    buildVisibleTimelineColumns(cols).map((column) => column.key),
+    ["time", "title", "type", "tags", "place", "done"]
+  );
+
+  // eventColumnHasValue reflects per-type rendering (option / checkbox / text).
+  const col = (key) => cols.find((column) => column.key === key);
+  assert.equal(eventColumnHasValue(evs[0], col("tags")), true);
+  assert.equal(eventColumnHasValue(evs[1], col("tags")), false);
+  assert.equal(eventColumnHasValue(evs[0], col("type")), false);
+  assert.equal(eventColumnHasValue(evs[1], col("done")), true);
+  assert.equal(eventColumnHasValue(evs[0], col("done")), false);
+});
+
+test("eventColumnValue and eventColumnHasValue agree on text/number emptiness (whitespace, 0)", () => {
+  const cols = normalizeTopicColumns([
+    { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
+    { key: "count", label: "数量", type: "number", width: 80, order: 1, visible: true },
+  ]);
+  const place = cols.find((column) => column.key === "place");
+  const count = cols.find((column) => column.key === "count");
+
+  // Whitespace-only is treated as empty by BOTH the renderer and the hide-logic.
+  assert.equal(eventColumnValue({ extra: { place: "   " } }, place), "—");
+  assert.equal(eventColumnHasValue({ extra: { place: "   " } }, place), false);
+  // Real text renders verbatim and counts as a value.
+  assert.equal(eventColumnValue({ extra: { place: "广州" } }, place), "广州");
+  assert.equal(eventColumnHasValue({ extra: { place: "广州" } }, place), true);
+  // "0" is a real value — must stay visible (the old truthiness test dropped it).
+  assert.equal(eventColumnValue({ extra: { count: "0" } }, count), "0");
+  assert.equal(eventColumnHasValue({ extra: { count: "0" } }, count), true);
+
+  // A column of only-whitespace/blank values hides; one real value keeps both shown.
+  assert.deepEqual(emptyTimelineColumnKeys(cols, [{ extra: { place: "  ", count: "" } }]).sort(), ["count", "place"]);
+  assert.deepEqual(emptyTimelineColumnKeys(cols, [{ extra: { place: "广州", count: "0" } }]), []);
+});
+
+test("date formatters collapse year-only precision but keep genuine days (and BC years)", () => {
+  const yearOnly = { dateParts: { year: 1840, month: 1, day: 1 }, isoDate: "1840-01-01" };
+  const firstOfMonth = { dateParts: { year: 1927, month: 8, day: 1 }, isoDate: "1927-08-01" };
+  const fullDay = { dateParts: { year: 1921, month: 7, day: 23 }, isoDate: "1921-07-23" };
+  const bcYear = { dateParts: { year: -5000, month: 1, day: 1 }, isoDate: "-5000-01-01" };
+
+  // Timeline (compact): year-only collapses; genuine 1st-of-month and full days stay.
+  assert.equal(formatEventDate(yearOnly), "1840");
+  assert.equal(formatEventDate(firstOfMonth), "1927-08-01");
+  assert.equal(formatEventDate(fullDay), "1921-07-23");
+  assert.equal(formatEventDate(bcYear), "公元前5000");
+
+  // Detail (CJK): same precision rule, BC prefix.
+  assert.equal(formatEventDisplayDate(yearOnly), "1840年");
+  assert.equal(formatEventDisplayDate(firstOfMonth), "1927年8月1日");
+  assert.equal(formatEventDisplayDate(fullDay), "1921年7月23日");
+  assert.equal(formatEventDisplayDate(bcYear), "公元前5000年");
+
+  // No usable year → fall back to the precomputed displayLabel (or "").
+  assert.equal(formatEventDisplayDate({ dateParts: { month: 5, day: 1 }, displayLabel: "约公元前" }), "约公元前");
+  assert.equal(formatEventDisplayDate({ displayLabel: "未知" }), "未知");
 });
 
 test("matchesPropertyFilter matches scalar and multi-value properties", () => {

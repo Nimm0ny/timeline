@@ -179,7 +179,17 @@ const draftDisplayDate = computed(() => {
   const month = String(draft.dateMonth || "").trim();
   const day = String(draft.dateDay || "").trim();
   if (!year || !month || !day) return "未设置日期";
-  return `${year}年${month}月${day}日`;
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  // Mid-typing non-numeric input: keep the raw text rather than render "NaN年".
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return `${year}年${month}月${day}日`;
+  }
+  // Reuse the read-mode formatter so the edit trigger matches read exactly
+  // (year-only collapses to "1840年", BC → "公元前N年"); the popover still
+  // exposes the underlying Y/M/D for editing.
+  return formatEventDisplayDate({ dateParts: { year: y, month: m, day: d } });
 });
 
 // Editor-first detail pane: tag / attachment / related sections only render when

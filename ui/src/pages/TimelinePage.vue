@@ -16,6 +16,7 @@ import { useViewport } from "@/composables/useViewport";
 import {
   compareTimelineEvents,
   buildGlobalFavoriteEvents,
+  emptyTimelineColumnKeys,
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
@@ -169,6 +170,13 @@ const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineSt
 const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
+// Property columns with no value anywhere in the topic — the center timeline
+// auto-hides them so an unused column never shows as a full column of "—".
+// Computed over all topic events (incl. trashed) so it stays stable across
+// filter/search and the trash view.
+const feedEmptyColumnKeys = computed(() =>
+  isGlobalFavoritesMode.value ? [] : emptyTimelineColumnKeys(feedColumns.value, state.events)
+);
 const selectedEventDetail = computed(() => timelineStore.detailById(state.selectedEventId));
 const selectedEventIndex = computed(
   () =>
@@ -1403,6 +1411,7 @@ watch(
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
       :columns="feedColumns"
+      :empty-column-keys="feedEmptyColumnKeys"
       :column-saving="state.columnSaving"
       :show-preview="state.showPreview"
       :show-source="isGlobalFavoritesMode"

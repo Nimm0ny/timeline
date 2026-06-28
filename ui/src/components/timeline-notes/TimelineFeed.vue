@@ -63,6 +63,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  emptyColumnKeys: {
+    type: Array,
+    default: () => [],
+  },
   columnSaving: {
     type: Boolean,
     default: false,
@@ -180,14 +184,14 @@ function togglePopover(name) {
 }
 
 function visibleColumns() {
-  const columns = buildVisibleTimelineColumns(props.columns);
+  const columns = buildVisibleTimelineColumns(props.columns, props.emptyColumnKeys);
   if (!props.mobile) return columns;
   return columns.filter((column) => column.key === "time" || column.key === "title");
 }
 
 function rowGrid() {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
-  return buildTimelineGridTemplate(props.columns);
+  return buildTimelineGridTemplate(props.columns, props.emptyColumnKeys);
 }
 
 function setRowRef(id, element) {

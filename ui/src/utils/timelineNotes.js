@@ -143,19 +143,37 @@ export function buildTopicMetaLine(topic) {
   return buildTopicRange(topic);
 }
 
-export function formatEventDate(event) {
-  if (event?.isoDate) return event.isoDate;
-  if (!event?.dateParts) return "";
-  const year = event.dateParts.year ?? "";
-  const month = padTwo(event.dateParts.month);
-  const day = padTwo(event.dateParts.day);
-  return `${year}-${month}-${day}`;
+// Year label with BC support: negative years → "公元前N", positive → "N".
+// Shared by the timeline (compact) and detail (CJK) date formatters.
+function formatYearLabel(year) {
+  const value = Number(year);
+  if (!Number.isFinite(value)) return String(year ?? "");
+  return value < 0 ? `公元前${-value}` : String(value);
 }
 
+// Timeline (compact) date. Year-only events — month 1 & day 1, which is also the
+// migration default for year-precision data — collapse to just the year so the
+// 编年 spine never shows fabricated "-01-01" day precision. Genuine 1st-of-month
+// dates (e.g. 1927-08-01 南昌起义) keep their full date: month-precision data is
+// stored the same way and can't be told apart, so we never coarsen a real day.
+export function formatEventDate(event) {
+  const parts = event?.dateParts;
+  if (parts && parts.year != null && parts.month === 1 && parts.day === 1) {
+    return formatYearLabel(parts.year);
+  }
+  if (event?.isoDate) return event.isoDate;
+  if (!parts) return "";
+  return `${parts.year ?? ""}-${padTwo(parts.month)}-${padTwo(parts.day)}`;
+}
+
+// Detail-pane (CJK) date, precision-aware like formatEventDate: year-only →
+// "1840年"; otherwise full "1921年7月23日". BC years render as "公元前N年".
 export function formatEventDisplayDate(event) {
-  if (!event?.dateParts) return event?.displayLabel || "";
-  const { year, month, day } = event.dateParts;
-  return `${year}年${month}月${day}日`;
+  const parts = event?.dateParts;
+  if (!parts || parts.year == null) return event?.displayLabel || "";
+  const yearLabel = `${formatYearLabel(parts.year)}年`;
+  if (parts.month === 1 && parts.day === 1) return yearLabel;
+  return `${yearLabel}${parts.month}月${parts.day}日`;
 }
 
 export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText) {
@@ -196,21 +214,46 @@ export function normalizeTopicColumns(columns) {
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
 }
 
-export function buildVisibleTimelineColumns(columns) {
+export function buildVisibleTimelineColumns(columns, hiddenKeys = null) {
   const properties = normalizeTopicColumns(columns).filter((column) => column.visible);
+  const hidden = hiddenKeys instanceof Set ? hiddenKeys : Array.isArray(hiddenKeys) ? new Set(hiddenKeys) : null;
+  const shown = hidden ? properties.filter((column) => !hidden.has(column.key)) : properties;
   return [
     { key: "time", label: "时间", width: 96, builtIn: true, locked: true, type: "time" },
     { key: "title", label: "事件", width: null, builtIn: true, locked: true, type: "title" },
-    ...properties,
+    ...shown,
   ];
 }
 
-export function buildTimelineGridTemplate(columns) {
+export function buildTimelineGridTemplate(columns, hiddenKeys = null) {
   return [
     "28px",
-    ...buildVisibleTimelineColumns(columns).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
+    ...buildVisibleTimelineColumns(columns, hiddenKeys).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
     "30px",
   ].join(" ");
+}
+
+// A property column "has a value" for an event when the row renders something
+// other than the "—" placeholder for it (option chip, checked box, or non-blank
+// text/number/link). Mirrors the per-type rendering in `eventColumnValue` and
+// the center-pane template so the two never disagree.
+export function eventColumnHasValue(event, column) {
+  if (!column || column.builtIn) return true;
+  if (isOptionColumn(column)) return resolvePropertyChips(event, column).length > 0;
+  if (column.type === "checkbox") return isCheckboxChecked(event?.extra?.[column.key]);
+  return String(event?.extra?.[column.key] ?? "").trim() !== "";
+}
+
+// Keys of visible property columns that are empty across the WHOLE event set
+// (no row renders a value). The center timeline auto-hides these so an unused
+// column never shows as a full column of "—"; the column config still lists
+// them, and a column reappears the moment any event gets a value. Computed over
+// all topic events (not the filtered view) so it never flickers on filter/search.
+export function emptyTimelineColumnKeys(columns, events) {
+  const list = Array.isArray(events) ? events : [];
+  return normalizeTopicColumns(columns)
+    .filter((column) => column.visible && !list.some((event) => eventColumnHasValue(event, column)))
+    .map((column) => column.key);
 }
 
 export function buildGlobalFavoriteEvents(events) {
@@ -261,7 +304,10 @@ export function eventColumnValue(event, column) {
     return chips.length ? chips.map((chip) => chip.label).join("、") : "—";
   }
   const value = event?.extra?.[column.key];
-  return value ? String(value) : "—";
+  // Trimmed-empty (incl. whitespace-only) renders as "—" so it agrees with
+  // `eventColumnHasValue`/auto-hide and the detail pane's trim convention; a
+  // real "0" stays visible (the old `value ? … : "—"` dropped numeric 0).
+  return String(value ?? "").trim() !== "" ? String(value) : "—";
 }
 
 // Per-property option rows (with usage counts) for the left "属性" tab.
