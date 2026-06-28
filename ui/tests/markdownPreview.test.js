@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { plainTextFromMarkdown, renderMarkdownToHtml, scanFencedCodeBlocks } from "../src/utils/markdownPreview.js";
+import {
+  plainTextFromMarkdown,
+  renderMarkdownToHtml,
+  renderTableToHtml,
+  scanFencedCodeBlocks,
+  scanTables,
+} from "../src/utils/markdownPreview.js";
 
 test("renderMarkdownToHtml renders headings h1..h6, bold, italic, strikethrough, code", () => {
   assert.equal(renderMarkdownToHtml("# 标题"), "<h1>标题</h1>");
@@ -116,6 +122,95 @@ test("scanFencedCodeBlocks reports block line ranges (the shared read/edit sourc
   assert.deepEqual([two[1].openLine, two[1].closeLine], [5, 7]);
   // A standalone ~~strike~~ line is not a fence.
   assert.deepEqual(scanFencedCodeBlocks("~~x~~"), []);
+});
+
+test("renderMarkdownToHtml renders GFM tables (header + body, inline cells)", () => {
+  // Basic 2x1 table.
+  assert.equal(
+    renderMarkdownToHtml("| A | B |\n| --- | --- |\n| 1 | 2 |"),
+    '<table class="md-table"><thead><tr><th>A</th><th>B</th></tr></thead>' +
+      "<tbody><tr><td>1</td><td>2</td></tr></tbody></table>"
+  );
+  // Column alignment from the delimiter row (:-- left, :-: center, --: right).
+  assert.equal(
+    renderMarkdownToHtml("| L | C | R |\n| :-- | :-: | --: |\n| a | b | c |"),
+    '<table class="md-table"><thead><tr>' +
+      '<th style="text-align:left">L</th><th style="text-align:center">C</th><th style="text-align:right">R</th>' +
+      "</tr></thead><tbody><tr>" +
+      '<td style="text-align:left">a</td><td style="text-align:center">b</td><td style="text-align:right">c</td>' +
+      "</tr></tbody></table>"
+  );
+  // Cells run inline markdown; raw HTML is escaped.
+  assert.equal(
+    renderMarkdownToHtml("| H |\n| --- |\n| **b** `c` <x> |"),
+    '<table class="md-table"><thead><tr><th>H</th></tr></thead>' +
+      "<tbody><tr><td><strong>b</strong> <code>c</code> &lt;x&gt;</td></tr></tbody></table>"
+  );
+  // Escaped pipe (\|) stays a literal cell character, not a column separator.
+  assert.equal(
+    renderMarkdownToHtml("| a \\| b | c |\n| --- | --- |"),
+    '<table class="md-table"><thead><tr><th>a | b</th><th>c</th></tr></thead></table>'
+  );
+  // Header + delimiter with no body rows → thead only.
+  assert.equal(
+    renderMarkdownToHtml("| A | B |\n| --- | --- |"),
+    '<table class="md-table"><thead><tr><th>A</th><th>B</th></tr></thead></table>'
+  );
+  // A pipe line followed by `---` is NOT a table (delimiter needs a pipe); --- stays an <hr>.
+  assert.equal(renderMarkdownToHtml("text | more\n---"), "<p>text | more</p><hr>");
+  // Prose with a pipe + a dashes line is NOT a table when columns don't match (GFM).
+  assert.equal(renderMarkdownToHtml("用了 a | b 写法\n| --- |"), "<p>用了 a | b 写法</p><p>| --- |</p>");
+  // Table flows between surrounding blocks.
+  assert.equal(
+    renderMarkdownToHtml("前\n\n| A |\n| --- |\n| 1 |\n\n后"),
+    '<p>前</p><table class="md-table"><thead><tr><th>A</th></tr></thead>' +
+      "<tbody><tr><td>1</td></tr></tbody></table><p>后</p>"
+  );
+});
+
+test("scanTables reports table line ranges (the shared read/edit source)", () => {
+  // Closed table with body → 0-based line ranges + parsed structure.
+  assert.deepEqual(scanTables("| A | B |\n| --- | --- |\n| 1 | 2 |"), [
+    {
+      fromLine: 0,
+      toLine: 2,
+      headerLine: 0,
+      delimiterLine: 1,
+      bodyFromLine: 2,
+      bodyToLine: 2,
+      aligns: [null, null],
+      header: ["A", "B"],
+      rows: [["1", "2"]],
+    },
+  ]);
+  // Alignment parsed into the aligns array.
+  assert.deepEqual(scanTables("| L | C | R |\n| :-- | :-: | --: |")[0].aligns, ["left", "center", "right"]);
+  // No body rows → bodyFromLine null, toLine at the delimiter.
+  const noBody = scanTables("| A |\n| --- |")[0];
+  assert.deepEqual([noBody.fromLine, noBody.toLine, noBody.bodyFromLine], [0, 1, null]);
+  // Two tables separated by a blank line; offsets stay correct.
+  const two = scanTables("| A |\n| - |\n| 1 |\n\n| B |\n| - |\n| 2 |");
+  assert.equal(two.length, 2);
+  assert.deepEqual([two[0].fromLine, two[0].toLine], [0, 2]);
+  assert.deepEqual([two[1].fromLine, two[1].toLine], [4, 6]);
+  // A pipe table inside a fenced code block is NOT a table.
+  assert.deepEqual(scanTables("```\n| A | B |\n| --- | --- |\n```"), []);
+  // A pipe line without a delimiter row is not a table.
+  assert.deepEqual(scanTables("| just | text |\nno delimiter here"), []);
+  // GFM: delimiter column count must equal header column count, else not a table.
+  assert.deepEqual(scanTables("| a | b |\n| --- |"), []);
+  // An all-empty header row is not a table.
+  assert.deepEqual(scanTables("|\n| --- |"), []);
+});
+
+test("renderTableToHtml embeds row positions for the CM widget (data-pos)", () => {
+  // The read renderer omits data-pos; the CM widget passes rowPos to make rows clickable.
+  const table = scanTables("| A |\n| --- |\n| 1 |")[0];
+  assert.equal(
+    renderTableToHtml(table, { rowPos: [0, 12] }),
+    '<table class="md-table"><thead><tr data-pos="0"><th>A</th></tr></thead>' +
+      '<tbody><tr data-pos="12"><td>1</td></tr></tbody></table>'
+  );
 });
 
 test("plainTextFromMarkdown strips strikethrough tildes", () => {

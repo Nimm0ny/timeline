@@ -1911,6 +1911,55 @@ button {
   border-radius: 0;
 }
 
+/* GFM 表格：读模式 .md-table 与编辑态 widget 内 .md-table 共用同一组规则，显式
+   font-size/line-height 不依赖容器（读 .markdown-body 15px/1.85 vs 编辑器继承），
+   两端逐字节同 HTML + 同 CSS → 读↔编辑零位移（§9）。 */
+.markdown-body .md-table,
+.markdown-live-editor .cm-md-table-widget .md-table {
+  border-collapse: collapse;
+  margin: 0 0 13px;
+  max-width: 100%;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.markdown-body .md-table th,
+.markdown-body .md-table td,
+.markdown-live-editor .cm-md-table-widget .md-table th,
+.markdown-live-editor .cm-md-table-widget .md-table td {
+  border: 1px solid var(--border-strong);
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.markdown-body .md-table th,
+.markdown-live-editor .cm-md-table-widget .md-table th {
+  background: var(--bg-surface-2);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+/* 编辑态 widget 容器：无额外外距（表自带 margin-bottom），点击落光标转原文可编辑。 */
+.markdown-live-editor .cm-md-table-widget {
+  margin: 0;
+  cursor: text;
+}
+
+/* clown 预设的表格固定样式（边框 #dfe2e5 + 偶数行斑马 #f8f8f8，见文末 clown 段）
+   只命中读态 .markdown-body table；编辑态 widget 在 .markdown-body 外不被命中 →
+   读(灰边+斑马)≠编辑。按 editor-cm6-design §5 同步 clown 固定样式到 widget，令 clown
+   下表格读↔编辑零位移。非新增颜色，复用 clown 既有固定值。 */
+:root[data-md="clown"] .markdown-live-editor .cm-md-table-widget .md-table th,
+:root[data-md="clown"] .markdown-live-editor .cm-md-table-widget .md-table td {
+  border: 1px solid #dfe2e5;
+}
+
+:root[data-md="clown"] .markdown-live-editor .cm-md-table-widget .md-table tr:nth-child(2n) {
+  background: #f8f8f8;
+}
+
 .markdown-body img {
   max-width: 100%;
   display: block;

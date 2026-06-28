@@ -106,6 +106,132 @@ export function scanFencedCodeBlocks(text) {
   return blocks;
 }
 
+// 表格单元格拆分：去掉首尾各一个 `|`，按未转义的 `|` 切分，`\|` 还原成字面竖线。
+function splitTableRow(line) {
+  let s = String(line).trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  const cells = [];
+  let cur = "";
+  for (let k = 0; k < s.length; k += 1) {
+    const ch = s[k];
+    if (ch === "\\" && s[k + 1] === "|") {
+      cur += "|";
+      k += 1;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+// 分隔行（| --- | :--: |）→ 每列对齐数组（left/right/center/null）；不是合法分隔行返回 null。
+// 必须含 `|`（否则 `---` 仍是水平分隔线 <hr>，而非单列表格）。
+function parseTableDelimiter(line) {
+  const s = String(line).trim();
+  if (!s.includes("|") || !s.includes("-")) return null;
+  const cells = splitTableRow(s);
+  if (cells.length === 0) return null;
+  const aligns = [];
+  for (const cell of cells) {
+    if (!/^:?-+:?$/.test(cell)) return null;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    aligns.push(left && right ? "center" : right ? "right" : left ? "left" : null);
+  }
+  return aligns;
+}
+
+// GFM 表格扫描器——读渲染器与 CM 编辑器共用此单一真源（同围栏代码块）。表头行须
+// 含 `|` 且下一行是合法分隔行；表体行连续到空行/无 `|`/代码围栏边界为止。返回 0 基行号。
+export function scanTables(text) {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const lastIdx = lines.length - 1;
+  const fences = scanFencedCodeBlocks(text);
+  const inFence = (n) =>
+    fences.some((b) => n >= b.openLine && n <= (b.closeLine != null ? b.closeLine : lastIdx));
+
+  const tables = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (inFence(i)) {
+      i += 1;
+      continue;
+    }
+    const headerLine = lines[i];
+    const delimLine = i + 1 <= lastIdx ? lines[i + 1] : null;
+    const headerHasPipe = headerLine.includes("|") && headerLine.trim() !== "";
+    const aligns = delimLine != null && !inFence(i + 1) ? parseTableDelimiter(delimLine) : null;
+    const header = headerHasPipe && aligns ? splitTableRow(headerLine) : null;
+    // GFM：分隔行列数须等于表头列数，且表头至少一个非空单元格——否则普通含 | 的正文
+    // （后跟一行 dash）会被误判成表；也确保与 Lezer 的表格识别一致（CM 编辑器据此跳过）。
+    const isTable = header != null && aligns.length === header.length && header.some((cell) => cell !== "");
+    if (isTable) {
+      const colCount = header.length;
+      const alignsNorm = [];
+      for (let c = 0; c < colCount; c += 1) alignsNorm.push(aligns[c] != null ? aligns[c] : null);
+      const rows = [];
+      let j = i + 2;
+      for (; j <= lastIdx; j += 1) {
+        if (inFence(j)) break;
+        const r = lines[j];
+        if (r.trim() === "" || !r.includes("|")) break;
+        rows.push(splitTableRow(r));
+      }
+      const hasBody = rows.length > 0;
+      const toLine = hasBody ? j - 1 : i + 1;
+      tables.push({
+        fromLine: i,
+        toLine,
+        headerLine: i,
+        delimiterLine: i + 1,
+        bodyFromLine: hasBody ? i + 2 : null,
+        bodyToLine: hasBody ? toLine : null,
+        aligns: alignsNorm,
+        header,
+        rows,
+      });
+      i = toLine + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return tables;
+}
+
+// 把 scanTables 的描述渲染成 <table class="md-table">——读渲染器与 CM widget 共用，
+// 保证两端 HTML 结构一致（读↔编辑零位移）。opts.rowPos 仅 CM widget 传入：给每个
+// <tr> 加 data-pos（该行在文档中的起始偏移），供点击表格时把光标落到对应行（转原文可编辑）。
+export function renderTableToHtml(table, opts = {}) {
+  const rowPos = opts.rowPos || null;
+  const alignStyle = (a) => (a ? ` style="text-align:${a}"` : "");
+  const posAttr = (idx) => (rowPos && rowPos[idx] != null ? ` data-pos="${rowPos[idx]}"` : "");
+  const headCells = table.header
+    .map((cell, c) => `<th${alignStyle(table.aligns[c])}>${renderInline(cell)}</th>`)
+    .join("");
+  const head = `<thead><tr${posAttr(0)}>${headCells}</tr></thead>`;
+  let body = "";
+  if (table.rows.length) {
+    const rowsHtml = table.rows
+      .map((row, r) => {
+        const tds = [];
+        for (let c = 0; c < table.header.length; c += 1) {
+          tds.push(`<td${alignStyle(table.aligns[c])}>${renderInline(row[c] != null ? row[c] : "")}</td>`);
+        }
+        return `<tr${posAttr(r + 1)}>${tds.join("")}</tr>`;
+      })
+      .join("");
+    body = `<tbody>${rowsHtml}</tbody>`;
+  }
+  return `<table class="md-table">${head}${body}</table>`;
+}
+
 export function renderMarkdownToHtml(markdown) {
   const source = String(markdown || "").replace(/\r\n/g, "\n");
   if (!source.trim()) {
@@ -114,6 +240,7 @@ export function renderMarkdownToHtml(markdown) {
 
   const lines = source.split("\n");
   const codeBlockByOpen = new Map(scanFencedCodeBlocks(source).map((block) => [block.openLine, block]));
+  const tableByHeader = new Map(scanTables(source).map((table) => [table.fromLine, table]));
   const html = [];
   let listType = null; // "ul" | "ol" | null
 
@@ -143,6 +270,16 @@ export function renderMarkdownToHtml(markdown) {
       const code = body.map((bodyLine) => escapeHtml(bodyLine)).join("\n");
       html.push(`<pre class="md-code-block"><code${langClass}>${code}</code></pre>`);
       i = codeBlock.closed ? codeBlock.closeLine : lines.length - 1; // 跳过整块（含闭合行）。
+      continue;
+    }
+
+    // GFM 表格：判定走共享 scanTables（与 CM 编辑器同一真源）。整表渲染为 <table>，
+    // 单元格内容过 renderInline（行内 markdown），随后跳过整块。
+    const table = tableByHeader.get(i);
+    if (table) {
+      closeList();
+      html.push(renderTableToHtml(table));
+      i = table.toLine; // 循环 i += 1 → 表后一行。
       continue;
     }
 

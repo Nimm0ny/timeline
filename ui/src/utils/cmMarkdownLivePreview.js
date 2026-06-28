@@ -5,7 +5,7 @@ import { tags } from "@lezer/highlight";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import { EditorSelection, EditorState, RangeSetBuilder, StateField } from "@codemirror/state";
 import { markdownListContinuation, selectionTouchesRange } from "./editorMarkdown.js";
-import { scanFencedCodeBlocks } from "./markdownPreview.js";
+import { renderTableToHtml, scanFencedCodeBlocks, scanTables } from "./markdownPreview.js";
 
 const IMAGE_MARKDOWN_RE = /!\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 
@@ -303,6 +303,102 @@ export function markdownCodeBlockField() {
   });
 }
 
+// ── GFM 表格 ─────────────────────────────────────────────────────────────────
+// 判定走 markdownPreview 的 scanTables（与读渲染器同一真源）。光标不在表内时，整表
+// 以块级 widget 渲染成 <table>（与读模式逐字节同 HTML → 读↔编辑零位移）；光标落入
+// 表的字符范围则不渲染、显原文（管道符可编辑）。点击 widget 把光标落到对应源行（转原文）。
+class MarkdownTableWidget extends WidgetType {
+  constructor(table, doc) {
+    super();
+    this.table = table;
+    const rowPos = [doc.line(table.fromLine + 1).from]; // 表头行起始偏移
+    if (table.bodyFromLine != null) {
+      for (let r = 0; r < table.rows.length; r += 1) {
+        const lineNo = table.bodyFromLine + 1 + r;
+        rowPos.push((lineNo <= doc.lines ? doc.line(lineNo) : doc.line(doc.lines)).from);
+      }
+    }
+    this.rowPos = rowPos;
+    this.html = renderTableToHtml(table, { rowPos });
+  }
+
+  eq(other) {
+    return other.html === this.html;
+  }
+
+  toDOM(view) {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-md-table-widget";
+    wrap.innerHTML = this.html;
+    // 点击 → 把光标落到被点的源行，selection 触达表范围 → StateField 转原文可编辑。
+    wrap.addEventListener("mousedown", (event) => {
+      const tr = event.target.closest ? event.target.closest("tr[data-pos]") : null;
+      const pos = tr ? Number(tr.getAttribute("data-pos")) : this.rowPos[0];
+      if (Number.isFinite(pos)) {
+        event.preventDefault();
+        view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+        view.focus();
+      }
+    });
+    return wrap;
+  }
+}
+
+function buildTableDecorationSet(state) {
+  const { doc } = state;
+  const ranges = state.selection.ranges;
+  const decos = [];
+
+  for (const table of scanTables(doc.toString())) {
+    if (table.fromLine + 1 > doc.lines) continue;
+    const headerL = doc.line(table.fromLine + 1);
+    const lastL = table.toLine + 1 <= doc.lines ? doc.line(table.toLine + 1) : doc.line(doc.lines);
+    // 光标落在整表字符范围内即「活动」→ 显原文；否则块级 widget 渲染整表。
+    if (selectionTouchesRange(ranges, headerL.from, lastL.to)) continue;
+    decos.push(
+      Decoration.replace({ widget: new MarkdownTableWidget(table, doc), block: true }).range(
+        headerL.from,
+        lastL.to,
+      ),
+    );
+  }
+
+  return Decoration.set(decos, true);
+}
+
+function buildTableDecorationState(state) {
+  return {
+    activeSignature: activeLineRangesSignature(selectionLineRanges(state)),
+    decorations: buildTableDecorationSet(state),
+  };
+}
+
+// 跨行块 widget（replace line breaks）只能由 StateField 提供。缓存同图片/代码块 field。
+export function markdownTableField() {
+  return StateField.define({
+    create(state) {
+      return buildTableDecorationState(state);
+    },
+    update(value, transaction) {
+      if (transaction.docChanged) {
+        return buildTableDecorationState(transaction.state);
+      }
+      const decorations = value.decorations.map(transaction.changes);
+      if (transaction.selection) {
+        const activeSignature = activeLineRangesSignature(selectionLineRanges(transaction.state));
+        if (activeSignature === value.activeSignature) {
+          return { activeSignature, decorations };
+        }
+        return buildTableDecorationState(transaction.state);
+      }
+      return { ...value, decorations };
+    },
+    provide(field) {
+      return EditorView.decorations.from(field, (value) => value.decorations);
+    },
+  });
+}
+
 export function filesFromEvent(event, key) {
   return Array.from(event[key]?.files || []).filter(Boolean);
 }
@@ -405,6 +501,17 @@ function buildLivePreviewDecorations(view) {
   const atomic = [];
   const quoteLines = new Set();
 
+  // 表格行集合（doc 偏移区间）由 scanTables 决定——与 markdownTableField 同一真源。
+  // ViewPlugin 必须跳过落在表内的任何节点：否则 scanTables 比 Lezer 宽松的情形下
+  // （列数不齐、空表头等），Lezer 不产 Table 节点 → 单元格内 EmphasisMark 等被装饰，
+  // 与 StateField 的块级 replace 重叠 → CM 抛错。按 scanTables 跳过即保证两端一致。
+  const tableSkipRanges = scanTables(doc.toString()).map((table) => {
+    const fromL = doc.line(table.fromLine + 1);
+    const toL = table.toLine + 1 <= doc.lines ? doc.line(table.toLine + 1) : doc.line(doc.lines);
+    return { from: fromL.from, to: toL.to };
+  });
+  const inSkippedTable = (pos) => tableSkipRanges.some((r) => pos >= r.from && pos <= r.to);
+
   const pushReplace = (from, to, spec) => {
     if (from >= to) return;
     const deco = Decoration.replace(spec);
@@ -444,6 +551,10 @@ function buildLivePreviewDecorations(view) {
         // 光标不在块内时折叠开/闭围栏行（跨行 replace 只能由 StateField 提供，
         // ViewPlugin 不许）。此处跳过整棵子树，避免 CodeMark 等被二次装饰。
         if (name === "FencedCode") return false;
+
+        // 表格由 markdownTableField（StateField）接管。按 scanTables 行集跳过（而非
+        // 依赖 Lezer 的 Table 节点名），保证与块级 widget 同一判定，杜绝装饰重叠。
+        if (inSkippedTable(node.from)) return false;
 
         if (name === "HeaderMark") {
           if (!lineActive(node.from)) concealWithTrailingSpace(node.from, node.to);
@@ -635,6 +746,7 @@ export function createMarkdownEditorExtensions(options = {}) {
     EditorView.editable.of(editable),
     markdownImageBlockWidgetField({ onOpenImage: options.onOpenImage }),
     markdownCodeBlockField(),
+    markdownTableField(),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         options.onUpdate?.(update.state.doc.toString());
