@@ -500,6 +500,7 @@ function buildLivePreviewDecorations(view) {
   const all = [];
   const atomic = [];
   const quoteLines = new Set();
+  const footnoteDefLines = new Set();
 
   // 表格行集合（doc 偏移区间）由 scanTables 决定——与 markdownTableField 同一真源。
   // ViewPlugin 必须跳过落在表内的任何节点：否则 scanTables 比 Lezer 宽松的情形下
@@ -586,8 +587,12 @@ function buildLivePreviewDecorations(view) {
         }
 
         if (name === "Link") {
-          if (selectionTouchesRange(ranges, node.from, node.to)) return false; // 编辑态显原文
           const marks = node.node.getChildren("LinkMark");
+          // 脚注引用/定义 [^…]（无 URL，2 个 LinkMark）由下方按行 regex 处理：Lezer 无脚注
+          // 语法，会把同行多个 [^x] 合并成一个 Link、把定义行当 LinkReference——解析不稳，故跳过。
+          // 但 [^x](url)（带 URL，4 个 LinkMark）是真链接，照常渲染，与读渲染器 link-first 一致。
+          if (doc.sliceString(node.from, node.from + 2) === "[^" && marks.length < 4) return false;
+          if (selectionTouchesRange(ranges, node.from, node.to)) return false; // 编辑态显原文
           if (marks.length >= 2) {
             const open = marks[0];
             const close = marks[1];
@@ -640,6 +645,59 @@ function buildLivePreviewDecorations(view) {
         return undefined;
       },
     });
+  }
+
+  // ── 脚注（按行 regex，不走语法树）──────────────────────────────────────────
+  // 行内 [^label] → 上标；行首 [^label]: → 定义行。须跳过表格/代码/图片块区：表格 widget /
+  // 代码 / 图片各自块级 replace，脚注 replace 落进去会重叠令 CM 抛错。表格单元格里的脚注由
+  // renderTableToHtml→renderInline 渲染（读与 widget 同走此路、一致）；代码/图片块内读渲染器
+  // 不渲染脚注，故跳过即保一致。
+  const codeSkipRanges = scanFencedCodeBlocks(doc.toString()).map((b) => {
+    const fromL = doc.line(b.openLine + 1);
+    const toIdx = Math.min(b.closeLine != null ? b.closeLine : doc.lines - 1, doc.lines - 1);
+    return { from: fromL.from, to: doc.line(toIdx + 1).to };
+  });
+  const imageSkipRanges = collectMarkdownImageTokensFromDoc(doc, []).map((t) => ({ from: t.from, to: t.to }));
+  const inBlockSkip = (pos) =>
+    inSkippedTable(pos) ||
+    codeSkipRanges.some((r) => pos >= r.from && pos <= r.to) ||
+    imageSkipRanges.some((r) => pos >= r.from && pos < r.to);
+  const FN_REF_RE = /\[\^([^\]\s]+)\]/g;
+  for (const visible of view.visibleRanges) {
+    const firstLine = doc.lineAt(visible.from).number;
+    const lastLine = doc.lineAt(visible.to).number;
+    for (let n = firstLine; n <= lastLine; n += 1) {
+      const line = doc.line(n);
+      if (inBlockSkip(line.from)) continue;
+      const text = line.text;
+      // 定义行 [^label]: 内容（须行首不缩进）→ 行首标记隐藏 + label 前缀 + 整行 def 样式。
+      const defMatch = /^\[\^([^\]\s]+)\]:/.exec(text);
+      if (defMatch && !selectionTouchesRange(ranges, line.from, line.to)) {
+        const label = defMatch[1];
+        const labelStart = line.from + 2; // 跳过 [^
+        const labelEnd = labelStart + label.length;
+        pushLine(line.from, "cm-md-footnote-def-line", footnoteDefLines);
+        pushReplace(line.from, labelStart, {}); // [^
+        pushMark(labelStart, labelEnd, "cm-md-footnote-label");
+        pushReplace(labelEnd, labelEnd + 2, {}); // ]:（冒号后空白保留，与读渲染器一致）
+      }
+      // 行内引用 [^label]（含定义行内容里的引用；定义行首标记 index 0 已处理、跳过）。
+      FN_REF_RE.lastIndex = 0;
+      let m;
+      while ((m = FN_REF_RE.exec(text)) !== null) {
+        if (defMatch && m.index === 0) continue;
+        if (text[m.index + m[0].length] === "(") continue; // [^x](url) 是真链接，由语法树渲染
+        const from = line.from + m.index;
+        const to = from + m[0].length;
+        if (inBlockSkip(from)) continue;
+        if (selectionTouchesRange(ranges, from, to)) continue; // 光标在引用内显原文
+        const labelStart = from + 2; // 跳过 [^
+        const labelEnd = to - 1; // ] 前
+        pushReplace(from, labelStart, {}); // [^
+        pushMark(labelStart, labelEnd, "cm-md-footnote-ref");
+        pushReplace(labelEnd, to, {}); // ]
+      }
+    }
   }
 
   return {

@@ -213,6 +213,58 @@ test("renderTableToHtml embeds row positions for the CM widget (data-pos)", () =
   );
 });
 
+test("renderMarkdownToHtml renders footnotes (inline ref + definition line)", () => {
+  // Inline reference → superscript marker (no anchor, in-place).
+  assert.equal(
+    renderMarkdownToHtml("正文[^1] 后"),
+    '<p>正文<sup class="md-footnote-ref">1</sup> 后</p>'
+  );
+  // Definition line → footnote def block; label superscript + inline content.
+  assert.equal(
+    renderMarkdownToHtml("[^1]: 一条注释"),
+    '<div class="md-footnote-def"><sup class="md-footnote-label">1</sup> 一条注释</div>'
+  );
+  // Definition content runs inline markdown.
+  assert.equal(
+    renderMarkdownToHtml("[^note]: 见 **重点**"),
+    '<div class="md-footnote-def"><sup class="md-footnote-label">note</sup> 见 <strong>重点</strong></div>'
+  );
+  // Reference + definition together.
+  assert.equal(
+    renderMarkdownToHtml("观点[^1]\n\n[^1]: 依据"),
+    '<p>观点<sup class="md-footnote-ref">1</sup></p>' +
+      '<div class="md-footnote-def"><sup class="md-footnote-label">1</sup> 依据</div>'
+  );
+  // A real link is unaffected; a footnote ref coexists on the same line.
+  assert.equal(
+    renderMarkdownToHtml("[a](http://x) 与 [^1]"),
+    '<p><a class="timeline-markdown-link" href="http://x" target="_blank" rel="noopener noreferrer">a</a>' +
+      ' 与 <sup class="md-footnote-ref">1</sup></p>'
+  );
+  // Definition label and content are HTML-escaped (XSS guard).
+  assert.equal(
+    renderMarkdownToHtml("[^x]: <script>"),
+    '<div class="md-footnote-def"><sup class="md-footnote-label">x</sup> &lt;script&gt;</div>'
+  );
+  // [^x](url) resolves as a link (link-first), NOT a footnote ref — matches the editor.
+  assert.equal(
+    renderMarkdownToHtml("见[^1](#fn1)"),
+    '<p>见<a class="timeline-markdown-link" href="#fn1" target="_blank" rel="noopener noreferrer">^1</a></p>'
+  );
+  // An indented [^1]: line is NOT a definition (must be column 0); renders as a paragraph.
+  assert.equal(renderMarkdownToHtml("   [^1]: x"), '<p><sup class="md-footnote-ref">1</sup>: x</p>');
+  // No space after the colon → no forced space (matches the editor concealing only "]:").
+  assert.equal(
+    renderMarkdownToHtml("[^1]:x"),
+    '<div class="md-footnote-def"><sup class="md-footnote-label">1</sup>x</div>'
+  );
+});
+
 test("plainTextFromMarkdown strips strikethrough tildes", () => {
   assert.equal(plainTextFromMarkdown("~~删~~ 文本"), "删 文本");
+});
+
+test("plainTextFromMarkdown drops footnote ref/def markers (no raw ^1 in previews)", () => {
+  assert.equal(plainTextFromMarkdown("观点[^1]后"), "观点后");
+  assert.equal(plainTextFromMarkdown("[^1]: 一条注释"), "一条注释");
 });

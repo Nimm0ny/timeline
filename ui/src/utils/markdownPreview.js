@@ -32,6 +32,8 @@ function renderInlineSegment(segment) {
     if (!safeHref) return label;
     return `<a class="timeline-markdown-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
+  // 脚注引用 [^label]（无 (url)，故须在链接之后；label 不含空格/]）→ 上标标记。
+  output = output.replace(/\[\^([^\]\s]+)\]/g, (_, label) => `<sup class="md-footnote-ref">${label}</sup>`);
   output = output.replace(/~~([^~]+)~~/g, "<del>$1</del>");
   output = output.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   output = output.replace(/\*([^*]+)\*/g, "<em>$1</em>");
@@ -59,6 +61,10 @@ export function plainTextFromMarkdown(markdown) {
   return String(markdown || "")
     .replace(/!\[[^\]]*\]\([^)]+\)/g, ` ${imagePlaceholder} `)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, " $1 ")
+    // 脚注定义行前缀（行首 [^label]:）+ 行内引用 [^label] 去掉，避免预览出现 "^1"。
+    // 引用替换为空（不吞相邻空格，免把英文词粘连）。
+    .replace(/^\[\^[^\]\s]+\]:\s*/gm, "")
+    .replace(/\[\^[^\]\s]+\]/g, "")
     .replace(/[`#>*_~\-\[\]()]/g, " ")
     .replaceAll(imagePlaceholder, "[图片]")
     .replace(/\s+/g, " ")
@@ -335,6 +341,18 @@ export function renderMarkdownToHtml(markdown) {
     if (listMatch) {
       openList("ul");
       html.push(`<li>${renderInline(listMatch[1])}</li>`);
+      continue;
+    }
+
+    // 脚注定义行 [^label]: 内容 → 脚注样式块（label 上标 + 内容走 inline）。须行首不缩进
+    // （用 line 而非 trimmed，与编辑器锚定 regex 一致——缩进行两端都当普通段落）。冒号后
+    // 空白原样进 renderInline（不强制加空格），与编辑器只隐藏 ]: 不动后续空格一致。
+    const footnoteDefMatch = line.match(/^\[\^([^\]\s]+)\]:(.*)$/);
+    if (footnoteDefMatch) {
+      closeList();
+      html.push(
+        `<div class="md-footnote-def"><sup class="md-footnote-label">${escapeHtml(footnoteDefMatch[1])}</sup>${renderInline(footnoteDefMatch[2])}</div>`
+      );
       continue;
     }
 

@@ -1960,6 +1960,42 @@ button {
   background: #f8f8f8;
 }
 
+/* 脚注：读 .md-footnote-* 与编辑 .cm-md-footnote-* 共用同值 → 读↔编辑零位移。
+   line-height:0 让上标不撑高行盒（读/编辑同款）。引用 [^x] 行内上标；定义行 [^x]: 内容
+   muted 小字块（label 上标前缀）。 */
+/* 上标用绝对 px（非 em）：读态 sup 字号会随容器（如标题 2em）放大，而编辑态 ref 是
+   .cm-line 内的 mark、拿不到标题字号 → em 会令标题里的脚注读↔编辑发散。绝对 px 在任何
+   容器（正文/标题/列表/引用）下两端一致。 */
+.markdown-body .md-footnote-ref,
+.markdown-live-editor .cm-md-footnote-ref {
+  color: var(--accent);
+  font-size: 11px;
+  vertical-align: super;
+  line-height: 0;
+  font-weight: 600;
+}
+
+.markdown-body .md-footnote-label,
+.markdown-live-editor .cm-md-footnote-label {
+  color: var(--accent);
+  font-size: 11px;
+  vertical-align: super;
+  line-height: 0;
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.markdown-body .md-footnote-def,
+.markdown-live-editor .cm-md-footnote-def-line {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.markdown-body .md-footnote-def {
+  margin: 0;
+}
+
 .markdown-body img {
   max-width: 100%;
   display: block;
