@@ -1097,6 +1097,15 @@ button {
   flex: none;
 }
 
+/* Overflow indicator: chips beyond FEED_CHIP_LIMIT collapse to a muted "+N"
+   (hover reveals the hidden labels) so a multi-tag row stays minimal yet honest. */
+.td-more {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex: none;
+}
+
 .c-star {
   width: 26px;
   height: 26px;

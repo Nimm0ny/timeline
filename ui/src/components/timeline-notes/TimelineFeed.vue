@@ -16,6 +16,11 @@ import {
   timelineTimeColumnWidth,
 } from "@/utils/timelineNotes";
 
+// Center feed caps option chips per cell; any extras collapse into a muted "+N"
+// so a multi-value event never silently hides tags. Single source for the cap so
+// the slice and the overflow count can't drift.
+const FEED_CHIP_LIMIT = 2;
+
 const props = defineProps({
   loading: {
     type: Boolean,
@@ -504,13 +509,19 @@ onBeforeUnmount(() => {
               </span>
               <span v-else-if="isOptionColumn(column)" class="c-tags">
                 <span
-                  v-for="chip in resolvePropertyChips(event, column).slice(0, 2)"
+                  v-for="chip in resolvePropertyChips(event, column).slice(0, FEED_CHIP_LIMIT)"
                   :key="chip.value"
                   class="td"
                   :style="{ '--dot': chip.color }"
                 >
                   <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
                 </span>
+                <span
+                  v-if="resolvePropertyChips(event, column).length > FEED_CHIP_LIMIT"
+                  class="td-more"
+                  :title="resolvePropertyChips(event, column).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                  >+{{ resolvePropertyChips(event, column).length - FEED_CHIP_LIMIT }}</span
+                >
                 <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
               </span>
               <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
