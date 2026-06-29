@@ -165,6 +165,7 @@ function closeTopicMenu() {
 
 function onPaneScroll() {
   if (topicMenu.value) closeTopicMenu();
+  if (typeMenu.value) typeMenu.value = null;
   if (editing.value) closePropertyPopover();
 }
 
@@ -223,6 +224,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", onMenuKeydown);
   document.removeEventListener("pointerdown", onPropertyPointerDown, true);
   document.removeEventListener("keydown", onPropertyKeydown);
+  document.removeEventListener("pointerdown", onTypeMenuPointerDown, true);
+  document.removeEventListener("keydown", onTypeMenuKeydown);
   flushPropertySave();
 });
 
@@ -237,7 +240,7 @@ const selectedTopicIds = ref([]);
 const editing = ref(null); // { topicId, column, anchor, optionCounts, isNew }
 const propNameRef = ref(null);
 const deleteArmed = ref(""); // `${topicId}:${key}` — two-step delete on read rows
-const typeMenu = ref(null); // { x, y } — app-styled property-type dropdown overlay
+const typeMenu = ref(null); // { x, y, topicId, key, type, property, anchor } — inline type dropdown
 let propertyAutosaveTimer = null;
 let lastSavedSignature = "";
 const OPTION_PROPERTY_TYPES = new Set(["select", "multiselect"]);
@@ -408,17 +411,15 @@ function isPropertyTopicOpen(topicId) {
   return topicId === props.activeTopicId;
 }
 
-// Anchor a fixed popover beside the clicked property row, flipping to the row's
-// left when it would overflow the right edge, clamped to the viewport (the pane
-// scroll-clips, so the popover lives at the overlay layer like the ⋯ menu).
+// Anchor the editor over the clicked property card in the left pane (left-aligned
+// with the row, overlaying it downward) so editing reads as in-place rather than
+// a box floating out over the timeline. Fixed overlay (the pane scroll-clips),
+// clamped to the viewport.
 function anchorFor(event) {
   const rect = event.currentTarget.getBoundingClientRect();
   const width = 280;
-  const gap = 8;
-  let x = rect.right + gap;
-  if (x + width > window.innerWidth - 8) x = rect.left - width - gap;
-  x = Math.max(8, Math.min(x, window.innerWidth - width - 8));
-  const y = Math.max(8, Math.min(rect.top, window.innerHeight - 360));
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const y = Math.max(8, Math.min(rect.top, window.innerHeight - 8 - 320));
   return { x, y };
 }
 
@@ -464,28 +465,64 @@ function closePropertyPopover() {
   editing.value = null;
 }
 
-// Custom property-type dropdown — replaces the native <select> (whose OS-rendered
-// option list clashes with the app). Anchored under the type trigger, reusing the
-// shared .popover / .pop-item menu styling.
-function toggleTypeMenu(event) {
-  if (typeMenu.value) {
+// Inline property-type dropdown — anchored under the type chip that now lives in
+// each property ROW (no longer inside the editor popover). Reuses the shared
+// .popover / .pop-item chrome. Carries the row's topic/key/anchor so a pick can
+// persist the change (or open the option editor) without first opening the popover.
+function toggleRowTypeMenu(topic, property, event) {
+  event.stopPropagation();
+  if (typeMenu.value && typeMenu.value.topicId === topic.id && typeMenu.value.key === property.key) {
     typeMenu.value = null;
     return;
   }
+  if (editing.value) closePropertyPopover();
   const rect = event.currentTarget.getBoundingClientRect();
   const width = 140;
-  const x = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
   const y = Math.min(rect.bottom + 4, window.innerHeight - 248);
-  typeMenu.value = { x, y };
+  const rowEl = event.currentTarget.closest(".prop-row") || event.currentTarget;
+  typeMenu.value = {
+    x,
+    y,
+    topicId: topic.id,
+    key: property.key,
+    type: property.type,
+    property,
+    anchor: anchorFor({ currentTarget: rowEl }),
+  };
 }
 
 function chooseType(value) {
-  if (editing.value) updateDraftPropertyType(editing.value.column, value);
+  const menu = typeMenu.value;
   typeMenu.value = null;
+  if (!menu || value === menu.type) return;
+  applyPropertyType(menu, value);
+}
+
+// Persist a type change made from the row chip. Switching to an option type drops
+// the user into the inline option editor (seeded like the old popover flow, so an
+// empty select isn't left dangling); other types just re-serialize and save in place.
+function applyPropertyType(menu, value) {
+  const topic = props.topics.find((item) => item.id === menu.topicId);
+  if (!topic) return;
+  const columns = cloneTopicColumns(topic);
+  const column = columns.find((col) => col.key === menu.key);
+  if (!column) return;
+  updateDraftPropertyType(column, value);
+  if (isOptionProperty(value)) {
+    const optionCounts = new Map((menu.property?.options || []).map((option) => [option.value, option.count]));
+    lastSavedSignature = baseSignature(topic);
+    editing.value = { topicId: topic.id, column, anchor: menu.anchor, optionCounts, isNew: false };
+    return;
+  }
+  const serialized = serializePropertyColumns(columns);
+  lastSavedSignature = JSON.stringify(serialized);
+  emit("save-topic-columns", { topicId: topic.id, columns: serialized });
 }
 
 function openPropertyPopover(topic, property, event) {
   if (!topic?.id) return;
+  typeMenu.value = null;
   flushPropertySave();
   const draft = cloneTopicColumns(topic).find((column) => column.key === property.key);
   if (!draft) return;
@@ -555,22 +592,29 @@ function armOrDeleteProperty(topic, key, event) {
 function onPropertyPointerDown(event) {
   const target = event.target;
   if (!(target instanceof Element)) return;
-  // Type-dropdown interactions never dismiss anything (its own click handles it).
-  if (target.closest(".prop-type-menu") || target.closest(".prop-pop-type")) return;
-  // Any other click first dismisses an open type dropdown…
-  if (typeMenu.value) typeMenu.value = null;
+  // The row type chip + its dropdown manage their own lifecycle — never let a click
+  // on them close the open editor.
+  if (target.closest(".prop-type-menu") || target.closest(".prop-row-type-btn")) return;
   if (target.closest(".prop-pop")) return;
   if (target.closest(".prop-row") || target.closest(".prop-add-row")) return;
   closePropertyPopover();
 }
 
 function onPropertyKeydown(event) {
-  if (event.key !== "Escape") return;
-  if (typeMenu.value) {
-    typeMenu.value = null;
-    return;
-  }
-  closePropertyPopover();
+  if (event.key === "Escape") closePropertyPopover();
+}
+
+// The type dropdown can open straight from a row (with no editor popover), so it
+// owns its own outside-click + Esc dismissal independent of the editor.
+function onTypeMenuPointerDown(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest(".prop-type-menu") || target.closest(".prop-row-type-btn")) return;
+  typeMenu.value = null;
+}
+
+function onTypeMenuKeydown(event) {
+  if (event.key === "Escape") typeMenu.value = null;
 }
 
 const topicPropertyUsage = computed(() => {
@@ -622,13 +666,6 @@ function updateDraftOptionColor(option, event, index) {
   const next = event?.target?.value || fallbackOptionHex(index);
   option.colorValue = next;
   option.pickerValue = next;
-}
-
-function notebookPropertySummary(properties) {
-  const total = properties.length;
-  if (!total) return "暂无属性";
-  const optionCount = properties.filter((property) => property.isOption).length;
-  return optionCount ? `${total} 个属性 · ${optionCount} 个选项类` : `${total} 个属性`;
 }
 
 function eventCreatedDate(event) {
@@ -899,6 +936,16 @@ watch(editing, (value) => {
     document.removeEventListener("keydown", onPropertyKeydown);
   }
 });
+
+watch(typeMenu, (value) => {
+  if (value) {
+    document.addEventListener("pointerdown", onTypeMenuPointerDown, true);
+    document.addEventListener("keydown", onTypeMenuKeydown);
+  } else {
+    document.removeEventListener("pointerdown", onTypeMenuPointerDown, true);
+    document.removeEventListener("keydown", onTypeMenuKeydown);
+  }
+});
 </script>
 
 <template>
@@ -1111,16 +1158,10 @@ watch(editing, (value) => {
                 <span class="tg-chev" :class="{ collapsed: !isPropertyTopicOpen(entry.topic.id) }">
                   <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
                 </span>
-                <div class="prop-topic-main">
-                  <div class="prop-topic-title-row">
-                    <span class="prop-topic-title">
-                      <TimelineLucideIcon name="folder" :stroke-width="1.8" />
-                      <span>{{ entry.topic.title || entry.topic.name }}</span>
-                    </span>
-                    <span v-if="entry.active" class="prop-topic-badge">当前</span>
-                  </div>
-                  <p class="prop-topic-meta">{{ notebookPropertySummary(entry.properties) }}</p>
-                </div>
+                <span class="prop-topic-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
+                <span class="prop-topic-name">{{ entry.topic.title || entry.topic.name }}</span>
+                <span v-if="entry.active" class="prop-topic-badge">当前</span>
+                <span class="prop-topic-count">{{ entry.properties.length }}</span>
               </div>
 
               <div v-if="isPropertyTopicOpen(entry.topic.id)" class="prop-topic-body">
@@ -1141,7 +1182,18 @@ watch(editing, (value) => {
                   >
                     <span class="prop-row-ic"><TimelineLucideIcon :name="propertyIcon(property.type)" :stroke-width="1.8" /></span>
                     <span class="prop-row-name">{{ property.label }}</span>
-                    <span class="prop-row-type">{{ propTypeLabel(property.type) }}</span>
+                    <button
+                      v-if="canEditPropertyType(entry.topic.id, property)"
+                      type="button"
+                      class="prop-row-type prop-row-type-btn"
+                      :class="{ open: typeMenu && typeMenu.topicId === entry.topic.id && typeMenu.key === property.key }"
+                      title="更改属性类型"
+                      @click.stop="toggleRowTypeMenu(entry.topic, property, $event)"
+                    >
+                      <span>{{ propTypeLabel(property.type) }}</span>
+                      <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+                    </button>
+                    <span v-else class="prop-row-type prop-row-type-locked" title="已使用，类型锁定">{{ propTypeLabel(property.type) }}</span>
                     <span class="prop-row-stat">
                       <span class="prop-row-cnt">{{ property.isOption ? `${property.optionCount} 项` : `${property.filledCount}/${property.totalCount}` }}</span>
                       <button
@@ -1264,18 +1316,7 @@ watch(editing, (value) => {
           maxlength="24"
           placeholder="属性名称"
         />
-        <button
-          v-if="canEditPropertyType(editing.topicId, editing.column)"
-          type="button"
-          class="prop-pop-type"
-          :class="{ open: !!typeMenu }"
-          title="属性类型"
-          @click.stop="toggleTypeMenu($event)"
-        >
-          <span>{{ propTypeLabel(editing.column.type) }}</span>
-          <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
-        </button>
-        <span v-else class="prop-pop-type prop-pop-type-locked" title="已使用，类型锁定">{{ propTypeLabel(editing.column.type) }}</span>
+        <span class="prop-pop-type-tag">{{ propTypeLabel(editing.column.type) }}</span>
       </div>
 
       <div v-if="isOptionProperty(editing.column.type)" class="prop-pop-opts">
@@ -1309,23 +1350,23 @@ watch(editing, (value) => {
     </div>
 
     <div
-      v-if="typeMenu && editing"
+      v-if="typeMenu"
       class="popover prop-type-menu"
       :style="{ left: typeMenu.x + 'px', top: typeMenu.y + 'px' }"
       @click.stop
     >
       <button
-        v-for="type in editablePropertyTypesFor(editing.column.type)"
+        v-for="type in editablePropertyTypesFor(typeMenu.type)"
         :key="type.value"
         type="button"
         class="pop-item prop-type-item"
-        :class="{ 'is-active': type.value === editing.column.type }"
+        :class="{ 'is-active': type.value === typeMenu.type }"
         :disabled="type.legacy === true"
         @click="chooseType(type.value)"
       >
         <TimelineLucideIcon :name="propertyIcon(type.value)" :stroke-width="1.8" class="pop-item-ic" />
         <span class="lbl">{{ type.label }}</span>
-        <TimelineLucideIcon v-if="type.value === editing.column.type" name="check" :stroke-width="2" class="prop-type-check" />
+        <TimelineLucideIcon v-if="type.value === typeMenu.type" name="check" :stroke-width="2" class="prop-type-check" />
       </button>
     </div>
   </aside>
