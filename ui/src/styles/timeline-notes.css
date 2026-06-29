@@ -3143,6 +3143,11 @@ select:focus-visible {
   background: var(--bg-hover);
 }
 
+.prop-topic-head:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+
 .prop-topic-head .tg-chev {
   margin-top: 2px;
   flex: none;

@@ -452,11 +452,6 @@ function isPropertyTopicOpen(topicId) {
   return topicId === props.activeTopicId;
 }
 
-function focusPropertyTopic(topicId) {
-  if (!topicId || propertyEditorLocked(topicId) || topicId === props.activeTopicId) return;
-  emit("select-topic", topicId);
-}
-
 const topicPropertyUsage = computed(() => {
   const usage = new Map();
   for (const topic of props.topics || []) {
@@ -1058,7 +1053,15 @@ watch(
                 class="prop-topic"
                 :class="{ active: entry.active, editing: entry.editing }"
               >
-                <div class="prop-topic-head" @click="togglePropertyTopic(entry.topic.id)">
+                <div
+                  class="prop-topic-head"
+                  role="button"
+                  tabindex="0"
+                  :aria-expanded="String(isPropertyTopicOpen(entry.topic.id))"
+                  @click="togglePropertyTopic(entry.topic.id)"
+                  @keydown.enter.prevent="togglePropertyTopic(entry.topic.id)"
+                  @keydown.space.prevent="togglePropertyTopic(entry.topic.id)"
+                >
                   <span class="tg-chev" :class="{ collapsed: !isPropertyTopicOpen(entry.topic.id) }">
                     <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
                   </span>
@@ -1073,16 +1076,6 @@ watch(
                     <p class="prop-topic-meta">{{ notebookPropertySummary(entry.properties) }}</p>
                   </div>
                   <div class="prop-topic-actions">
-                    <button
-                      v-if="!entry.active"
-                      type="button"
-                      class="iconbtn sm"
-                      :disabled="propertyEditorLocked(entry.topic.id)"
-                      title="切换到此笔记本"
-                      @click.stop="focusPropertyTopic(entry.topic.id)"
-                    >
-                      <TimelineLucideIcon name="arrowRight" :stroke-width="1.8" />
-                    </button>
                     <template v-if="entry.editing">
                       <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="新增属性" @click.stop="addDraftProperty(entry.topic.id)">
                         <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
@@ -1109,6 +1102,7 @@ watch(
                     </template>
                     <button
                       v-else
+                      v-show="isPropertyTopicOpen(entry.topic.id)"
                       type="button"
                       class="iconbtn sm"
                       :disabled="propertyEditorLocked(entry.topic.id)"
