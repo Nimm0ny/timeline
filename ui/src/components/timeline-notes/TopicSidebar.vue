@@ -1101,12 +1101,12 @@ watch(
                             <span class="prop-card-type">{{ propTypeLabel(column.type) }}</span>
                           </div>
                         </div>
-                        <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="删除属性" @click.stop="removeDraftProperty(index)">
+                        <button type="button" class="iconbtn sm prop-delete-btn" :disabled="props.columnSaving" title="删除属性" @click.stop="removeDraftProperty(index)">
                           <TimelineLucideIcon name="trash" :stroke-width="1.8" />
                         </button>
                       </div>
                       <div class="prop-manage-grid">
-                        <label class="prop-manage-field prop-manage-field-wide">
+                        <label class="prop-manage-field">
                           <span>名称</span>
                           <input v-model="column.label" :disabled="props.columnSaving" type="text" maxlength="24" placeholder="属性名称" />
                         </label>
@@ -1142,20 +1142,18 @@ watch(
                             />
                           </label>
                           <input v-model="option.label" class="prop-option-input" :disabled="props.columnSaving" type="text" maxlength="24" placeholder="选项名称" />
-                          <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="删除选项" @click.stop="removeDraftOption(column, optionIndex)">
+                          <button type="button" class="iconbtn sm prop-delete-btn" :disabled="props.columnSaving" title="删除选项" @click.stop="removeDraftOption(column, optionIndex)">
                             <TimelineLucideIcon name="trash" :stroke-width="1.8" />
                           </button>
                         </div>
                         <div class="prop-option-manage-foot">
-                          <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="新增选项" @click.stop="addDraftOption(column)">
+                          <button type="button" class="iconbtn sm prop-inline-add" :disabled="props.columnSaving" title="新增选项" @click.stop="addDraftOption(column)">
                             <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
                           </button>
-                          <span class="prop-option-manage-copy">单选 / 多选可在这里维护名称和颜色。</span>
+                          <span class="prop-option-manage-copy">新增</span>
                         </div>
                       </div>
-                      <p v-if="!canEditPropertyType(entry.topic.id, column)" class="prop-card-note">已有笔记使用此属性；为避免值被重新规整，当前不允许直接改类型。</p>
-                      <p v-else-if="propertyDiscardArmed" class="prop-card-note">再次点击取消可放弃当前属性草稿。</p>
-                      <p v-else class="prop-card-note">{{ propertyMetaLine({ ...column, isOption: false, filledCount: 0, totalCount: 0, checkedCount: 0, sampleValues: [] }) }}</p>
+                      <p v-if="!canEditPropertyType(entry.topic.id, column)" class="prop-card-note">已使用，类型锁定</p>
                     </div>
                     <p v-if="!propertyEditorColumns.length" class="prop-empty">点击右上角新增属性。</p>
                   </template>

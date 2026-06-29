@@ -63,6 +63,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  allEvents: {
+    type: Array,
+    default: () => [],
+  },
   selectedEventId: {
     type: Number,
     default: null,
@@ -497,6 +501,7 @@ onBeforeUnmount(() => {
           :key="props.topicId"
           :topic-id="props.topicId"
           :columns="props.columns"
+          :events="props.allEvents"
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"
         />

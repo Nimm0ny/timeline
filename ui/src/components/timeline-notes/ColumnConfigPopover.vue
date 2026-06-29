@@ -1,7 +1,13 @@
 <script setup>
-import { onBeforeUnmount, reactive, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { PROPERTY_TYPE_ICONS as TYPE_ICON, editablePropertyTypeChoices, serializeTopicColumnsDraft } from "@/utils/timelineNotes";
+import {
+  PROPERTY_TYPE_ICONS as TYPE_ICON,
+  buildPropertyUsage,
+  canChangePropertyType,
+  editablePropertyTypeChoices,
+  serializeTopicColumnsDraft,
+} from "@/utils/timelineNotes";
 
 const props = defineProps({
   columns: {
@@ -11,6 +17,10 @@ const props = defineProps({
   topicId: {
     type: Number,
     default: null,
+  },
+  events: {
+    type: Array,
+    default: () => [],
   },
   saving: {
     type: Boolean,
@@ -25,6 +35,7 @@ const draft = reactive({
 });
 let autosaveTimer = null;
 let lastEmittedSignature = "[]";
+const propertyUsage = computed(() => buildPropertyUsage(props.columns, (props.events || []).filter((event) => !event?.deletedAt)));
 
 // Only the date + headline columns are structural; every other column (type,
 // tags, custom) is an ordinary, reorderable, deletable property.
@@ -126,6 +137,10 @@ function editableTypes(columnType) {
   return editablePropertyTypeChoices(columnType);
 }
 
+function canEditType(column) {
+  return canChangePropertyType(propertyUsage.value, column?.persistedKey || column?.key);
+}
+
 onBeforeUnmount(() => {
   flushPendingSave();
 });
@@ -183,7 +198,7 @@ onBeforeUnmount(() => {
         </label>
         <label>
           <span>类型</span>
-          <select v-model="column.type">
+          <select v-model="column.type" :disabled="!canEditType(column)">
             <option
               v-for="type in editableTypes(column.type)"
               :key="type.value"
@@ -200,6 +215,7 @@ onBeforeUnmount(() => {
           <span>顺序</span>
           <input v-model="column.order" type="number" min="0" max="99" />
         </label>
+        <span v-if="!canEditType(column)" class="col-lock-note">已使用，类型锁定</span>
       </div>
     </template>
 
@@ -209,5 +225,5 @@ onBeforeUnmount(() => {
     </button>
   </div>
 
-  <p class="pop-note">类型/标签与自定义列都是属性；键名须英文小写开头，可含数字和下划线。单选/多选的选项在右栏编辑或左栏「属性」中维护。眼睛切换、列字段编辑都会自动保存。</p>
+  <p class="pop-note">选项维护请到左栏属性。</p>
 </template>

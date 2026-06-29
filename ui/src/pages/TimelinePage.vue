@@ -1476,6 +1476,7 @@ watch(
       :empty-reason="feedEmptyReason"
       :search-query="state.searchQuery"
       :groups="groupedEvents"
+      :all-events="state.events"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
       :columns="feedColumns"
