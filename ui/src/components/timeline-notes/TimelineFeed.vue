@@ -14,6 +14,7 @@ import {
   isCheckboxChecked,
   isOptionColumn,
   resolvePropertyChips,
+  timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
 } from "@/utils/timelineNotes";
 
@@ -150,6 +151,12 @@ const searchInputRef = ref(null);
 const feedRef = ref(null);
 const rowRefs = new Map();
 const widthOverrides = ref({});
+// 时间 / 事件 are built-in (not in the persisted column set), so their user widths
+// live in localStorage keyed per notebook — no data-contract change. Custom column
+// widths still persist to the backend via the existing resize-column path.
+const builtinWidths = ref({});
+const COLUMN_WIDTH_STORAGE_PREFIX = "tl-colw:";
+const BUILTIN_WIDTH_BOUNDS = { time: [64, 240], title: [180, 760] };
 let stopColumnResize = null;
 
 // Note-level batch multi-select: a toolbar toggle reveals row checkboxes; row
@@ -209,16 +216,64 @@ function columnsWithWidthOverrides() {
   }));
 }
 
+function clampBuiltinWidth(key, width, fallback = 96) {
+  const [min, max] = BUILTIN_WIDTH_BOUNDS[key] || [72, 320];
+  const next = Math.round(Number(width));
+  if (!Number.isFinite(next)) return fallback;
+  return Math.min(max, Math.max(min, next));
+}
+
+function loadBuiltinWidths(topicId) {
+  if (!topicId || typeof localStorage === "undefined") return {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLUMN_WIDTH_STORAGE_PREFIX + topicId) || "{}") || {};
+    const next = {};
+    for (const key of ["time", "title"]) {
+      if (Number.isFinite(Number(raw[key]))) next[key] = clampBuiltinWidth(key, raw[key]);
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function saveBuiltinWidth(key, width) {
+  const next = { ...builtinWidths.value, [key]: width };
+  builtinWidths.value = next;
+  if (!props.topicId || typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(COLUMN_WIDTH_STORAGE_PREFIX + props.topicId, JSON.stringify(next));
+  } catch {
+    /* storage disabled/full — width still applies for the session */
+  }
+}
+
+// 时间 default auto-sizes to content (96 / 128 for long BC dates) unless the user
+// pinned it; 事件 is the flex fill column (null) until the user drags it.
+function effectiveTimeWidth() {
+  const override = builtinWidths.value.time;
+  if (Number.isFinite(override)) return override;
+  return timelineTimeColumnWidth(props.groups.flatMap((group) => group.items));
+}
+
+function effectiveTitleWidth() {
+  const override = builtinWidths.value.title;
+  return Number.isFinite(override) ? override : null;
+}
+
+function hasTrailingSpacer() {
+  return !props.mobile && timelineHasTrailingSpacer(null, null, effectiveTitleWidth());
+}
+
 function visibleColumns() {
-  const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys);
+  const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
   if (!props.mobile) return columns;
   return columns.filter((column) => column.key === "time" || column.key === "title");
 }
 
 function rowGrid() {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
-  const events = props.groups.flatMap((group) => group.items);
-  return buildTimelineGridTemplate(columnsWithWidthOverrides(), props.emptyColumnKeys, timelineTimeColumnWidth(events));
+  return buildTimelineGridTemplate(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
 }
 
 function setRowRef(id, element) {
@@ -267,26 +322,39 @@ function stopResizingColumn() {
 }
 
 function startColumnResize(column, event) {
-  if (props.mobile || column?.builtIn || !column?.key) return;
+  if (props.mobile || !column?.key) return;
   event.preventDefault();
   event.stopPropagation();
   const key = column.key;
+  const builtin = column.builtIn === true;
+  // The flex 事件 column has no fixed width — seed the drag from its rendered
+  // header width so the first drag doesn't jump.
+  const headEl = event.currentTarget.closest?.(".tl-col-head");
+  const measured = headEl ? Math.round(headEl.getBoundingClientRect().width) : 0;
+  const startWidth = Number(column.width) || measured || 96;
   const startX = event.clientX;
-  const startWidth = Number(column.width || 96);
   const onMove = (moveEvent) => {
     if (moveEvent.buttons !== 1) {
       onUp();
       return;
     }
-    const next = clampTimelineColumnWidth(Math.round(startWidth + (moveEvent.clientX - startX)), startWidth);
-    widthOverrides.value = { ...widthOverrides.value, [key]: next };
+    const raw = startWidth + (moveEvent.clientX - startX);
+    if (builtin) {
+      builtinWidths.value = { ...builtinWidths.value, [key]: clampBuiltinWidth(key, raw, startWidth) };
+    } else {
+      widthOverrides.value = { ...widthOverrides.value, [key]: clampTimelineColumnWidth(Math.round(raw), startWidth) };
+    }
   };
   const onUp = () => {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("blur", onUp);
     stopColumnResize = null;
-    emit("resize-column", { key, width: widthOverrides.value[key] ?? startWidth });
+    if (builtin) {
+      saveBuiltinWidth(key, builtinWidths.value[key] ?? startWidth);
+    } else {
+      emit("resize-column", { key, width: widthOverrides.value[key] ?? startWidth });
+    }
   };
   stopResizingColumn();
   stopColumnResize = () => {
@@ -353,6 +421,16 @@ watch(
     widthOverrides.value = {};
   },
   { deep: true }
+);
+
+// Built-in (时间 / 事件) widths are per-notebook in localStorage — reload them
+// whenever the active notebook changes (and on first mount).
+watch(
+  () => props.topicId,
+  (topicId) => {
+    builtinWidths.value = loadBuiltinWidths(topicId);
+  },
+  { immediate: true }
 );
 
 watch(
@@ -542,18 +620,19 @@ onBeforeUnmount(() => {
             v-for="column in visibleColumns()"
             :key="column.key"
             class="tl-col-head"
-            :class="{ 'is-resizable': !props.mobile && !column.builtIn }"
+            :class="{ 'is-resizable': !props.mobile }"
           >
             <span>{{ column.label }}</span>
             <button
-              v-if="!props.mobile && !column.builtIn"
+              v-if="!props.mobile"
               type="button"
               class="tl-col-resizer"
-              :title="`调整${column.label}列宽`"
+              :title="`拖动调整${column.label}列宽`"
               @mousedown="startColumnResize(column, $event)"
               @click.stop
             ></button>
           </span>
+          <span v-if="hasTrailingSpacer()" aria-hidden="true"></span>
           <span></span>
         </div>
 
@@ -624,6 +703,7 @@ onBeforeUnmount(() => {
                 :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
               ><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
             </template>
+            <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
             <span
               v-if="!selectMode"
               class="row-act"

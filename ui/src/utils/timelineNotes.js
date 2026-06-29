@@ -339,23 +339,35 @@ export function timelineTimeColumnWidth(events) {
   return hasLongDate ? TIME_COLUMN_WIDTH_WIDE : TIME_COLUMN_WIDTH;
 }
 
-export function buildVisibleTimelineColumns(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH) {
+// `titleWidth` is null by default → the 事件 column stays the flex track that
+// fills remaining space (today's look). Once the user drags it to a pixel width
+// it becomes fixed and a trailing flex spacer (added in the grid template) takes
+// over absorbing slack so the star stays pinned right.
+export function buildVisibleTimelineColumns(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH, titleWidth = null) {
   const properties = normalizeTopicColumns(columns).filter((column) => column.visible);
   const hidden = hiddenKeys instanceof Set ? hiddenKeys : Array.isArray(hiddenKeys) ? new Set(hiddenKeys) : null;
   const shown = hidden ? properties.filter((column) => !hidden.has(column.key)) : properties;
   return [
-    { key: "time", label: "时间", width: timeWidth, builtIn: true, locked: true, type: "time" },
-    { key: "title", label: "事件", width: null, builtIn: true, locked: true, type: "title" },
+    { key: "time", label: "时间", width: timeWidth, builtIn: true, type: "time" },
+    { key: "title", label: "事件", width: titleWidth, builtIn: true, type: "title" },
     ...shown,
   ];
 }
 
-export function buildTimelineGridTemplate(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH) {
-  return [
-    "28px",
-    ...buildVisibleTimelineColumns(columns, hiddenKeys, timeWidth).map((column) => (column.width ? `${column.width}px` : "minmax(0,1fr)")),
-    "30px",
-  ].join(" ");
+export function buildTimelineGridTemplate(columns, hiddenKeys = null, timeWidth = TIME_COLUMN_WIDTH, titleWidth = null) {
+  const tracks = buildVisibleTimelineColumns(columns, hiddenKeys, timeWidth, titleWidth).map((column) =>
+    column.width ? `${column.width}px` : "minmax(0,1fr)"
+  );
+  // Guarantee exactly one flexible track: when every real column is pixel-fixed
+  // (the title was pinned), append a flex spacer before the trailing star slot.
+  const middle = tracks.includes("minmax(0,1fr)") ? tracks : [...tracks, "minmax(0,1fr)"];
+  return ["28px", ...middle, "30px"].join(" ");
+}
+
+// True when the grid template carries the extra trailing flex spacer (i.e. the
+// title is pinned) — the feed renders one matching empty cell before the star.
+export function timelineHasTrailingSpacer(columns, hiddenKeys = null, titleWidth = null) {
+  return titleWidth != null && Number.isFinite(Number(titleWidth));
 }
 
 // A property column "has a value" for an event when the row renders something

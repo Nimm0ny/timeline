@@ -848,7 +848,7 @@ button {
   left: 50%;
   width: 1px;
   transform: translateX(-50%);
-  background: transparent;
+  background: var(--border-soft);
   transition: background var(--motion-base) var(--ease);
 }
 
@@ -858,7 +858,7 @@ button {
 }
 
 .tl-col-resizer:active::after {
-  background: var(--accent-line);
+  background: var(--accent);
 }
 
 .era {
@@ -3157,8 +3157,7 @@ select:focus-visible {
   overflow: hidden;
 }
 
-.prop-topic.active,
-.prop-topic.editing {
+.prop-topic.active {
   border-color: var(--accent-line);
 }
 
@@ -3241,43 +3240,75 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.prop-topic-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-}
-
 .prop-topic-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 10px 10px;
+  gap: 1px;
+  padding: 2px 6px 8px;
 }
 
-.prop-card {
-  margin-top: 0;
-  padding: 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
-}
-
-.prop-card-head {
+/* Persistent list-append "添加属性" row at the bottom of each notebook (spec
+   §2.1 新增入口①): icon aligns with the property rows, faint → muted on hover. */
+.prop-add-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
 
-.prop-card-main {
-  flex: 1;
-  min-width: 0;
+.prop-add-row:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.prop-add-ic {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.prop-add-row .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Read-mode property = one compact line: icon · name · faint type · count
+   (the count swaps to a hover-revealed delete). Click opens the editor popover. */
+.prop-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.prop-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 6px 0 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
 }
 
-.prop-card-ic {
+.prop-row:hover {
+  background: var(--bg-hover);
+}
+
+.prop-row.active {
+  background: var(--accent-soft);
+}
+
+.prop-row-ic {
   width: 20px;
   height: 20px;
   display: grid;
@@ -3288,239 +3319,356 @@ select:focus-visible {
   flex: none;
 }
 
-.prop-card-ic .timeline-lucide-icon {
+.prop-row-ic .timeline-lucide-icon {
   width: 12px;
   height: 12px;
 }
 
-.prop-card-copy {
+.prop-row-name {
+  flex: 0 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.prop-card-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.prop-card-type {
-  font-size: 10px;
-  color: var(--prop-tone, var(--accent));
-}
-
-.prop-card-stat {
+.prop-row-type {
   flex: none;
-  font-size: 10px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.prop-row-stat {
+  position: relative;
+  margin-left: auto;
+  width: 44px;
+  height: 20px;
+  flex: none;
+}
+
+.prop-row-cnt,
+.prop-row-del {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  transition: opacity var(--motion-base) var(--ease);
+}
+
+.prop-row-cnt {
+  font-size: 10.5px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 
-.prop-card-note {
-  margin: 6px 0 0 28px;
+.prop-row-del {
+  border: 0;
+  background: transparent;
   color: var(--text-faint);
-  font-size: 10.5px;
-  line-height: 1.3;
-  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.prop-card-options {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.prop-row-del .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
 }
 
-.prop-option-filter {
-  width: 100%;
+.prop-row:hover .prop-row-cnt {
+  opacity: 0;
+}
+
+.prop-row:hover .prop-row-del,
+.prop-row-del.armed,
+.prop-row-del:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.prop-row-del:hover {
+  color: #b0524c;
+}
+
+/* Armed = first click of the two-step delete: stays red + visible until the
+   second click confirms or the pointer leaves the row (disarm). */
+.prop-row-del.armed {
+  opacity: 1;
+  color: #b0524c;
+}
+
+/* Option-property filter chips below the row — compact pills (dot · label) that
+   filter the center timeline; muted + inert on non-active notebooks. */
+.prop-chips {
   display: flex;
+  flex-wrap: wrap;
+  padding: 2px 6px 5px 8px;
+}
+
+.prop-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  padding: 0 8px 0 28px;
-  border-radius: var(--radius-sm);
-  text-align: left;
+  gap: 5px;
+  margin: 3px 4px 0 0;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--bg-timeline);
   color: var(--text);
+  font-size: 11px;
 }
 
-.prop-option-filter:hover:not(:disabled) {
+.prop-chip:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
-.prop-option-filter.active {
+.prop-chip.active {
+  border-color: transparent;
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.prop-option-filter.inactive,
-.prop-option-filter:disabled {
+.prop-chip.inactive,
+.prop-chip:disabled {
   cursor: default;
+  color: var(--text-muted);
 }
 
-.prop-option-dot {
+.prop-chip-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--dot, var(--accent));
   flex: none;
+  transform: translateY(0.5px);
 }
 
-.prop-option-dot.is-large {
-  width: 12px;
-  height: 12px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
-.prop-option-label {
-  flex: 1;
+.prop-chip-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
 }
 
-.prop-option-count {
-  flex: none;
-  font-size: 10px;
+.prop-empty {
+  margin: 0;
+  padding: 4px 0 0 37px;
   color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
 }
 
-.prop-manage-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
-  gap: 6px;
-  margin: 8px 0 0 28px;
+/* Per-property editor popover — anchored beside the clicked row at the overlay
+   layer. Transparent inputs throughout (无感编辑); autosave, no save/cancel. */
+.prop-pop {
+  position: fixed;
+  z-index: 51;
+  width: 280px;
+  padding: 8px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
 }
 
-.prop-manage-field {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+.prop-pop-head {
+  display: flex;
   align-items: center;
   gap: 8px;
+  padding: 2px 2px 8px;
 }
 
-.prop-manage-field span {
-  font-size: 10px;
-  color: var(--text-faint);
-  white-space: nowrap;
+.prop-pop-head .prop-row-ic {
+  width: 22px;
+  height: 22px;
 }
 
-.prop-manage-field input,
-.prop-manage-field select,
-.prop-option-input {
-  min-height: 28px;
+.prop-pop-name {
+  flex: 1;
+  min-width: 0;
   border: 0;
-  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text);
+  color: var(--text-strong);
   font-family: var(--tn-font);
-  font-size: 12.5px;
-  padding: 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 2px 0;
 }
 
-.prop-manage-field input:focus,
-.prop-manage-field select:focus,
-.prop-option-input:focus {
+.prop-pop-name:focus {
   outline: none;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1.5px var(--accent-line);
 }
 
-.prop-manage-field select,
-.prop-manage-field option {
+.prop-pop-type {
+  flex: none;
+  max-width: 96px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
   font-family: var(--tn-font);
-  font-size: 13px;
+  font-size: 11.5px;
+  text-align: right;
+  cursor: pointer;
+  padding: 2px;
 }
 
-.prop-option-manage-list {
-  margin: 8px 0 0 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.prop-pop-type:focus {
+  outline: none;
 }
 
-.prop-option-manage {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 22px;
+/* Locked type renders as plain text (no select chrome / chevron) so it never
+   reads as an editable dropdown. */
+.prop-pop-type-locked {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  color: var(--text-faint);
+  cursor: default;
 }
 
-.prop-option-color {
+.prop-pop-opts {
+  margin-top: 4px;
+  padding: 8px 2px 2px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.prop-pop-seclbl {
+  padding: 0 4px 4px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.prop-opt {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 2px;
+  border-radius: var(--radius-sm);
+}
+
+.prop-opt:hover {
+  background: var(--bg-hover);
+}
+
+.prop-opt-color {
   position: relative;
   width: 20px;
   height: 20px;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: transparent;
   cursor: pointer;
   overflow: hidden;
 }
 
-.prop-option-color input {
+.prop-opt-color input {
   position: absolute;
   inset: 0;
   opacity: 0;
   cursor: pointer;
 }
 
-.prop-option-manage-foot {
+.prop-opt-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--dot, var(--accent));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.prop-opt-name {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--tn-font);
+  font-size: 12.5px;
+  padding: 2px 2px;
+}
+
+.prop-opt-name:focus {
+  outline: none;
+}
+
+/* Option count + delete share one right-edge slot — count by default, the trash
+   on hover (mirrors the read-row stat so the layout never shifts). */
+.prop-opt-stat {
+  position: relative;
+  width: 26px;
+  height: 20px;
+  flex: none;
+}
+
+.prop-opt-cnt,
+.prop-opt-del {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  transition: opacity var(--motion-base) var(--ease);
 }
 
-.prop-option-manage-copy {
+.prop-opt-cnt {
+  font-size: 10px;
   color: var(--text-faint);
-  font-size: 10.5px;
-  line-height: 1;
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.prop-empty {
-  margin: 0;
-  padding: 2px 0 0 28px;
+.prop-opt-del {
+  border: 0;
+  background: transparent;
   color: var(--text-faint);
-  font-size: 10.5px;
-}
-
-.prop-inline-add {
-  color: var(--text-faint);
-}
-
-.prop-inline-add:hover:not(:disabled) {
-  color: var(--text);
-}
-
-.prop-delete-btn {
-  width: 22px;
-  height: 22px;
+  cursor: pointer;
   opacity: 0;
-  color: var(--text-faint);
-  transition: opacity var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
+  pointer-events: none;
 }
 
-.prop-card:hover .prop-delete-btn,
-.prop-option-manage:hover .prop-delete-btn,
-.prop-delete-btn:focus-visible {
-  opacity: 1;
-}
-
-.prop-delete-btn .timeline-lucide-icon {
+.prop-opt-del .timeline-lucide-icon {
   width: 12px;
   height: 12px;
 }
 
-.prop-delete-btn:hover:not(:disabled) {
-  color: var(--text);
+.prop-opt:hover .prop-opt-cnt {
+  opacity: 0;
+}
+
+.prop-opt:hover .prop-opt-del,
+.prop-opt-del:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.prop-opt-del:hover {
+  color: #b0524c;
+}
+
+.prop-opt-add {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+  padding: 4px 4px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-family: var(--tn-font);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.prop-opt-add .timeline-lucide-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.prop-opt-add:hover {
+  color: var(--text-muted);
 }
 
 /* Danger button — delete-notebook card */
