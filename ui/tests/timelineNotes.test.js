@@ -10,6 +10,7 @@ import {
   buildSearchHighlightSegments,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
+  clampTimelineColumnWidth,
   emptyTimelineColumnKeys,
   eventColumnHasValue,
   eventColumnValue,
@@ -22,6 +23,7 @@ import {
   normalizeTopicColumns,
   propertyHref,
   resolvePropertyChips,
+  serializeTopicColumnsDraft,
   timelineTimeColumnWidth,
 } from "../src/utils/timelineNotes.js";
 
@@ -211,6 +213,49 @@ test("normalizeTopicColumns validates, sorts, dedups options, and reserves only 
   const tags = columns.find((column) => column.key === "tags");
   assert.equal(tags.options.length, 1);
   assert.equal(tags.options[0].id, "war");
+});
+
+test("serializeTopicColumnsDraft preserves persisted columns during partial key/label edits", () => {
+  const persisted = normalizeTopicColumns([
+    { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
+    { key: "source", label: "来源", type: "text", width: 110, order: 1, visible: false },
+  ]);
+
+  const draft = [
+    { persistedKey: "place", key: "place", label: "", type: "text", width: 120, order: 0, visible: true, options: [] },
+    { persistedKey: "source", key: "origin", label: "来源", type: "text", width: 118, order: 1, visible: true, options: [] },
+    { persistedKey: "", key: "", label: "", type: "text", width: 96, order: 2, visible: true, options: [] },
+  ];
+
+  assert.deepEqual(serializeTopicColumnsDraft(draft, persisted), [
+    { key: "place", label: "地点", type: "text", width: 120, order: 0, visible: true, options: [] },
+    { key: "origin", label: "来源", type: "text", width: 118, order: 1, visible: true, options: [] },
+  ]);
+});
+
+test("serializeTopicColumnsDraft falls back when a draft key is invalid or temporarily duplicated", () => {
+  const persisted = normalizeTopicColumns([
+    { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
+    { key: "source", label: "来源", type: "text", width: 110, order: 1, visible: false },
+  ]);
+
+  const draft = [
+    { persistedKey: "place", key: "Source", label: "地点", type: "text", width: 120, order: 0, visible: true, options: [] },
+    { persistedKey: "source", key: "place", label: "来源", type: "text", width: 118, order: 1, visible: true, options: [] },
+    { persistedKey: "", key: "place", label: "重复新列", type: "text", width: 96, order: 2, visible: true, options: [] },
+  ];
+
+  assert.deepEqual(serializeTopicColumnsDraft(draft, persisted), [
+    { key: "place", label: "地点", type: "text", width: 120, order: 0, visible: true, options: [] },
+    { key: "source", label: "来源", type: "text", width: 118, order: 1, visible: true, options: [] },
+  ]);
+});
+
+test("clampTimelineColumnWidth keeps dragged widths inside the supported range", () => {
+  assert.equal(clampTimelineColumnWidth(40), 72);
+  assert.equal(clampTimelineColumnWidth(156), 156);
+  assert.equal(clampTimelineColumnWidth(999), 220);
+  assert.equal(clampTimelineColumnWidth("bad", 96), 96);
 });
 
 test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whitelist and options", () => {

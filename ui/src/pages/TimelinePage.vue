@@ -16,7 +16,6 @@ import { useViewport } from "@/composables/useViewport";
 import {
   compareTimelineEvents,
   buildGlobalFavoriteEvents,
-  emptyTimelineColumnKeys,
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
@@ -144,6 +143,8 @@ let detailRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
 let relatedPreviewRequestSeq = 0;
+let columnSaveChain = Promise.resolve();
+let latestColumnSaveRevision = 0;
 
 function normalizeMediaConfig(media = {}) {
   const source = media && typeof media === "object" ? media : {};
@@ -170,13 +171,10 @@ const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineSt
 const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
-// Property columns with no value anywhere in the topic — the center timeline
-// auto-hides them so an unused column never shows as a full column of "—".
-// Computed over all topic events (incl. trashed) so it stays stable across
-// filter/search and the trash view.
-const feedEmptyColumnKeys = computed(() =>
-  isGlobalFavoritesMode.value ? [] : emptyTimelineColumnKeys(feedColumns.value, state.events)
-);
+// Visible now means visible: once a user turns a property column on, the center
+// feed renders it even if every current row would show "—". This keeps the eye
+// toggle's behavior direct and predictable.
+const feedEmptyColumnKeys = computed(() => []);
 const selectedEventDetail = computed(() => timelineStore.detailById(state.selectedEventId));
 const selectedEventIndex = computed(
   () =>
@@ -1202,24 +1200,64 @@ async function confirmDeleteTopicNow() {
   }
 }
 
-async function saveTopicColumns(columns) {
+async function persistTopicColumns(columns, { silentSuccess = false } = {}) {
   if (!state.activeTopicId) return;
   const normalized = normalizeTopicColumns(columns);
-  state.columnSaving = true;
-  try {
-    const meta = await api.updateTopicMeta(state.activeTopicId, {
-      title: state.activeTopicMeta?.title || "",
-      subtitle: state.activeTopicMeta?.subtitle || "",
+  const topicId = state.activeTopicId;
+  const title = state.activeTopicMeta?.title || "";
+  const subtitle = state.activeTopicMeta?.subtitle || "";
+  const revision = ++latestColumnSaveRevision;
+  if (state.activeTopicMeta) {
+    timelineStore.upsertTopic({
+      ...state.activeTopicMeta,
       columns: normalized,
     });
-    timelineStore.upsertTopic(meta);
     syncActiveTopicFromStore();
-    pushToast("列定义已保存");
-  } catch (error) {
-    pushToast(`列定义保存失败：${error.message}`, "error");
-  } finally {
-    state.columnSaving = false;
   }
+  const task = async () => {
+    state.columnSaving = true;
+    try {
+      const meta = await api.updateTopicMeta(topicId, {
+        title,
+        subtitle,
+        columns: normalized,
+      });
+      if (revision !== latestColumnSaveRevision) return meta;
+      timelineStore.upsertTopic(meta);
+      syncActiveTopicFromStore();
+      if (!silentSuccess) pushToast("列定义已保存");
+      return meta;
+    } catch (error) {
+      if (revision !== latestColumnSaveRevision) return null;
+      try {
+        const freshMeta = await api.getTopicMeta(topicId);
+        timelineStore.upsertTopic(freshMeta);
+        syncActiveTopicFromStore();
+      } catch {
+        // Best-effort rollback to server truth; keep the original error toast.
+      }
+      pushToast(`列定义保存失败：${error.message}`, "error");
+      return null;
+    } finally {
+      if (revision === latestColumnSaveRevision) state.columnSaving = false;
+    }
+  };
+  columnSaveChain = columnSaveChain.then(task, task);
+  return columnSaveChain;
+}
+
+async function saveTopicColumns(columns) {
+  await persistTopicColumns(columns, { silentSuccess: true });
+}
+
+async function resizeTopicColumn(payload) {
+  const key = String(payload?.key || "").trim();
+  if (!state.activeTopicId || !key) return;
+  const width = Number(payload?.width || 96);
+  const columns = normalizeTopicColumns(state.activeTopicMeta?.columns).map((column) =>
+    column.key === key ? { ...column, width } : column
+  );
+  await persistTopicColumns(columns, { silentSuccess: true });
 }
 
 function exportCurrentTopic() {
@@ -1425,6 +1463,7 @@ watch(
       @create-event="startCreateEvent"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
+      @resize-column="resizeTopicColumn"
       @select-event="selectEvent"
       @toggle-favorite="toggleFavorite"
       @toggle-preview="togglePreview"

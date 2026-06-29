@@ -802,10 +802,63 @@ button {
   border-bottom: 1px solid var(--border-soft);
 }
 
-.tl-cols span {
+.tl-cols > span {
   font-size: 11px;
   color: var(--text-faint);
   letter-spacing: 0.4px;
+}
+
+.tl-col-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.tl-col-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.4px;
+}
+
+.tl-col-head.is-resizable {
+  padding-right: 10px;
+}
+
+.tl-col-resizer {
+  position: absolute;
+  top: 4px;
+  right: -4px;
+  bottom: 4px;
+  width: 8px;
+  border-radius: 999px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.tl-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background var(--motion-base) var(--ease);
+}
+
+.tl-col-head:hover .tl-col-resizer::after,
+.tl-col-resizer:focus-visible::after {
+  background: var(--border-strong);
+}
+
+.tl-col-resizer:active::after {
+  background: var(--accent-line);
 }
 
 .era {

@@ -100,6 +100,10 @@ function normalizeColumnWidth(width, fallback = 96) {
   return clampNumber(next, 72, 220);
 }
 
+export function clampTimelineColumnWidth(width, fallback = 96) {
+  return normalizeColumnWidth(width, fallback);
+}
+
 function normalizeColumnOrder(order, fallbackIndex) {
   const next = Number.parseInt(order, 10);
   return Number.isFinite(next) ? next : fallbackIndex;
@@ -215,6 +219,52 @@ export function normalizeTopicColumns(columns) {
     })
     .filter(Boolean)
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
+}
+
+// Serialize the column-config popover draft into a persistable payload. Rows with
+// both key+label save as-is; completely blank rows are ignored; partially edited
+// existing rows fall back to their last persisted key/label (via `persistedKey`)
+// so a transient blank while renaming never deletes the column on autosave.
+export function serializeTopicColumnsDraft(columns, persistedColumns = []) {
+  const draftList = Array.isArray(columns) ? columns : [];
+  const persistedByKey = new Map(normalizeTopicColumns(persistedColumns).map((column) => [column.key, column]));
+  const keyCounts = draftList.reduce((counts, column) => {
+    const key = String(column?.key || "").trim();
+    if (!key) return counts;
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  return draftList
+    .map((column, index) => {
+      const key = String(column?.key || "").trim();
+      const label = String(column?.label || "").trim();
+      const persistedKey = String(column?.persistedKey || "").trim();
+      const fallback = persistedByKey.get(persistedKey);
+      if (!key && !label && !persistedKey) return null;
+      const keyIsUnsafe = !COLUMN_KEY_PATTERN.test(key) || RESERVED_COLUMN_KEYS.has(key) || (keyCounts.get(key) || 0) > 1;
+      if (key && label && !keyIsUnsafe) {
+        return {
+          key,
+          label,
+          type: String(column?.type || "text"),
+          width: clampTimelineColumnWidth(column?.width, 96),
+          order: Number(column?.order ?? index),
+          visible: column?.visible !== false,
+          options: Array.isArray(column?.options) ? column.options : [],
+        };
+      }
+      if (!fallback) return null;
+      return {
+        key: fallback.key,
+        label: fallback.label,
+        type: String(column?.type || fallback.type || "text"),
+        width: clampTimelineColumnWidth(column?.width, fallback.width || 96),
+        order: Number(column?.order ?? fallback.order ?? index),
+        visible: column?.visible !== false,
+        options: Array.isArray(column?.options) ? column.options : fallback.options || [],
+      };
+    })
+    .filter(Boolean);
 }
 
 // Time-column track width (px). Compact by default — AD dates render as short

@@ -8,6 +8,7 @@ import {
   buildEventPreview,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
+  clampTimelineColumnWidth,
   dateKeyFromLocator,
   eventColumnValue,
   isCheckboxChecked,
@@ -124,6 +125,7 @@ const emit = defineEmits([
   "toggle-favorite",
   "toggle-preview",
   "save-columns",
+  "resize-column",
   "batch-favorite",
   "batch-trash",
   "batch-restore",
@@ -139,6 +141,8 @@ const searchOpen = ref(false);
 const searchInputRef = ref(null);
 const feedRef = ref(null);
 const rowRefs = new Map();
+const widthOverrides = ref({});
+let stopColumnResize = null;
 
 // Note-level batch multi-select: a toolbar toggle reveals row checkboxes; row
 // clicks then toggle selection instead of opening the detail pane. Batch actions
@@ -190,8 +194,15 @@ function togglePopover(name) {
   activePopover.value = activePopover.value === name ? "" : name;
 }
 
+function columnsWithWidthOverrides() {
+  return (Array.isArray(props.columns) ? props.columns : []).map((column) => ({
+    ...column,
+    width: widthOverrides.value[column.key] ?? column.width,
+  }));
+}
+
 function visibleColumns() {
-  const columns = buildVisibleTimelineColumns(props.columns, props.emptyColumnKeys);
+  const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys);
   if (!props.mobile) return columns;
   return columns.filter((column) => column.key === "time" || column.key === "title");
 }
@@ -199,7 +210,7 @@ function visibleColumns() {
 function rowGrid() {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
   const events = props.groups.flatMap((group) => group.items);
-  return buildTimelineGridTemplate(props.columns, props.emptyColumnKeys, timelineTimeColumnWidth(events));
+  return buildTimelineGridTemplate(columnsWithWidthOverrides(), props.emptyColumnKeys, timelineTimeColumnWidth(events));
 }
 
 function setRowRef(id, element) {
@@ -240,6 +251,37 @@ function closeSearchIfEmpty() {
   if (!String(props.searchQuery || "").trim()) {
     searchOpen.value = false;
   }
+}
+
+function stopResizingColumn() {
+  stopColumnResize?.();
+  stopColumnResize = null;
+}
+
+function startColumnResize(column, event) {
+  if (props.mobile || column?.builtIn || !column?.key) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const key = column.key;
+  const startX = event.clientX;
+  const startWidth = Number(column.width || 96);
+  const onMove = (moveEvent) => {
+    const next = clampTimelineColumnWidth(Math.round(startWidth + (moveEvent.clientX - startX)), startWidth);
+    widthOverrides.value = { ...widthOverrides.value, [key]: next };
+  };
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    stopColumnResize = null;
+    emit("resize-column", { key, width: widthOverrides.value[key] ?? startWidth });
+  };
+  stopResizingColumn();
+  stopColumnResize = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
 }
 
 function focusDate(value) {
@@ -292,6 +334,14 @@ watch(
 );
 
 watch(
+  () => props.columns,
+  () => {
+    widthOverrides.value = {};
+  },
+  { deep: true }
+);
+
+watch(
   () => props.locateDate,
   (value) => {
     locatorValue.value = value || "";
@@ -338,6 +388,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("click", closePopovers);
   document.removeEventListener("keydown", handleDocumentKeydown);
+  stopResizingColumn();
 });
 </script>
 
@@ -468,7 +519,22 @@ onBeforeUnmount(() => {
       <div class="feed-inner" :style="{ '--rowgrid': rowGrid() }">
         <div class="tl-cols" id="tlCols">
           <span></span>
-          <span v-for="column in visibleColumns()" :key="column.key">{{ column.label }}</span>
+          <span
+            v-for="column in visibleColumns()"
+            :key="column.key"
+            class="tl-col-head"
+            :class="{ 'is-resizable': !props.mobile && !column.builtIn }"
+          >
+            <span>{{ column.label }}</span>
+            <button
+              v-if="!props.mobile && !column.builtIn"
+              type="button"
+              class="tl-col-resizer"
+              :title="`调整${column.label}列宽`"
+              @mousedown="startColumnResize(column, $event)"
+              @click.stop
+            ></button>
+          </span>
           <span></span>
         </div>
 
