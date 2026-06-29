@@ -39,6 +39,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  topicId: {
+    type: Number,
+    default: null,
+  },
   topics: {
     type: Array,
     default: () => [],
@@ -266,12 +270,17 @@ function startColumnResize(column, event) {
   const startX = event.clientX;
   const startWidth = Number(column.width || 96);
   const onMove = (moveEvent) => {
+    if (moveEvent.buttons !== 1) {
+      onUp();
+      return;
+    }
     const next = clampTimelineColumnWidth(Math.round(startWidth + (moveEvent.clientX - startX)), startWidth);
     widthOverrides.value = { ...widthOverrides.value, [key]: next };
   };
   const onUp = () => {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("blur", onUp);
     stopColumnResize = null;
     emit("resize-column", { key, width: widthOverrides.value[key] ?? startWidth });
   };
@@ -279,9 +288,11 @@ function startColumnResize(column, event) {
   stopColumnResize = () => {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("blur", onUp);
   };
   window.addEventListener("mousemove", onMove);
   window.addEventListener("mouseup", onUp);
+  window.addEventListener("blur", onUp);
 }
 
 function focusDate(value) {
@@ -482,6 +493,8 @@ onBeforeUnmount(() => {
 
         <ColumnConfigPopover
           v-else-if="activePopover === 'columns' && props.showColumnControls"
+          :key="props.topicId"
+          :topic-id="props.topicId"
           :columns="props.columns"
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"

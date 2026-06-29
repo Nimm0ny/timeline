@@ -8,6 +8,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  topicId: {
+    type: Number,
+    default: null,
+  },
   saving: {
     type: Boolean,
     default: false,
@@ -33,7 +37,14 @@ function serializeColumns(source) {
   return serializeTopicColumnsDraft(source, props.columns);
 }
 
+function draftSignature() {
+  return JSON.stringify(serializeColumns(draft.columns));
+}
+
 function syncColumns(source) {
+  const expandedByKey = new Map(
+    (Array.isArray(draft.columns) ? draft.columns : []).map((column) => [column.persistedKey || column.key, column.expanded])
+  );
   draft.columns = (Array.isArray(source) ? source : []).map((column, index) => ({
     key: column?.key || "",
     label: column?.label || "",
@@ -45,21 +56,24 @@ function syncColumns(source) {
     // Options are managed via the picker / left 属性 tab; carry them through
     // untouched so editing a column never wipes its options.
     options: Array.isArray(column?.options) ? column.options.map((option) => ({ ...option })) : [],
-    expanded: false,
+    expanded: expandedByKey.get(column?.key || "") === true,
   }));
   lastEmittedSignature = JSON.stringify(serializeColumns(source));
 }
 
 watch(
   () => props.columns,
-  (columns) => syncColumns(columns),
+  (columns) => {
+    if (draft.columns.length && draftSignature() !== lastEmittedSignature) return;
+    syncColumns(columns);
+  },
   { immediate: true, deep: true }
 );
 
 watch(
   () => draft.columns,
   () => {
-    const signature = JSON.stringify(serializeColumns(draft.columns));
+    const signature = draftSignature();
     if (signature === lastEmittedSignature) return;
     if (autosaveTimer) window.clearTimeout(autosaveTimer);
     autosaveTimer = window.setTimeout(() => {
@@ -99,7 +113,7 @@ function flushPendingSave() {
   const latestSignature = JSON.stringify(latest);
   if (latestSignature === lastEmittedSignature) return;
   lastEmittedSignature = latestSignature;
-  emit("save-columns", latest);
+  emit("save-columns", { topicId: props.topicId, columns: latest });
 }
 
 function toggleColumnVisibility(column) {

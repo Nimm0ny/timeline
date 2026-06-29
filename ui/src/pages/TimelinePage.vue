@@ -144,7 +144,8 @@ let commandSearchTimer = null;
 let commandRequestSeq = 0;
 let relatedPreviewRequestSeq = 0;
 let columnSaveChain = Promise.resolve();
-let latestColumnSaveRevision = 0;
+const latestColumnSaveRevisionByTopic = new Map();
+let columnSaveInFlight = 0;
 
 function normalizeMediaConfig(media = {}) {
   const source = media && typeof media === "object" ? media : {};
@@ -1200,21 +1201,23 @@ async function confirmDeleteTopicNow() {
   }
 }
 
-async function persistTopicColumns(columns, { silentSuccess = false } = {}) {
-  if (!state.activeTopicId) return;
+async function persistTopicColumns(topicId, columns, { silentSuccess = false } = {}) {
+  if (!topicId) return;
   const normalized = normalizeTopicColumns(columns);
-  const topicId = state.activeTopicId;
-  const title = state.activeTopicMeta?.title || "";
-  const subtitle = state.activeTopicMeta?.subtitle || "";
-  const revision = ++latestColumnSaveRevision;
-  if (state.activeTopicMeta) {
+  const topicMeta = timelineStore.topicById(topicId) || (state.activeTopicId === topicId ? state.activeTopicMeta : null);
+  const title = topicMeta?.title || "";
+  const subtitle = topicMeta?.subtitle || "";
+  const revision = (latestColumnSaveRevisionByTopic.get(topicId) || 0) + 1;
+  latestColumnSaveRevisionByTopic.set(topicId, revision);
+  if (topicMeta) {
     timelineStore.upsertTopic({
-      ...state.activeTopicMeta,
+      ...topicMeta,
       columns: normalized,
     });
-    syncActiveTopicFromStore();
+    if (state.activeTopicId === topicId) syncActiveTopicFromStore();
   }
   const task = async () => {
+    columnSaveInFlight += 1;
     state.columnSaving = true;
     try {
       const meta = await api.updateTopicMeta(topicId, {
@@ -1222,32 +1225,36 @@ async function persistTopicColumns(columns, { silentSuccess = false } = {}) {
         subtitle,
         columns: normalized,
       });
-      if (revision !== latestColumnSaveRevision) return meta;
+      if (revision !== latestColumnSaveRevisionByTopic.get(topicId)) return meta;
       timelineStore.upsertTopic(meta);
-      syncActiveTopicFromStore();
+      if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       if (!silentSuccess) pushToast("列定义已保存");
       return meta;
     } catch (error) {
-      if (revision !== latestColumnSaveRevision) return null;
+      if (revision !== latestColumnSaveRevisionByTopic.get(topicId)) return null;
       try {
         const freshMeta = await api.getTopicMeta(topicId);
         timelineStore.upsertTopic(freshMeta);
-        syncActiveTopicFromStore();
+        if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the original error toast.
       }
       pushToast(`列定义保存失败：${error.message}`, "error");
       return null;
     } finally {
-      if (revision === latestColumnSaveRevision) state.columnSaving = false;
+      columnSaveInFlight = Math.max(0, columnSaveInFlight - 1);
+      state.columnSaving = columnSaveInFlight > 0;
     }
   };
   columnSaveChain = columnSaveChain.then(task, task);
   return columnSaveChain;
 }
 
-async function saveTopicColumns(columns) {
-  await persistTopicColumns(columns, { silentSuccess: true });
+async function saveTopicColumns(payload) {
+  const topicId = Number(payload?.topicId || state.activeTopicId);
+  const columns = payload?.columns || [];
+  if (!topicId) return;
+  await persistTopicColumns(topicId, columns, { silentSuccess: true });
 }
 
 async function resizeTopicColumn(payload) {
@@ -1257,7 +1264,7 @@ async function resizeTopicColumn(payload) {
   const columns = normalizeTopicColumns(state.activeTopicMeta?.columns).map((column) =>
     column.key === key ? { ...column, width } : column
   );
-  await persistTopicColumns(columns, { silentSuccess: true });
+  await persistTopicColumns(state.activeTopicId, columns, { silentSuccess: true });
 }
 
 function exportCurrentTopic() {
@@ -1441,6 +1448,7 @@ watch(
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"
       :topic-title="feedTitle"
+      :topic-id="state.activeTopicId"
       :topics="state.topics"
       :event-count="visibleEvents.length"
       :empty-reason="feedEmptyReason"
