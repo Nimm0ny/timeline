@@ -1548,8 +1548,8 @@ watch(
       </div>
     </div>
 
-    <div v-if="state.confirmUnsaved" class="timeline-modal-backdrop">
-      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="未保存修改">
+    <div v-if="state.confirmUnsaved" class="timeline-modal-backdrop" @click="closeUnsavedDialog">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="未保存修改" @click.stop>
         <h3>有未保存的修改</h3>
         <p>切换视图或事件前，请选择保存、放弃或继续编辑。</p>
         <div class="timeline-confirm-actions">
@@ -1560,8 +1560,8 @@ watch(
       </section>
     </div>
 
-    <div v-if="state.confirmDeleteTopics" class="timeline-modal-backdrop">
-      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="删除笔记本">
+    <div v-if="state.confirmDeleteTopics" class="timeline-modal-backdrop" @click="closeDeleteTopic">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="删除笔记本" @click.stop>
         <h3>{{ state.confirmDeleteTopics.length > 1 ? `删除 ${state.confirmDeleteTopics.length} 个笔记本` : "删除笔记本" }}</h3>
         <p v-if="state.confirmDeleteTopics.length > 1">将永久删除所选 {{ state.confirmDeleteTopics.length }} 个笔记本及其全部时间点，此操作不可恢复。</p>
         <p v-else>将永久删除「{{ state.confirmDeleteTopics[0].title || state.confirmDeleteTopics[0].name }}」及其全部时间点，此操作不可恢复。</p>
@@ -1572,8 +1572,8 @@ watch(
       </section>
     </div>
 
-    <div v-if="state.confirmPurgeIds" class="timeline-modal-backdrop">
-      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="永久删除">
+    <div v-if="state.confirmPurgeIds" class="timeline-modal-backdrop" @click="closeBatchPurge">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="永久删除" @click.stop>
         <h3>永久删除 {{ state.confirmPurgeIds.length }} 条</h3>
         <p>将永久删除所选 {{ state.confirmPurgeIds.length }} 条时间点，无法恢复。</p>
         <div class="timeline-confirm-actions">

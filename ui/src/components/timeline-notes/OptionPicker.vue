@@ -101,7 +101,7 @@ function togglePanel() {
   else openPanel();
 }
 
-function onDocumentClick(event) {
+function onDocumentPointer(event) {
   if (open.value && rootRef.value && !rootRef.value.contains(event.target)) closePanel();
 }
 
@@ -110,12 +110,12 @@ function onKeydown(event) {
 }
 
 onMounted(() => {
-  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("pointerdown", onDocumentPointer);
   document.addEventListener("keydown", onKeydown);
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("click", onDocumentClick);
+  document.removeEventListener("pointerdown", onDocumentPointer);
   document.removeEventListener("keydown", onKeydown);
 });
 </script>

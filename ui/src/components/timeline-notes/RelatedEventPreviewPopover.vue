@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { buildEventPreview, formatEventDisplayDate } from "@/utils/timelineNotes";
 
@@ -39,6 +39,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["close", "open-full"]);
+const rootRef = ref(null);
 
 const title = computed(() => props.event?.headline || props.event?.displayLabel || "关联事件");
 const dateLabel = computed(() => formatEventDisplayDate(props.event) || props.event?.isoDate || "未设置日期");
@@ -53,20 +54,28 @@ function closeOnEscape(event) {
   if (event.key === "Escape") close();
 }
 
+function closeOnPointerDown(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (props.open && rootRef.value && target && !rootRef.value.contains(target)) close();
+}
+
 watch(
   () => props.open,
   (open) => {
     if (open) {
       window.addEventListener("keydown", closeOnEscape);
+      document.addEventListener("pointerdown", closeOnPointerDown);
       return;
     }
     window.removeEventListener("keydown", closeOnEscape);
+    document.removeEventListener("pointerdown", closeOnPointerDown);
   },
   { immediate: true }
 );
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", closeOnEscape);
+  document.removeEventListener("pointerdown", closeOnPointerDown);
 });
 </script>
 
@@ -74,6 +83,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <aside
       v-if="props.open"
+      ref="rootRef"
       class="related-preview-popover"
       :class="[`place-${props.placement}`, { pinned: props.pinned }]"
       :style="props.styleVars"

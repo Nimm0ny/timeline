@@ -315,10 +315,9 @@ function submitLocator() {
 
 function closePopovers(event) {
   if (!(event.target instanceof Element)) return;
-  // The single popover layer lives inside .tl-bar; any click outside it closes.
-  if (!event.target.closest(".tl-bar")) {
-    activePopover.value = "";
-  }
+  if (event.target.closest(".tl-pop")) return;
+  if (activePopover.value && event.target.closest(`[data-popover-anchor=\"${activePopover.value}\"]`)) return;
+  activePopover.value = "";
 }
 
 function handleDocumentKeydown(event) {
@@ -392,12 +391,12 @@ watch(
 );
 
 onMounted(() => {
-  document.addEventListener("click", closePopovers);
+  document.addEventListener("pointerdown", closePopovers);
   document.addEventListener("keydown", handleDocumentKeydown);
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("click", closePopovers);
+  document.removeEventListener("pointerdown", closePopovers);
   document.removeEventListener("keydown", handleDocumentKeydown);
   stopResizingColumn();
 });
@@ -430,6 +429,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="iconbtn lg"
+          data-popover-anchor="locator"
           :class="{ on: activePopover === 'locator' }"
           title="时间定位"
           @click.stop="togglePopover('locator')"
@@ -442,6 +442,7 @@ onBeforeUnmount(() => {
           id="colBtn"
           type="button"
           class="iconbtn lg"
+          data-popover-anchor="columns"
           :class="{ on: activePopover === 'columns' }"
           title="列设置"
           @click.stop="togglePopover('columns')"
