@@ -35,6 +35,14 @@ COLUMN_TYPES = {"text", "number", "date", "checkbox", "url", "email", "phone", "
 OPTION_COLUMN_TYPES = {"select", "multiselect"}
 CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 
+# Note kinds (axis 2). "entry" = markdown body + display-style views; "mindmap" =
+# node tree stored in body_json. See docs/note-types-and-views-design.md.
+NOTE_TYPES = {"entry", "mindmap"}
+DEFAULT_NOTE_TYPE = "entry"
+# Display styles for "entry" notes (axis 1); unlocked per data capability.
+DISPLAY_STYLES = {"timeline", "table", "board", "gallery", "list", "outline"}
+DEFAULT_DISPLAY_STYLE = "timeline"
+
 # Seeded into every new notebook; both are deletable like any other property.
 DEFAULT_TOPIC_COLUMNS = [
     {"key": "type", "label": "类型", "type": "select", "width": 96, "order": 0, "visible": True, "options": []},
@@ -53,6 +61,63 @@ def default_topic_columns_json() -> str:
     return json.dumps(DEFAULT_TOPIC_COLUMNS, ensure_ascii=False)
 
 
+def normalize_display_style(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate in DISPLAY_STYLES else DEFAULT_DISPLAY_STYLE
+
+
+def normalize_note_type(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate in NOTE_TYPES else DEFAULT_NOTE_TYPE
+
+
+def topic_capability_signals(columns: list | None, *, event_count: int, has_dated: bool, has_image: bool) -> dict:
+    """Lightweight capability signals derived from already-loaded topic data —
+    no per-event scan. `columns` comes from columns_json; the event aggregates
+    (count/has_dated/has_image) ride the single bounds query. Mirrored on the FE
+    so the view switcher derives available views with zero extra round-trip."""
+    has_select_column = any(
+        isinstance(column, dict) and column.get("type") in OPTION_COLUMN_TYPES
+        for column in (columns or [])
+    )
+    return {
+        "eventCount": int(event_count or 0),
+        "hasDated": bool(has_dated),
+        "hasImage": bool(has_image),
+        "hasSelectColumn": has_select_column,
+    }
+
+
+def topic_capabilities(display_style: str | None, signals: dict) -> list[str]:
+    """Pure: ready signals -> enabled display styles (FE/BE SSOT). `list` and
+    `table` are always available, plus the notebook's own display_style (so a
+    brand-new empty notebook still renders); the rest unlock per data capability."""
+    enabled = {"list", "table", normalize_display_style(display_style)}
+    if signals.get("hasDated"):
+        enabled.add("timeline")
+    if signals.get("eventCount"):
+        enabled.add("outline")
+    if signals.get("hasSelectColumn"):
+        enabled.add("board")
+    if signals.get("hasImage"):
+        enabled.add("gallery")
+    return sorted(enabled)
+
+
+def topic_capabilities_block(topic: "Topic", *, event_count: int, has_dated: bool, has_image: bool) -> dict:
+    """Build the displayStyle + capabilities payload appended to topic DTOs."""
+    signals = topic_capability_signals(
+        deserialize_json_list(topic.columns_json),
+        event_count=event_count,
+        has_dated=has_dated,
+        has_image=has_image,
+    )
+    return {
+        "capabilitySignals": signals,
+        "capabilities": topic_capabilities(topic.display_style, signals),
+    }
+
+
 def sanitize_topic_name(name: str) -> str:
     return "".join(c for c in name.strip() if c.isalnum() or c in "_-\u4e00-\u9fff")
 
@@ -64,6 +129,7 @@ def topic_to_dict(topic: Topic) -> dict:
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
         "columns": deserialize_json_list(topic.columns_json),
+        "displayStyle": normalize_display_style(topic.display_style),
         "updatedAt": topic.updated_at.isoformat() if topic.updated_at else None,
     }
 
@@ -161,6 +227,28 @@ def deserialize_json_dict(value: str | None, *, fallback: dict | None = None) ->
     except json.JSONDecodeError:
         return dict(fallback or {})
     return parsed if isinstance(parsed, dict) else dict(fallback or {})
+
+
+def deserialize_body_json(value: str | None):
+    """Parse a note's structured body (mindmap tree); None when absent/invalid."""
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def normalize_body_json(value, note_type: str):
+    """Entry notes have no structured body (they use body_markdown). Other note
+    types keep an object/array tree; anything else is a 400."""
+    if note_type == DEFAULT_NOTE_TYPE:
+        return None
+    if value is None:
+        return None
+    if not isinstance(value, (dict, list)):
+        raise HTTPException(status_code=400, detail="bodyJson must be an object or array")
+    return value
 
 
 def default_body_markdown(items: list[dict]) -> str:
@@ -405,9 +493,11 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "displayLabel": build_display_label(date_year, date_month, date_day, headline),
         "legacyYear": event.year,
         "era": event.era,
+        "noteType": normalize_note_type(event.note_type),
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         "bodyMarkdown": event.body_markdown or default_body_markdown(items),
+        "bodyJson": deserialize_body_json(event.body_json),
         "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
         "relatedEventIds": related_ids,
@@ -675,6 +765,7 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
         "displayLabel": build_display_label(date_year, date_month, date_day, headline),
         "headline": headline,
         "era": event.era,
+        "noteType": normalize_note_type(event.note_type),
         "extra": deserialize_json_dict(event.extra_json),
         "favorite": bool(event.favorite),
         "deletedAt": serialize_datetime(event.deleted_at),
@@ -747,6 +838,7 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
             func.count(TimelineEvent.id),
             func.min(TimelineEvent.date_key),
             func.max(TimelineEvent.date_key),
+            func.count(TimelineEvent.image_id),
         )
         .filter(TimelineEvent.topic_id == topic_id)
         .one()
@@ -760,6 +852,7 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
         "maxDateKey": max_date_key,
         "minDate": date_key_to_iso(min_date_key) if min_date_key is not None else None,
         "maxDate": date_key_to_iso(max_date_key) if max_date_key is not None else None,
+        "hasImage": int(row[3] or 0) > 0,
         "supportedZoomLevels": SUPPORTED_ZOOM_LEVELS,
     }
 
@@ -771,6 +864,7 @@ def list_topics(db: Session) -> list[dict]:
             func.count(TimelineEvent.id).label("event_count"),
             func.min(TimelineEvent.date_key).label("min_date_key"),
             func.max(TimelineEvent.date_key).label("max_date_key"),
+            func.count(TimelineEvent.image_id).label("image_count"),
         )
         .outerjoin(TimelineEvent, TimelineEvent.topic_id == Topic.id)
         .group_by(Topic.id)
@@ -778,7 +872,7 @@ def list_topics(db: Session) -> list[dict]:
         .all()
     )
     items = []
-    for topic, event_count, min_date_key, max_date_key in rows:
+    for topic, event_count, min_date_key, max_date_key, image_count in rows:
         items.append(
             {
                 **topic_to_dict(topic),
@@ -787,6 +881,12 @@ def list_topics(db: Session) -> list[dict]:
                 "maxDateKey": int(max_date_key) if max_date_key is not None else None,
                 "minDate": date_key_to_iso(int(min_date_key)) if min_date_key is not None else None,
                 "maxDate": date_key_to_iso(int(max_date_key)) if max_date_key is not None else None,
+                **topic_capabilities_block(
+                    topic,
+                    event_count=int(event_count or 0),
+                    has_dated=max_date_key is not None,
+                    has_image=int(image_count or 0) > 0,
+                ),
             }
         )
     return items
@@ -803,7 +903,10 @@ def create_topic(db: Session, name: str) -> dict:
     db.add(topic)
     db.commit()
     db.refresh(topic)
-    return topic_to_dict(topic)
+    return {
+        **topic_to_dict(topic),
+        **topic_capabilities_block(topic, event_count=0, has_dated=False, has_image=False),
+    }
 
 
 def delete_topic(db: Session, topic_id: int):
@@ -824,7 +927,17 @@ def delete_topic(db: Session, topic_id: int):
 
 def get_topic_meta(db: Session, topic_id: int) -> dict:
     topic = get_topic_or_404(db, topic_id)
-    return {**topic_to_dict(topic), **build_topic_bounds(db, topic_id)}
+    bounds = build_topic_bounds(db, topic_id)
+    return {
+        **topic_to_dict(topic),
+        **bounds,
+        **topic_capabilities_block(
+            topic,
+            event_count=bounds["eventCount"],
+            has_dated=bounds["maxDateKey"] is not None,
+            has_image=bounds["hasImage"],
+        ),
+    }
 
 
 def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
@@ -833,6 +946,8 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.title = str(payload["title"] or "").strip()
     if "subtitle" in payload:
         topic.subtitle = str(payload["subtitle"] or "").strip()
+    if "displayStyle" in payload:
+        topic.display_style = normalize_display_style(payload.get("displayStyle"))
     if "columns" in payload:
         topic.columns_json = json.dumps(normalize_topic_columns(payload.get("columns")), ensure_ascii=False)
     db.commit()
@@ -1068,6 +1183,8 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
     image = payload.get("image")
+    note_type = normalize_note_type(payload.get("noteType"))
+    body_json = normalize_body_json(payload.get("bodyJson"), note_type)
     era = str(payload.get("era", "")).strip()
     if not era:
         raise HTTPException(status_code=400, detail="Era is required")
@@ -1104,6 +1221,8 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
             "headline": headline,
             "legacyYear": legacy_year,
             "era": era,
+            "noteType": note_type,
+            "bodyJson": body_json,
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "extra": extra,
             "attachments": attachments,
@@ -1129,6 +1248,8 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
         "headline": headline,
         "legacyYear": legacy_year or build_display_label(year, month, day, headline),
         "era": era,
+        "noteType": note_type,
+        "bodyJson": body_json,
         "bodyMarkdown": body_markdown or default_body_markdown(items),
         "extra": extra,
         "attachments": attachments,
@@ -1148,7 +1269,9 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
     event.date_day = data["dateDay"]
     event.headline = data["headline"]
     event.era = data["era"]
+    event.note_type = data["noteType"]
     event.body_markdown = data["bodyMarkdown"]
+    event.body_json = json.dumps(data["bodyJson"], ensure_ascii=False) if data.get("bodyJson") is not None else None
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
     event.related_event_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)

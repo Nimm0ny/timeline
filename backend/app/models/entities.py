@@ -18,6 +18,9 @@ class Topic(Base):
     title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     subtitle: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     columns_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    # Default display style for the notebook's "entry" notes; one of
+    # timeline/table/board/gallery/list/outline (see note-types-and-views-design.md).
+    display_style: Mapped[str] = mapped_column(String(32), default="timeline", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -65,7 +68,11 @@ class TimelineEvent(Base):
     date_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     headline: Mapped[str | None] = mapped_column(String(255), nullable=True)
     era: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Note kind: "entry" (markdown body, default) or "mindmap" (tree in body_json).
+    note_type: Mapped[str] = mapped_column(String(32), default="entry", nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # Structured body interpreted per note_type; only "mindmap" uses it (tree JSON).
+    body_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     related_event_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)

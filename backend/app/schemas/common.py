@@ -37,7 +37,11 @@ class TimelineEventIn(BaseModel):
     dateDay: int
     headline: str
     era: str
+    # Note kind: "entry" (markdown body) or "mindmap" (tree in bodyJson).
+    noteType: str = "entry"
     bodyMarkdown: str = ""
+    # Structured body for non-entry notes (e.g. mindmap tree); None for entries.
+    bodyJson: dict | list | None = None
     attachments: list[AttachmentIn] = Field(default_factory=list)
     relatedEventIds: list[int] = Field(default_factory=list)
     # Property values: free fields -> str, single-select -> str (option id),
@@ -54,6 +58,7 @@ class TopicCreateIn(BaseModel):
 class TopicMetaUpdateIn(BaseModel):
     title: str | None = None
     subtitle: str | None = None
+    displayStyle: str | None = None
     columns: list[ColumnDef] | None = None
 
 
@@ -63,6 +68,11 @@ class TopicOut(BaseModel):
     title: str
     subtitle: str
     columns: list[dict] = Field(default_factory=list)
+    displayStyle: str = "timeline"
+    # Enabled display styles for this notebook's entries, derived from data
+    # capability (see services.timeline.topic_capabilities). FE/BE SSOT.
+    capabilities: list[str] = Field(default_factory=list)
+    capabilitySignals: dict | None = None
     updatedAt: str | None = None
     eventCount: int | None = None
     minDateKey: int | None = None

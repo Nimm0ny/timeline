@@ -91,9 +91,15 @@ def ensure_timeline_event_schema():
     topic_columns = set()
     if "topics" in inspector.get_table_names():
         topic_columns = {column["name"] for column in inspector.get_columns("topics")}
+        topic_statements = []
         if "columns_json" not in topic_columns:
+            topic_statements.append("ALTER TABLE topics ADD COLUMN columns_json TEXT DEFAULT '[]'")
+        if "display_style" not in topic_columns:
+            topic_statements.append("ALTER TABLE topics ADD COLUMN display_style VARCHAR(32) DEFAULT 'timeline'")
+        if topic_statements:
             with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE topics ADD COLUMN columns_json TEXT DEFAULT '[]'"))
+                for statement in topic_statements:
+                    connection.execute(text(statement))
 
     if "timeline_events" not in inspector.get_table_names():
         return
@@ -118,6 +124,10 @@ def ensure_timeline_event_schema():
         statements.append("ALTER TABLE timeline_events ADD COLUMN attachments_json TEXT DEFAULT '[]'")
     if "related_event_ids_json" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN related_event_ids_json TEXT DEFAULT '[]'")
+    if "note_type" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN note_type VARCHAR(32) DEFAULT 'entry'")
+    if "body_json" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN body_json TEXT")
     if "created_at" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN created_at DATETIME")
     if "favorite" not in existing:
