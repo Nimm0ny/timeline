@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { OPTION_PALETTE } from "@/constants/tags";
+import { buildOptionId } from "@/utils/timelineNotes";
 
 // Unified picker for select / multiselect properties. The value lives by option
 // id; new options are created with a palette color and bubbled to the parent so
@@ -74,7 +75,7 @@ function removeChip(id) {
 function createOption() {
   const label = query.value.trim();
   if (!label || !canCreate.value) return;
-  const id = label;
+  const id = buildOptionId(label, options.value.map((option) => option.id));
   const color = OPTION_PALETTE[options.value.length % OPTION_PALETTE.length];
   emit("create-option", { key: props.column.key, option: { id, label, color } });
   if (multiple.value) {

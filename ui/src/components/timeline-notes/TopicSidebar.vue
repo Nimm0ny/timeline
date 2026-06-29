@@ -1,8 +1,16 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
+import { OPTION_COLOR_HEX_MAP, OPTION_COLOR_PRESETS } from "@/constants/tags";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { buildPropertyRows, compareTimelineEvents } from "@/utils/timelineNotes";
+import {
+  buildOptionId,
+  buildPropertyKey,
+  buildPropertyRows,
+  compareTimelineEvents,
+  normalizeTopicColumns,
+  propertyTypeIcon,
+} from "@/utils/timelineNotes";
 
 const props = defineProps({
   brand: {
@@ -14,6 +22,10 @@ const props = defineProps({
     default: () => [],
   },
   events: {
+    type: Array,
+    default: () => [],
+  },
+  allEvents: {
     type: Array,
     default: () => [],
   },
@@ -53,6 +65,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  columnSaving: {
+    type: Boolean,
+    default: false,
+  },
   createTopicRequestKey: {
     type: Number,
     default: 0,
@@ -70,6 +86,7 @@ const emit = defineEmits([
   "update:property-filter",
   "delete-topic",
   "batch-delete-topics",
+  "save-topic-columns",
   "focus-search",
   "open-global-favorites",
   "open-settings",
@@ -85,6 +102,7 @@ const state = reactive({
     stats: false,
   },
   topicCollapsed: {},
+  propertyTopicCollapsed: {},
 });
 
 const topicName = ref("");
@@ -203,6 +221,35 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onMenuKeydown));
 // a multi-delete (confirmed in-app by the page).
 const selectMode = ref(false);
 const selectedTopicIds = ref([]);
+const propertyEditorTopicId = ref(null);
+const propertyEditorColumns = ref([]);
+const propertySavePending = ref(null);
+const propertyDiscardArmed = ref(false);
+
+const EDITABLE_PROPERTY_TYPES = [
+  { value: "text", label: "文本" },
+  { value: "number", label: "数字" },
+  { value: "date", label: "日期" },
+  { value: "checkbox", label: "复选" },
+  { value: "url", label: "链接" },
+  { value: "email", label: "邮箱" },
+  { value: "phone", label: "电话" },
+  { value: "select", label: "单选" },
+  { value: "multiselect", label: "多选" },
+];
+const OPTION_PROPERTY_TYPES = new Set(["select", "multiselect"]);
+const PROPERTY_TYPE_LABELS = Object.fromEntries(EDITABLE_PROPERTY_TYPES.map((item) => [item.value, item.label]));
+const PROPERTY_TYPE_TONES = {
+  text: "var(--text-faint)",
+  number: "var(--t-economy)",
+  date: "var(--accent)",
+  checkbox: "var(--t-reform)",
+  url: "var(--t-science)",
+  email: "var(--t-culture)",
+  phone: "var(--t-war)",
+  select: "var(--t-politics)",
+  multiselect: "var(--t-diplomacy)",
+};
 
 function isTopicSelected(topicId) {
   return selectedTopicIds.value.includes(topicId);
@@ -234,6 +281,302 @@ const RIBBON_PANELS = {
 };
 const activePanel = computed(() => RIBBON_PANELS[state.ribbon] || RIBBON_PANELS.files);
 const panelHas = (section) => activePanel.value.sections.includes(section);
+const ribbonLocked = computed(() => Boolean(propertyEditorTopicId.value) && state.ribbon === "tags");
+
+function isOptionProperty(type) {
+  return OPTION_PROPERTY_TYPES.has(type);
+}
+
+function propTypeLabel(type) {
+  return PROPERTY_TYPE_LABELS[type] || "文本";
+}
+
+function propertyTone(type) {
+  return PROPERTY_TYPE_TONES[type] || "var(--accent)";
+}
+
+function propertyIcon(type) {
+  return propertyTypeIcon(type);
+}
+
+function expandHexColor(color) {
+  if (!/^#[\da-f]{3}$/i.test(color)) return color.toLowerCase();
+  return `#${color.slice(1).split("").map((part) => part + part).join("")}`.toLowerCase();
+}
+
+function fallbackOptionHex(index = 0) {
+  return OPTION_COLOR_PRESETS[index % OPTION_COLOR_PRESETS.length]?.hex || "#7b68d9";
+}
+
+function optionColorValue(color, index = 0) {
+  const raw = String(color || "").trim();
+  if (/^#[\da-f]{6}$/i.test(raw)) return raw.toLowerCase();
+  if (/^#[\da-f]{3}$/i.test(raw)) return expandHexColor(raw);
+  return OPTION_COLOR_HEX_MAP[raw] || fallbackOptionHex(index);
+}
+
+function defaultPropertyWidth(type = "text") {
+  if (type === "multiselect") return 150;
+  if (type === "select") return 120;
+  if (type === "checkbox") return 72;
+  if (type === "date") return 108;
+  if (type === "number") return 96;
+  return 112;
+}
+
+function cloneTopicColumns(topic) {
+  return normalizeTopicColumns(topic?.columns).map((column, index) => ({
+    key: column.key,
+    label: column.label,
+    persistedLabel: column.label,
+    type: column.type,
+    width: Number(column.width || defaultPropertyWidth(column.type)),
+    order: Number(column.order ?? index),
+    visible: column.visible !== false,
+    options: (column.options || []).map((option, optionIndex) => ({
+      id: option.id || buildOptionId(option.label, (column.options || []).map((item) => item.id)),
+      label: option.label || option.id || "",
+      persistedLabel: option.label || option.id || "",
+      colorValue: String(option.color || "").trim(),
+      pickerValue: optionColorValue(option.color, optionIndex),
+    })),
+  }));
+}
+
+function serializePropertyColumns(columns) {
+  const seenKeys = new Set();
+  return (Array.isArray(columns) ? columns : [])
+    .map((column, index) => {
+      const label = (String(column?.label || "").trim() || String(column?.persistedLabel || "").trim()).slice(0, 24);
+      if (!label) return null;
+      const existingKey = String(column?.key || "").trim();
+      const key =
+        existingKey && !seenKeys.has(existingKey)
+          ? existingKey
+          : buildPropertyKey(label, [...seenKeys]);
+      seenKeys.add(key);
+      const type = String(column?.type || "text").trim() || "text";
+      const normalizedType = PROPERTY_TYPE_LABELS[type] ? type : "text";
+      const options = isOptionProperty(normalizedType)
+        ? ((Array.isArray(column?.options) ? column.options : [])
+            .map((option, optionIndex) => {
+              const optionLabel = (String(option?.label || "").trim() || String(option?.persistedLabel || "").trim()).slice(0, 24);
+              if (!optionLabel) return null;
+              return {
+                id: String(option?.id || "").trim() || buildOptionId(optionLabel, []),
+                label: optionLabel,
+                color: String(option?.colorValue || "").trim() || String(option?.pickerValue || "").trim() || fallbackOptionHex(optionIndex),
+              };
+            })
+            .filter(Boolean))
+        : [];
+      const seenOptionIds = new Set();
+      const seenOptionLabels = new Set();
+      const dedupedOptions = options.filter((option) => {
+        const normalizedLabel = option.label.toLowerCase();
+        if (seenOptionIds.has(option.id) || seenOptionLabels.has(normalizedLabel)) return false;
+        seenOptionIds.add(option.id);
+        seenOptionLabels.add(normalizedLabel);
+        return true;
+      });
+      return {
+        key,
+        label,
+        type: normalizedType,
+        width: Number(column?.width || defaultPropertyWidth(normalizedType)),
+        order: index,
+        visible: column?.visible !== false,
+        options: dedupedOptions,
+      };
+    })
+    .filter(Boolean);
+}
+
+const propertyEditorTopic = computed(() => props.topics.find((topic) => topic.id === propertyEditorTopicId.value) || null);
+const propertyEditorDirty = computed(() => {
+  if (!propertyEditorTopic.value) return false;
+  return JSON.stringify(serializePropertyColumns(propertyEditorColumns.value)) !== JSON.stringify(serializePropertyColumns(cloneTopicColumns(propertyEditorTopic.value)));
+});
+
+function isEditingPropertyTopic(topicId) {
+  return propertyEditorTopicId.value === topicId;
+}
+
+function propertyEditorLocked(topicId) {
+  return propertyEditorTopicId.value != null && propertyEditorTopicId.value !== topicId;
+}
+
+function clearPropertyEditor() {
+  propertyEditorTopicId.value = null;
+  propertyEditorColumns.value = [];
+  propertySavePending.value = null;
+  propertyDiscardArmed.value = false;
+}
+
+function openPropertyEditor(topic) {
+  if (!topic?.id) return;
+  propertyEditorTopicId.value = topic.id;
+  propertyEditorColumns.value = cloneTopicColumns(topic);
+  propertySavePending.value = null;
+  propertyDiscardArmed.value = false;
+  state.propertyTopicCollapsed[topic.id] = false;
+}
+
+function cancelPropertyEditor() {
+  if (props.columnSaving) return;
+  if (!propertyEditorDirty.value || propertyDiscardArmed.value) {
+    clearPropertyEditor();
+    return;
+  }
+  propertyDiscardArmed.value = true;
+}
+
+function savePropertyEditor(topicId) {
+  if (!topicId || props.columnSaving) return;
+  propertySavePending.value = {
+    topicId,
+    signature: JSON.stringify(serializePropertyColumns(propertyEditorColumns.value)),
+  };
+  propertyDiscardArmed.value = false;
+  emit("save-topic-columns", { topicId, columns: serializePropertyColumns(propertyEditorColumns.value) });
+}
+
+function togglePropertyTopic(topicId) {
+  if (isEditingPropertyTopic(topicId)) return;
+  state.propertyTopicCollapsed[topicId] = !isPropertyTopicOpen(topicId);
+}
+
+function isPropertyTopicOpen(topicId) {
+  if (isEditingPropertyTopic(topicId)) return true;
+  if (state.propertyTopicCollapsed[topicId] != null) return state.propertyTopicCollapsed[topicId] !== true;
+  return topicId === props.activeTopicId;
+}
+
+function focusPropertyTopic(topicId) {
+  if (!topicId || propertyEditorLocked(topicId) || topicId === props.activeTopicId) return;
+  emit("select-topic", topicId);
+}
+
+const topicPropertyUsage = computed(() => {
+  const usage = new Map();
+  for (const topic of props.topics || []) {
+    const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
+    const rows = buildPropertyRows(topic.columns, topicEvents);
+    const rowMap = new Map(rows.map((row) => [row.key, row]));
+    const orphanKeys = new Set();
+    const orphanOptionIds = new Map();
+    const rawValueCounts = new Map();
+    for (const event of topicEvents) {
+      for (const [key, value] of Object.entries(event?.extra || {})) {
+        orphanKeys.add(key);
+        if (!orphanOptionIds.has(key)) orphanOptionIds.set(key, new Set());
+        const bucket = orphanOptionIds.get(key);
+        const list = Array.isArray(value) ? value : value ? [value] : [];
+        if (list.some((item) => String(item || "").trim())) {
+          rawValueCounts.set(key, (rawValueCounts.get(key) || 0) + 1);
+        }
+        for (const item of list) {
+          const normalized = String(item || "").trim();
+          if (normalized) bucket.add(normalized);
+        }
+      }
+    }
+    usage.set(topic.id, { rows: rowMap, orphanKeys, orphanOptionIds, rawValueCounts });
+  }
+  return usage;
+});
+
+function canEditPropertyType(topicId, column) {
+  if (!column?.key) return true;
+  const info = topicPropertyUsage.value.get(topicId);
+  return !info || (info.rawValueCounts?.get(column.key) || 0) === 0;
+}
+
+function addDraftProperty(topicId) {
+  if (!isEditingPropertyTopic(topicId)) {
+    const topic = props.topics.find((item) => item.id === topicId);
+    if (!topic) return;
+    openPropertyEditor(topic);
+  }
+  const usage = topicPropertyUsage.value.get(topicId);
+  const existingKeys = [...new Set([...propertyEditorColumns.value.map((column) => column.key), ...(usage?.orphanKeys || [])])];
+  propertyEditorColumns.value.push({
+    key: buildPropertyKey("property", existingKeys),
+    label: "",
+    type: "text",
+    width: defaultPropertyWidth("text"),
+    order: propertyEditorColumns.value.length,
+    visible: true,
+    options: [],
+  });
+}
+
+function removeDraftProperty(index) {
+  propertyEditorColumns.value.splice(index, 1);
+}
+
+function addDraftOption(column) {
+  const usage = topicPropertyUsage.value.get(propertyEditorTopicId.value);
+  const orphanIds = usage?.orphanOptionIds?.get(column.key) || new Set();
+  const existingIds = [...new Set([...(column.options || []).map((option) => option.id), ...orphanIds])];
+  column.options = [
+    ...(column.options || []),
+    {
+      id: buildOptionId("option", existingIds),
+      label: "",
+      persistedLabel: "",
+      colorValue: fallbackOptionHex(existingIds.length),
+      pickerValue: fallbackOptionHex(existingIds.length),
+    },
+  ];
+}
+
+function removeDraftOption(column, optionIndex) {
+  column.options.splice(optionIndex, 1);
+}
+
+function updateDraftPropertyType(column, nextType) {
+  column.type = nextType;
+  if (!isOptionProperty(nextType)) {
+    column.options = [];
+    return;
+  }
+  if (!Array.isArray(column.options) || !column.options.length) {
+    column.options = [];
+    addDraftOption(column);
+  }
+}
+
+function updateDraftOptionColor(option, event, index) {
+  const next = event?.target?.value || fallbackOptionHex(index);
+  option.colorValue = next;
+  option.pickerValue = next;
+}
+
+function notebookPropertySummary(properties) {
+  const total = properties.length;
+  if (!total) return "暂无属性";
+  const optionCount = properties.filter((property) => property.isOption).length;
+  return optionCount ? `${total} 个属性 · ${optionCount} 个选项类` : `${total} 个属性`;
+}
+
+function propertyMetaLine(property) {
+  if (property.isOption) return `${property.optionCount} 个选项`;
+  if (property.type === "checkbox") return property.totalCount ? `已勾选 ${property.checkedCount} / ${property.totalCount} 条` : "布尔开关";
+  if (property.filledCount) {
+    const samples = property.sampleValues.length ? ` · ${property.sampleValues.join(" · ")}` : "";
+    return `已填写 ${property.filledCount} / ${property.totalCount} 条${samples}`;
+  }
+  const hints = {
+    text: "自由文本",
+    number: "数字字段",
+    date: "日期字段",
+    url: "网址链接",
+    email: "邮箱链接",
+    phone: "电话链接",
+  };
+  return hints[property.type] || "自由值";
+}
 
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
@@ -300,14 +643,29 @@ const eraRows = computed(() => {
   return order.map((key) => byEra.get(key));
 });
 
-// Properties (and their option counts) for the left "属性" tab. Counts run over
-// all live events so the list never blanks out under an active view filter.
-const propertyRows = computed(() => buildPropertyRows(props.columns, liveEvents.value));
+const liveEventsByTopic = computed(() => {
+  const grouped = new Map();
+  for (const event of props.allEvents || []) {
+    if (!event || event.deletedAt) continue;
+    const topicId = Number(event.topicId);
+    if (!grouped.has(topicId)) grouped.set(topicId, []);
+    grouped.get(topicId).push(event);
+  }
+  return grouped;
+});
 
-const PROPERTY_TYPE_LABELS = { text: "文本", number: "数字", date: "日期", select: "单选", multiselect: "多选" };
-function propTypeLabel(type) {
-  return PROPERTY_TYPE_LABELS[type] || "文本";
-}
+const propertyTopics = computed(() =>
+  props.topics.map((topic) => {
+    const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
+    const sourceColumns = isEditingPropertyTopic(topic.id) ? propertyEditorColumns.value : topic.columns;
+    return {
+      topic,
+      active: topic.id === props.activeTopicId,
+      editing: isEditingPropertyTopic(topic.id),
+      properties: buildPropertyRows(sourceColumns, topicEvents),
+    };
+  })
+);
 
 function isOptionActive(key, value) {
   return props.propertyFilter?.key === key && props.propertyFilter?.value === value;
@@ -315,6 +673,12 @@ function isOptionActive(key, value) {
 
 function togglePropertyFilter(key, value) {
   emit("update:property-filter", isOptionActive(key, value) ? { key: "", value: "" } : { key, value });
+}
+
+function filterPropertyOption(topicId, key, value) {
+  if (propertyEditorTopicId.value != null) return;
+  if (topicId !== props.activeTopicId) return;
+  togglePropertyFilter(key, value);
 }
 
 const stats = computed(() => ({
@@ -371,16 +735,19 @@ function toggleTopic(topicId) {
 }
 
 function selectRibbon(ribbon) {
+  if (ribbon !== state.ribbon && ribbonLocked.value) return;
   state.ribbon = ribbon;
   emit("select-ribbon", ribbon);
 }
 
 function focusSearch() {
+  if (ribbonLocked.value) return;
   selectRibbon("search");
   emit("focus-search");
 }
 
 function openGlobalFavorites() {
+  if (ribbonLocked.value) return;
   emit("open-global-favorites");
 }
 
@@ -417,6 +784,9 @@ watch(
   (topics) => {
     const ids = new Set((topics || []).map((topic) => topic.id));
     selectedTopicIds.value = selectedTopicIds.value.filter((id) => ids.has(id));
+    if (propertyEditorTopicId.value && !ids.has(propertyEditorTopicId.value)) {
+      cancelPropertyEditor();
+    }
   },
   { deep: true }
 );
@@ -445,6 +815,7 @@ watch(
   () => props.createTopicRequestKey,
   (key, previous) => {
     if (!key || key === previous) return;
+    if (ribbonLocked.value) return;
     state.ribbon = "files";
     startCreateTopic();
   }
@@ -455,8 +826,31 @@ watch(
   (topicId, previous) => {
     if (topicId && topicId !== previous) {
       state.topicCollapsed[topicId] = false;
+      state.propertyTopicCollapsed[topicId] = false;
       allCollapsed.value = false;
     }
+  }
+);
+
+watch(
+  () => propertyEditorColumns.value,
+  () => {
+    if (propertyDiscardArmed.value) propertyDiscardArmed.value = false;
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.columnSaving,
+  (saving, previous) => {
+    if (!propertySavePending.value || saving || !previous) return;
+    const topic = props.topics.find((item) => item.id === propertySavePending.value.topicId);
+    const nextSignature = JSON.stringify(serializePropertyColumns(cloneTopicColumns(topic)));
+    if (nextSignature === propertySavePending.value.signature) {
+      clearPropertyEditor();
+      return;
+    }
+    propertySavePending.value = null;
   }
 );
 </script>
@@ -467,19 +861,19 @@ watch(
       <button class="rb brand" :title="props.brand">
         <TimelineLucideIcon name="book" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" @click="selectRibbon('files')">
+      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" :disabled="ribbonLocked" @click="selectRibbon('files')">
         <TimelineLucideIcon name="folder" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" @click="focusSearch">
+      <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" :disabled="ribbonLocked" @click="focusSearch">
         <TimelineLucideIcon name="search" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="openGlobalFavorites">
+      <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" :disabled="ribbonLocked" @click="openGlobalFavorites">
         <TimelineLucideIcon name="star" :stroke-width="1.8" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="属性" @click="selectRibbon('tags')">
         <TimelineLucideIcon name="sliders" :stroke-width="1.8" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="selectRibbon('stats')">
+      <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" :disabled="ribbonLocked" @click="selectRibbon('stats')">
         <TimelineLucideIcon name="bar" :stroke-width="1.8" />
       </button>
     </div>
@@ -656,32 +1050,194 @@ watch(
             <span class="tg-name">属性</span>
           </div>
           <div class="tg-body">
-            <p v-if="!props.activeTopicId" class="sidebar-copy">先选择一个笔记本。</p>
-            <p v-else-if="!propertyRows.length" class="sidebar-copy">暂无属性。</p>
+            <p v-if="!props.topics.length" class="sidebar-copy">暂无笔记本。</p>
             <template v-else>
-              <div v-for="prop in propertyRows" :key="prop.key" class="prop-group">
-                <div class="prop-group-head">
-                  <span class="prop-group-name">{{ prop.label }}</span>
-                  <span class="prop-group-type">{{ propTypeLabel(prop.type) }}</span>
+              <section
+                v-for="entry in propertyTopics"
+                :key="entry.topic.id"
+                class="prop-topic"
+                :class="{ active: entry.active, editing: entry.editing }"
+              >
+                <div class="prop-topic-head" @click="togglePropertyTopic(entry.topic.id)">
+                  <span class="tg-chev" :class="{ collapsed: !isPropertyTopicOpen(entry.topic.id) }">
+                    <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+                  </span>
+                  <div class="prop-topic-main">
+                    <div class="prop-topic-title-row">
+                      <span class="prop-topic-title">
+                        <TimelineLucideIcon name="folder" :stroke-width="1.8" />
+                        <span>{{ entry.topic.title || entry.topic.name }}</span>
+                      </span>
+                      <span v-if="entry.active" class="prop-topic-badge">当前</span>
+                    </div>
+                    <p class="prop-topic-meta">{{ notebookPropertySummary(entry.properties) }}</p>
+                  </div>
+                  <div class="prop-topic-actions">
+                    <button
+                      v-if="!entry.active"
+                      type="button"
+                      class="iconbtn sm"
+                      :disabled="propertyEditorLocked(entry.topic.id)"
+                      title="切换到此笔记本"
+                      @click.stop="focusPropertyTopic(entry.topic.id)"
+                    >
+                      <TimelineLucideIcon name="arrowRight" :stroke-width="1.8" />
+                    </button>
+                    <template v-if="entry.editing">
+                      <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="新增属性" @click.stop="addDraftProperty(entry.topic.id)">
+                        <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+                      </button>
+                      <button
+                        type="button"
+                        class="iconbtn sm"
+                        :disabled="props.columnSaving || !propertyEditorDirty"
+                        title="保存属性"
+                        @click.stop="savePropertyEditor(entry.topic.id)"
+                      >
+                        <TimelineLucideIcon name="save" :stroke-width="1.8" />
+                      </button>
+                      <button
+                        type="button"
+                        class="iconbtn sm"
+                        :class="{ on: propertyDiscardArmed }"
+                        :disabled="props.columnSaving"
+                        :title="propertyDiscardArmed ? '再次点击放弃属性草稿' : '取消编辑'"
+                        @click.stop="cancelPropertyEditor"
+                      >
+                        <TimelineLucideIcon name="close" :stroke-width="1.8" />
+                      </button>
+                    </template>
+                    <button
+                      v-else
+                      type="button"
+                      class="iconbtn sm"
+                      :disabled="propertyEditorLocked(entry.topic.id)"
+                      title="管理此笔记本属性"
+                      @click.stop="openPropertyEditor(entry.topic)"
+                    >
+                      <TimelineLucideIcon name="squarePen" :stroke-width="1.8" />
+                    </button>
+                  </div>
                 </div>
-                <template v-if="prop.isOption">
-                  <button
-                    v-for="option in prop.options"
-                    :key="option.value"
-                    type="button"
-                    class="ti leaf tag"
-                    :class="{ active: isOptionActive(prop.key, option.value) }"
-                    @click="togglePropertyFilter(prop.key, option.value)"
-                  >
-                    <span class="ti-chev"></span>
-                    <span class="ti-dot" :style="{ '--dot': option.color }"></span>
-                    <span class="ti-name">{{ option.label }}</span>
-                    <span class="ti-cnt">{{ option.count }}</span>
-                  </button>
-                  <p v-if="!prop.options.length" class="prop-empty">暂无选项</p>
-                </template>
-                <p v-else class="prop-empty">自由值</p>
-              </div>
+
+                <div v-if="isPropertyTopicOpen(entry.topic.id)" class="prop-topic-body">
+                  <template v-if="entry.editing">
+                    <div
+                      v-for="(column, index) in propertyEditorColumns"
+                      :key="`${column.key || 'property'}-${index}`"
+                      class="prop-card prop-card-manage"
+                      :class="{ 'type-locked': !canEditPropertyType(entry.topic.id, column), saving: props.columnSaving }"
+                      :style="{ '--prop-tone': propertyTone(column.type) }"
+                    >
+                      <div class="prop-card-head">
+                        <div class="prop-card-main">
+                          <span class="prop-card-ic">
+                            <TimelineLucideIcon :name="propertyIcon(column.type)" :stroke-width="1.8" />
+                          </span>
+                          <div class="prop-card-copy">
+                            <span class="prop-card-name">{{ column.label || "未命名属性" }}</span>
+                            <span class="prop-card-type">{{ propTypeLabel(column.type) }}</span>
+                          </div>
+                        </div>
+                        <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="删除属性" @click.stop="removeDraftProperty(index)">
+                          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+                        </button>
+                      </div>
+                      <div class="prop-manage-grid">
+                        <label class="prop-manage-field prop-manage-field-wide">
+                          <span>名称</span>
+                          <input v-model="column.label" :disabled="props.columnSaving" type="text" maxlength="24" placeholder="属性名称" />
+                        </label>
+                        <label class="prop-manage-field">
+                          <span>类型</span>
+                          <select
+                            :value="column.type"
+                            :disabled="props.columnSaving || !canEditPropertyType(entry.topic.id, column)"
+                            @change="updateDraftPropertyType(column, $event.target.value)"
+                          >
+                            <option v-for="type in EDITABLE_PROPERTY_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div v-if="isOptionProperty(column.type)" class="prop-option-manage-list">
+                        <div
+                          v-for="(option, optionIndex) in column.options"
+                          :key="`${option.id || 'option'}-${optionIndex}`"
+                          class="prop-option-manage"
+                        >
+                          <label class="prop-option-color" :title="`设置${option.label || '选项'}颜色`">
+                            <span class="prop-option-dot is-large" :style="{ '--dot': option.colorValue || option.pickerValue || optionColorValue('', optionIndex) }"></span>
+                            <input
+                              type="color"
+                              :value="option.pickerValue || optionColorValue(option.colorValue, optionIndex)"
+                              :disabled="props.columnSaving"
+                              @input="updateDraftOptionColor(option, $event, optionIndex)"
+                            />
+                          </label>
+                          <input v-model="option.label" class="prop-option-input" :disabled="props.columnSaving" type="text" maxlength="24" placeholder="选项名称" />
+                          <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="删除选项" @click.stop="removeDraftOption(column, optionIndex)">
+                            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+                          </button>
+                        </div>
+                        <div class="prop-option-manage-foot">
+                          <button type="button" class="iconbtn sm" :disabled="props.columnSaving" title="新增选项" @click.stop="addDraftOption(column)">
+                            <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+                          </button>
+                          <span class="prop-option-manage-copy">单选 / 多选可在这里维护名称和颜色。</span>
+                        </div>
+                      </div>
+                      <p v-if="!canEditPropertyType(entry.topic.id, column)" class="prop-card-note">已有笔记使用此属性；为避免值被重新规整，当前不允许直接改类型。</p>
+                      <p v-else-if="propertyDiscardArmed" class="prop-card-note">再次点击取消可放弃当前属性草稿。</p>
+                      <p v-else class="prop-card-note">{{ propertyMetaLine({ ...column, isOption: false, filledCount: 0, totalCount: 0, checkedCount: 0, sampleValues: [] }) }}</p>
+                    </div>
+                    <p v-if="!propertyEditorColumns.length" class="prop-empty">点击右上角新增属性。</p>
+                  </template>
+
+                  <template v-else>
+                    <div
+                      v-for="property in entry.properties"
+                      :key="property.key"
+                      class="prop-card"
+                      :style="{ '--prop-tone': propertyTone(property.type) }"
+                    >
+                      <div class="prop-card-head">
+                        <div class="prop-card-main">
+                          <span class="prop-card-ic">
+                            <TimelineLucideIcon :name="propertyIcon(property.type)" :stroke-width="1.8" />
+                          </span>
+                          <div class="prop-card-copy">
+                            <span class="prop-card-name">{{ property.label }}</span>
+                            <span class="prop-card-type">{{ propTypeLabel(property.type) }}</span>
+                          </div>
+                        </div>
+                        <span class="prop-card-stat">{{ property.isOption ? `${property.optionCount} 项` : `${property.filledCount}/${property.totalCount}` }}</span>
+                      </div>
+
+                      <div v-if="property.isOption" class="prop-card-options">
+                        <button
+                          v-for="option in property.options"
+                          :key="option.value"
+                          type="button"
+                          class="prop-option-filter"
+                          :class="{
+                            active: entry.active && isOptionActive(property.key, option.value),
+                            inactive: !entry.active,
+                          }"
+                          :disabled="!entry.active"
+                          @click="filterPropertyOption(entry.topic.id, property.key, option.value)"
+                        >
+                          <span class="prop-option-dot" :style="{ '--dot': option.color }"></span>
+                          <span class="prop-option-label">{{ option.label }}</span>
+                          <span class="prop-option-count">{{ option.count }}</span>
+                        </button>
+                        <p v-if="!property.options.length" class="prop-empty">暂无选项</p>
+                      </div>
+                      <p v-else class="prop-card-note">{{ propertyMetaLine(property) }}</p>
+                    </div>
+                    <p v-if="!entry.properties.length" class="prop-empty">暂无属性。</p>
+                  </template>
+                </div>
+              </section>
             </template>
           </div>
         </div>

@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildOptionId,
   buildEditorDraft,
   buildEventPreview,
   buildGlobalFavoriteEvents,
+  buildPropertyKey,
   buildPropertyRows,
   buildReadableDetailGroups,
   buildSearchHighlightSegments,
@@ -434,9 +436,38 @@ test("buildPropertyRows reports option usage counts across events", () => {
   const rows = buildPropertyRows([tagsColumn], events);
   const tags = rows.find((row) => row.key === "tags");
   assert.equal(tags.isOption, true);
+  assert.equal(tags.filledCount, 2);
+  assert.equal(tags.totalCount, 3);
   assert.equal(tags.options.find((option) => option.value === "war").count, 1);
   assert.equal(tags.options.find((option) => option.value === "politics").count, 1);
   assert.equal(tags.options.find((option) => option.value === "reform").count, 1);
+});
+
+test("buildPropertyRows reports free-value fill counts and samples", () => {
+  const rows = buildPropertyRows(
+    [
+      { key: "place", label: "地点", type: "text", visible: true },
+      { key: "done", label: "完成", type: "checkbox", visible: true },
+    ],
+    [
+      { extra: { place: "广州", done: "true" } },
+      { extra: { place: "上海", done: "false" } },
+      { extra: { place: " ", done: "" } },
+    ]
+  );
+  const place = rows.find((row) => row.key === "place");
+  const done = rows.find((row) => row.key === "done");
+  assert.equal(place.filledCount, 2);
+  assert.deepEqual(place.sampleValues, ["广州", "上海"]);
+  assert.equal(done.filledCount, 2);
+  assert.equal(done.checkedCount, 1);
+});
+
+test("buildPropertyKey and buildOptionId generate stable ASCII fallbacks", () => {
+  assert.equal(buildPropertyKey("属性", ["property"]), "property_2");
+  assert.equal(buildPropertyKey("Source Name", ["source_name"]), "source_name_2");
+  assert.equal(buildOptionId("颜色标签", ["option"]), "option_2");
+  assert.equal(buildOptionId("Treaty Option", ["treaty_option"]), "treaty_option_2");
 });
 
 test("normalizeEventExtra coerces checkbox values to canonical true/false", () => {

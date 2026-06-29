@@ -50,6 +50,7 @@ import {
   SlidersHorizontal,
   SquarePen,
   Star,
+  Type,
   Leaf,
   Trash2,
   X,
@@ -123,6 +124,7 @@ const icons = {
   squarePen: SquarePen,
   star: Star,
   trash: Trash2,
+  type: Type,
 };
 
 const icon = computed(() => icons[props.name] || MoreHorizontal);

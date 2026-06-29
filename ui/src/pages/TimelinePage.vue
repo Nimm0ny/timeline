@@ -14,6 +14,7 @@ import { pushToast } from "@/composables/useToast";
 import { useTimelineStore } from "@/composables/useTimelineStore";
 import { useViewport } from "@/composables/useViewport";
 import {
+  buildOptionId,
   compareTimelineEvents,
   buildGlobalFavoriteEvents,
   groupTimelineEvents,
@@ -1138,10 +1139,28 @@ function focusFeedSearch() {
 // persisted to the topic immediately (optimistic local update first).
 async function addPropertyOption({ key, option }) {
   if (!state.activeTopicId || !key || !option?.id) return;
+  const topicEvents = timelineStore.eventsForTopic(state.activeTopicId);
+  const orphanIds = new Set();
+  for (const event of topicEvents) {
+    const raw = event?.extra?.[key];
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const value of list) {
+      const normalized = String(value || "").trim();
+      if (normalized) orphanIds.add(normalized);
+    }
+  }
+  const existingIds = new Set(
+    normalizeTopicColumns(state.activeTopicMeta?.columns)
+      .find((column) => column.key === key)
+      ?.options?.map((item) => item.id) || []
+  );
+  const nextOptionId = existingIds.has(option.id) || orphanIds.has(option.id)
+    ? buildOptionId(option.label || option.id, [...existingIds, ...orphanIds])
+    : option.id;
   const columns = normalizeTopicColumns(state.activeTopicMeta?.columns).map((column) => {
     if (column.key !== key) return column;
-    if ((column.options || []).some((existing) => existing.id === option.id)) return column;
-    return { ...column, options: [...(column.options || []), option] };
+    if ((column.options || []).some((existing) => existing.id === nextOptionId)) return column;
+    return { ...column, options: [...(column.options || []), { ...option, id: nextOptionId }] };
   });
   try {
     const meta = await api.updateTopicMeta(state.activeTopicId, {
@@ -1417,6 +1436,7 @@ watch(
       :brand="state.config.brandName"
       :topics="state.topics"
       :events="state.events"
+      :all-events="timelineStore.state.eventsIndex"
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
       :global-favorite-count="globalFavoriteEvents.length"
@@ -1426,6 +1446,7 @@ watch(
       :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
+      :column-saving="state.columnSaving"
       :create-topic-request-key="state.topicCreateRequestKey"
       @create-event="startCreateEvent"
       @create-event-in-topic="createEventInTopic"
@@ -1433,6 +1454,7 @@ watch(
       @rename-topic="renameTopic"
       @delete-topic="requestDeleteTopic"
       @batch-delete-topics="requestBatchDeleteTopics"
+      @save-topic-columns="saveTopicColumns"
       @focus-search="focusFeedSearch"
       @open-settings="openSettings"
       @open-global-favorites="openGlobalFavorites"

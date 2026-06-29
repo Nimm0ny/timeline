@@ -11,6 +11,7 @@ const COLUMN_TYPES = new Set(["text", "number", "date", "checkbox", "url", "emai
 const OPTION_COLUMN_TYPES = new Set(["select", "multiselect"]);
 const LINK_COLUMN_TYPES = new Set(["url", "email", "phone"]);
 const CHECKBOX_TRUE = new Set(["true", "1", "yes", "on"]);
+const SAMPLE_TEXT_LIMIT = 18;
 
 export function isOptionColumn(column) {
   return OPTION_COLUMN_TYPES.has(column?.type);
@@ -22,6 +23,39 @@ export function isCheckboxColumn(column) {
 
 export function isLinkColumn(column) {
   return LINK_COLUMN_TYPES.has(column?.type);
+}
+
+function normalizeMachineToken(value, fallback) {
+  const ascii = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x00-\x7F]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!ascii) return fallback;
+  return /^[a-z]/.test(ascii) ? ascii : `${fallback}_${ascii}`;
+}
+
+function buildUniqueMachineToken(seed, existing, fallback) {
+  const base = normalizeMachineToken(seed, fallback);
+  let candidate = base;
+  let suffix = 2;
+  while (existing.has(candidate) || RESERVED_COLUMN_KEYS.has(candidate)) {
+    candidate = `${base}_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+export function buildPropertyKey(seed, existingKeys = []) {
+  const existing = new Set((Array.isArray(existingKeys) ? existingKeys : []).map((value) => String(value || "").trim()).filter(Boolean));
+  return buildUniqueMachineToken(seed, existing, "property");
+}
+
+export function buildOptionId(seed, existingIds = []) {
+  const existing = new Set((Array.isArray(existingIds) ? existingIds : []).map((value) => String(value || "").trim()).filter(Boolean));
+  return buildUniqueMachineToken(seed, existing, "option");
 }
 
 // Single source for property-type → glyph (Notion-style metadata icons), shared
@@ -364,6 +398,14 @@ export function collectEventTags(event, column = null) {
     .map((id) => ({ value: id, label: id, color: "var(--accent)" }));
 }
 
+function pushSampleValue(samples, value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  if (samples.includes(text)) return;
+  if (samples.length >= 2) return;
+  samples.push(text.length > SAMPLE_TEXT_LIMIT ? `${text.slice(0, SAMPLE_TEXT_LIMIT).trim()}...` : text);
+}
+
 export function eventColumnValue(event, column) {
   if (!column) return "—";
   if (column.key === "time") return formatEventDate(event);
@@ -381,13 +423,32 @@ export function eventColumnValue(event, column) {
 
 // Per-property option rows (with usage counts) for the left "属性" tab.
 export function buildPropertyRows(columns, events) {
+  const items = Array.isArray(events) ? events : [];
   return normalizeTopicColumns(columns).map((column) => {
     const counts = new Map();
+    const sampleValues = [];
+    let filledCount = 0;
+    let checkedCount = 0;
     if (isOptionColumn(column)) {
-      for (const event of events || []) {
-        for (const chip of resolvePropertyChips(event, column)) {
+      for (const event of items) {
+        const chips = resolvePropertyChips(event, column);
+        if (chips.length) filledCount += 1;
+        for (const chip of chips) {
           counts.set(chip.value, (counts.get(chip.value) || 0) + 1);
         }
+      }
+    } else if (column.type === "checkbox") {
+      for (const event of items) {
+        const raw = event?.extra?.[column.key];
+        if (raw !== undefined && raw !== null && String(raw).trim() !== "") filledCount += 1;
+        if (isCheckboxChecked(raw)) checkedCount += 1;
+      }
+    } else {
+      for (const event of items) {
+        const value = String(event?.extra?.[column.key] ?? "").trim();
+        if (!value) continue;
+        filledCount += 1;
+        pushSampleValue(sampleValues, value);
       }
     }
     const options = (column.options || []).map((option) => ({
@@ -402,6 +463,11 @@ export function buildPropertyRows(columns, events) {
       type: column.type,
       isOption: isOptionColumn(column),
       options,
+      optionCount: options.length,
+      totalCount: items.length,
+      filledCount,
+      checkedCount,
+      sampleValues,
     };
   });
 }
