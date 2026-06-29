@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildPropertyUsage,
   buildOptionId,
   buildEditorDraft,
   buildEventPreview,
   buildGlobalFavoriteEvents,
   buildPropertyKey,
   buildPropertyRows,
+  canChangePropertyType,
+  editablePropertyTypeChoices,
   buildReadableDetailGroups,
   buildSearchHighlightSegments,
   buildTimelineGridTemplate,
@@ -461,6 +464,40 @@ test("buildPropertyRows reports free-value fill counts and samples", () => {
   assert.deepEqual(place.sampleValues, ["广州", "上海"]);
   assert.equal(done.filledCount, 2);
   assert.equal(done.checkedCount, 1);
+});
+
+test("buildPropertyUsage keeps type changes locked when only orphan option ids remain", () => {
+  const columns = [
+    {
+      key: "tags",
+      label: "标签",
+      type: "multiselect",
+      visible: true,
+      options: [{ id: "war", label: "战争", color: "var(--t-war)" }],
+    },
+  ];
+  const usage = buildPropertyUsage(columns, [
+    { extra: { tags: ["ghost"] } },
+    { extra: { tags: [] } },
+  ]);
+
+  assert.equal(usage.rows.get("tags").filledCount, 1);
+  assert.equal(usage.rawValueCounts.get("tags"), 1);
+  assert.equal(usage.orphanOptionIds.get("tags").has("ghost"), true);
+  assert.equal(canChangePropertyType(usage, "tags"), false);
+  assert.equal(canChangePropertyType(usage, "unknown"), true);
+});
+
+test("editablePropertyTypeChoices hides email and phone from normal creation flows", () => {
+  const values = editablePropertyTypeChoices().map((item) => item.value);
+  assert.deepEqual(values, ["text", "number", "date", "checkbox", "url", "select", "multiselect"]);
+});
+
+test("editablePropertyTypeChoices keeps a legacy current type representable", () => {
+  const choices = editablePropertyTypeChoices("email");
+  assert.equal(choices.at(-1).value, "email");
+  assert.equal(choices.at(-1).legacy, true);
+  assert.equal(choices.at(-1).label, "邮箱（旧）");
 });
 
 test("buildPropertyKey and buildOptionId generate stable ASCII fallbacks", () => {

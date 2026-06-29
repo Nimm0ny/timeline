@@ -12,6 +12,28 @@ const OPTION_COLUMN_TYPES = new Set(["select", "multiselect"]);
 const LINK_COLUMN_TYPES = new Set(["url", "email", "phone"]);
 const CHECKBOX_TRUE = new Set(["true", "1", "yes", "on"]);
 const SAMPLE_TEXT_LIMIT = 18;
+const EDITABLE_PROPERTY_TYPE_VALUES = ["text", "number", "date", "checkbox", "url", "select", "multiselect"];
+
+export const PROPERTY_TYPE_LABELS = {
+  text: "文本",
+  number: "数字",
+  date: "日期",
+  checkbox: "复选",
+  url: "链接",
+  email: "邮箱",
+  phone: "电话",
+  select: "单选",
+  multiselect: "多选",
+};
+
+export function editablePropertyTypeChoices(currentType = "") {
+  const base = EDITABLE_PROPERTY_TYPE_VALUES.map((value) => ({ value, label: PROPERTY_TYPE_LABELS[value] || value }));
+  const normalized = String(currentType || "").trim();
+  if (!normalized || EDITABLE_PROPERTY_TYPE_VALUES.includes(normalized) || !PROPERTY_TYPE_LABELS[normalized]) {
+    return base;
+  }
+  return [...base, { value: normalized, label: `${PROPERTY_TYPE_LABELS[normalized]}（旧）`, legacy: true }];
+}
 
 export function isOptionColumn(column) {
   return OPTION_COLUMN_TYPES.has(column?.type);
@@ -470,6 +492,38 @@ export function buildPropertyRows(columns, events) {
       sampleValues,
     };
   });
+}
+
+export function buildPropertyUsage(columns, events) {
+  const items = Array.isArray(events) ? events : [];
+  const rows = buildPropertyRows(columns, items);
+  const rowMap = new Map(rows.map((row) => [row.key, row]));
+  const orphanKeys = new Set();
+  const orphanOptionIds = new Map();
+  const rawValueCounts = new Map();
+
+  for (const event of items) {
+    for (const [key, value] of Object.entries(event?.extra || {})) {
+      orphanKeys.add(key);
+      if (!orphanOptionIds.has(key)) orphanOptionIds.set(key, new Set());
+      const optionBucket = orphanOptionIds.get(key);
+      const list = Array.isArray(value) ? value : value ? [value] : [];
+      if (list.some((item) => String(item || "").trim())) {
+        rawValueCounts.set(key, (rawValueCounts.get(key) || 0) + 1);
+      }
+      for (const item of list) {
+        const normalized = String(item || "").trim();
+        if (normalized) optionBucket.add(normalized);
+      }
+    }
+  }
+
+  return { rows: rowMap, orphanKeys, orphanOptionIds, rawValueCounts };
+}
+
+export function canChangePropertyType(usage, key) {
+  if (!key) return true;
+  return !usage || (usage.rawValueCounts?.get(key) || 0) === 0;
 }
 
 export function normalizeEventExtra(extra, columns = []) {

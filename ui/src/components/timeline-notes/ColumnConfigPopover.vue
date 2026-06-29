@@ -1,7 +1,7 @@
 <script setup>
 import { onBeforeUnmount, reactive, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { PROPERTY_TYPE_ICONS as TYPE_ICON, serializeTopicColumnsDraft } from "@/utils/timelineNotes";
+import { PROPERTY_TYPE_ICONS as TYPE_ICON, editablePropertyTypeChoices, serializeTopicColumnsDraft } from "@/utils/timelineNotes";
 
 const props = defineProps({
   columns: {
@@ -122,6 +122,10 @@ function toggleColumnVisibility(column) {
   flushPendingSave();
 }
 
+function editableTypes(columnType) {
+  return editablePropertyTypeChoices(columnType);
+}
+
 onBeforeUnmount(() => {
   flushPendingSave();
 });
@@ -180,15 +184,12 @@ onBeforeUnmount(() => {
         <label>
           <span>类型</span>
           <select v-model="column.type">
-            <option value="text">文本</option>
-            <option value="number">数字</option>
-            <option value="date">日期</option>
-            <option value="checkbox">复选</option>
-            <option value="url">链接</option>
-            <option value="email">邮箱</option>
-            <option value="phone">电话</option>
-            <option value="select">单选</option>
-            <option value="multiselect">多选</option>
+            <option
+              v-for="type in editableTypes(column.type)"
+              :key="type.value"
+              :value="type.value"
+              :disabled="type.legacy === true"
+            >{{ type.label }}</option>
           </select>
         </label>
         <label>

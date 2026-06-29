@@ -3118,8 +3118,13 @@ select:focus-visible {
 }
 
 /* Left "属性" tab: notebook-scoped property manager */
+.prop-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .prop-topic {
-  margin-bottom: 10px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--bg-surface);
@@ -3135,8 +3140,9 @@ select:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px;
+  padding: 8px 10px;
   cursor: pointer;
+  background: var(--bg-surface);
 }
 
 .prop-topic-head:hover {
@@ -3217,24 +3223,23 @@ select:focus-visible {
 }
 
 .prop-topic-body {
-  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px 10px;
 }
 
 .prop-card {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-soft);
-}
-
-.prop-card:first-child {
   margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-surface-2);
 }
 
 .prop-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -3266,7 +3271,7 @@ select:focus-visible {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .prop-card-name {
@@ -3291,14 +3296,14 @@ select:focus-visible {
 }
 
 .prop-card-note {
-  margin: 6px 0 0 32px;
+  margin: 8px 0 0 32px;
   color: var(--text-faint);
   font-size: 11.5px;
   line-height: 1.45;
 }
 
 .prop-card-options {
-  margin-top: 6px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3362,9 +3367,9 @@ select:focus-visible {
 
 .prop-manage-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) 116px;
   gap: 8px;
-  margin: 8px 0 0 32px;
+  margin: 10px 0 0 32px;
 }
 
 .prop-manage-field {
@@ -3386,6 +3391,7 @@ select:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--bg-surface-2);
   color: var(--text);
+  font-family: var(--tn-font);
   font-size: 13px;
   padding: 0 10px;
 }
@@ -3398,8 +3404,14 @@ select:focus-visible {
   box-shadow: inset 0 0 0 1.5px var(--accent-line);
 }
 
+.prop-manage-field select,
+.prop-manage-field option {
+  font-family: var(--tn-font);
+  font-size: 13px;
+}
+
 .prop-option-manage-list {
-  margin: 8px 0 0 32px;
+  margin: 10px 0 0 32px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3445,7 +3457,7 @@ select:focus-visible {
 
 .prop-empty {
   margin: 0;
-  padding: 2px 0 4px 32px;
+  padding: 2px 0 0 32px;
   color: var(--text-faint);
   font-size: 11.5px;
 }

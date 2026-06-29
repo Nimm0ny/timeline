@@ -4,11 +4,15 @@ import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import { OPTION_COLOR_HEX_MAP, OPTION_COLOR_PRESETS } from "@/constants/tags";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
+  buildPropertyUsage,
   buildOptionId,
   buildPropertyKey,
   buildPropertyRows,
+  canChangePropertyType,
   compareTimelineEvents,
+  editablePropertyTypeChoices,
   normalizeTopicColumns,
+  PROPERTY_TYPE_LABELS,
   propertyTypeIcon,
 } from "@/utils/timelineNotes";
 
@@ -225,20 +229,7 @@ const propertyEditorTopicId = ref(null);
 const propertyEditorColumns = ref([]);
 const propertySavePending = ref(null);
 const propertyDiscardArmed = ref(false);
-
-const EDITABLE_PROPERTY_TYPES = [
-  { value: "text", label: "文本" },
-  { value: "number", label: "数字" },
-  { value: "date", label: "日期" },
-  { value: "checkbox", label: "复选" },
-  { value: "url", label: "链接" },
-  { value: "email", label: "邮箱" },
-  { value: "phone", label: "电话" },
-  { value: "select", label: "单选" },
-  { value: "multiselect", label: "多选" },
-];
 const OPTION_PROPERTY_TYPES = new Set(["select", "multiselect"]);
-const PROPERTY_TYPE_LABELS = Object.fromEntries(EDITABLE_PROPERTY_TYPES.map((item) => [item.value, item.label]));
 const PROPERTY_TYPE_TONES = {
   text: "var(--text-faint)",
   number: "var(--t-economy)",
@@ -289,6 +280,10 @@ function isOptionProperty(type) {
 
 function propTypeLabel(type) {
   return PROPERTY_TYPE_LABELS[type] || "文本";
+}
+
+function editablePropertyTypesFor(type) {
+  return editablePropertyTypeChoices(type);
 }
 
 function propertyTone(type) {
@@ -456,35 +451,13 @@ const topicPropertyUsage = computed(() => {
   const usage = new Map();
   for (const topic of props.topics || []) {
     const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
-    const rows = buildPropertyRows(topic.columns, topicEvents);
-    const rowMap = new Map(rows.map((row) => [row.key, row]));
-    const orphanKeys = new Set();
-    const orphanOptionIds = new Map();
-    const rawValueCounts = new Map();
-    for (const event of topicEvents) {
-      for (const [key, value] of Object.entries(event?.extra || {})) {
-        orphanKeys.add(key);
-        if (!orphanOptionIds.has(key)) orphanOptionIds.set(key, new Set());
-        const bucket = orphanOptionIds.get(key);
-        const list = Array.isArray(value) ? value : value ? [value] : [];
-        if (list.some((item) => String(item || "").trim())) {
-          rawValueCounts.set(key, (rawValueCounts.get(key) || 0) + 1);
-        }
-        for (const item of list) {
-          const normalized = String(item || "").trim();
-          if (normalized) bucket.add(normalized);
-        }
-      }
-    }
-    usage.set(topic.id, { rows: rowMap, orphanKeys, orphanOptionIds, rawValueCounts });
+    usage.set(topic.id, buildPropertyUsage(topic.columns, topicEvents));
   }
   return usage;
 });
 
 function canEditPropertyType(topicId, column) {
-  if (!column?.key) return true;
-  const info = topicPropertyUsage.value.get(topicId);
-  return !info || (info.rawValueCounts?.get(column.key) || 0) === 0;
+  return canChangePropertyType(topicPropertyUsage.value.get(topicId), column?.key);
 }
 
 function addDraftProperty(topicId) {
@@ -1039,20 +1012,15 @@ watch(
           </div>
         </div>
 
-        <div v-if="panelHas('properties')" class="tg" :class="{ collapsed: state.sections.properties }">
-          <div class="tg-head" @click="toggleSection('properties')">
-            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.8" /></span>
-            <span class="tg-name">属性</span>
-          </div>
-          <div class="tg-body">
-            <p v-if="!props.topics.length" class="sidebar-copy">暂无笔记本。</p>
-            <template v-else>
-              <section
-                v-for="entry in propertyTopics"
-                :key="entry.topic.id"
-                class="prop-topic"
-                :class="{ active: entry.active, editing: entry.editing }"
-              >
+        <div v-if="panelHas('properties')" class="prop-panel">
+          <p v-if="!props.topics.length" class="sidebar-copy">暂无笔记本。</p>
+          <template v-else>
+            <section
+              v-for="entry in propertyTopics"
+              :key="entry.topic.id"
+              class="prop-topic"
+              :class="{ active: entry.active, editing: entry.editing }"
+            >
                 <div
                   class="prop-topic-head"
                   role="button"
@@ -1149,7 +1117,12 @@ watch(
                             :disabled="props.columnSaving || !canEditPropertyType(entry.topic.id, column)"
                             @change="updateDraftPropertyType(column, $event.target.value)"
                           >
-                            <option v-for="type in EDITABLE_PROPERTY_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option>
+                            <option
+                              v-for="type in editablePropertyTypesFor(column.type)"
+                              :key="type.value"
+                              :value="type.value"
+                              :disabled="type.legacy === true"
+                            >{{ type.label }}</option>
                           </select>
                         </label>
                       </div>
@@ -1233,7 +1206,6 @@ watch(
                 </div>
               </section>
             </template>
-          </div>
         </div>
 
         <div v-if="panelHas('stats')" class="tg" :class="{ collapsed: state.sections.stats }">
