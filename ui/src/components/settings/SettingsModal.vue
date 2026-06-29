@@ -39,13 +39,19 @@ function onKeydown(event) {
   if (event.key === "Escape" && props.open) emit("close");
 }
 
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
+onMounted(() => {
+  document.addEventListener("keydown", onKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <template>
-  <div v-if="props.open" class="settings-shell" role="dialog" aria-modal="true" aria-label="设置">
-    <div class="settings-nav">
+  <div v-if="props.open" class="settings-shell" @click="emit('close')">
+    <div class="settings-panel" role="dialog" aria-modal="true" aria-label="设置" @click.stop>
+      <div class="settings-nav">
       <div class="settings-nav-head">
         <span class="settings-nav-title">设置</span>
         <button type="button" class="iconbtn" title="关闭设置" @click="emit('close')">
@@ -63,9 +69,9 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         <TimelineLucideIcon :name="item.icon" :stroke-width="1.8" />
         <span>{{ item.label }}</span>
       </button>
-    </div>
+      </div>
 
-    <div class="settings-content scroll">
+      <div class="settings-content scroll">
       <section v-if="section === 'general'" class="settings-pane">
         <h3 class="settings-title">常规</h3>
         <div class="settings-row">
@@ -146,6 +152,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         </div>
         <p class="settings-note">以时间线为核心的极简笔记。Vue 3 + FastAPI + SQLite。</p>
       </section>
+      </div>
     </div>
   </div>
 </template>
