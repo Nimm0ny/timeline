@@ -8,8 +8,11 @@ See docs/note-types-and-views-design.md.
 
 from sqlalchemy import create_engine, inspect, text
 
+from backend.app.models.entities import ImageAsset, TimelineEvent
 from backend.app.services import legacy_migration as legacy_migration_module
 from backend.app.services.timeline import (
+    build_timeline_index,
+    get_event_detail,
     normalize_display_style,
     normalize_note_type,
     topic_capabilities,
@@ -121,6 +124,51 @@ def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
     ).json()
     assert entry["noteType"] == "entry"
     assert entry["bodyJson"] is None
+
+
+def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_topic):
+    """The gallery view (W3) reads the index DTO, so an event's primary image must
+    ride it (thumb preferred for the grid). Imageless events keep null image fields."""
+    image = ImageAsset(filename="abc.webp", thumb_filename="abc.thumb.webp", mime_type="image/webp")
+    db_session.add(image)
+    db_session.flush()
+
+    events = db_session.query(TimelineEvent).order_by(TimelineEvent.date_key.asc()).all()
+    events[0].image_id = image.id
+    db_session.commit()
+
+    by_id = {event["id"]: event for event in build_timeline_index(db_session)["events"]}
+
+    with_image = by_id[events[0].id]
+    assert with_image["image"] == "abc.webp"
+    assert with_image["imageUrl"] == "/images/abc.webp"
+    assert with_image["thumbUrl"] == "/images/abc.thumb.webp"
+
+    without_image = by_id[events[1].id]
+    assert without_image["image"] is None
+    assert without_image["imageUrl"] is None
+    assert without_image["thumbUrl"] is None
+
+    # The detail DTO must also carry thumbUrl so an edit round-trip (detail →
+    # index event) preserves the real thumb instead of the full-res image.
+    detail = get_event_detail(db_session, events[0].id)
+    assert detail["thumbUrl"] == "/images/abc.thumb.webp"
+    assert detail["imageUrl"] == "/images/abc.webp"
+
+
+def test_index_event_thumb_falls_back_to_full_image_when_no_thumb(db_session, seeded_topic):
+    """No thumb generated (e.g. gif/svg keep their original) → thumbUrl falls back
+    to the full image URL so a gallery card still has something to render."""
+    image = ImageAsset(filename="pic.gif", thumb_filename=None, mime_type="image/gif")
+    db_session.add(image)
+    db_session.flush()
+    event = db_session.query(TimelineEvent).order_by(TimelineEvent.date_key.asc()).first()
+    event.image_id = image.id
+    db_session.commit()
+
+    entry = next(item for item in build_timeline_index(db_session)["events"] if item["id"] == event.id)
+    assert entry["imageUrl"] == "/images/pic.gif"
+    assert entry["thumbUrl"] == "/images/pic.gif"
 
 
 def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch):

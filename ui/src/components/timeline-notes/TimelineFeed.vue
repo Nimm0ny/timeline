@@ -6,6 +6,7 @@ import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
   availableDisplayViews,
+  buildBoardGroups,
   buildEventPreview,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
@@ -16,6 +17,7 @@ import {
   eventColumnValue,
   isCheckboxChecked,
   isOptionColumn,
+  pickBoardColumn,
   resolveDisplayStyle,
   resolvePropertyChips,
   timelineHasTrailingSpacer,
@@ -184,6 +186,8 @@ const selectMode = ref(false);
 const selectedIds = ref([]);
 // Table view column sort (default: time ascending); clicking the active header flips.
 const tableSort = ref({ key: "time", dir: 1 });
+// Outline view: era groups the user has collapsed (keyed by group.key).
+const collapsedGroups = ref(new Set());
 
 function isRowSelected(id) {
   return selectedIds.value.includes(id);
@@ -264,6 +268,39 @@ function tableSortedEvents() {
   const columns = visibleColumns();
   const column = columns.find((col) => col.key === tableSort.value.key) || columns[0];
   return [...flatEvents()].sort(compareEventsByColumn(column, tableSort.value.dir));
+}
+
+// Board view: the option property to group by (SSOT-gated `board` capability
+// guarantees one exists when this view is reachable) and the resulting columns.
+function boardColumn() {
+  return pickBoardColumn(props.columns);
+}
+
+function boardGroups() {
+  return buildBoardGroups(flatEvents(), boardColumn());
+}
+
+// Gallery view: every entry as a card; the primary image (thumb preferred) rides
+// the index DTO, empty for imageless entries (which render a placeholder).
+function galleryEvents() {
+  return flatEvents();
+}
+
+function eventThumb(event) {
+  return event?.thumbUrl || event?.imageUrl || "";
+}
+
+// Outline view: collapsible era groups (reuses the era grouping the page already
+// computed in props.groups). Collapsed keys are component-local, reset per notebook.
+function isGroupCollapsed(key) {
+  return collapsedGroups.value.has(key);
+}
+
+function toggleGroup(key) {
+  const next = new Set(collapsedGroups.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  collapsedGroups.value = next;
 }
 
 function columnsWithWidthOverrides() {
@@ -489,6 +526,8 @@ watch(
     // Reset table sort to the default so a custom column sorted in one notebook
     // doesn't silently carry a now-missing caret into the next.
     tableSort.value = { key: "time", dir: 1 };
+    // Drop outline collapse state (era keys are per-notebook) on notebook switch.
+    collapsedGroups.value = new Set();
   },
   { immediate: true }
 );
@@ -657,7 +696,7 @@ onBeforeUnmount(() => {
           @save-columns="emit('save-columns', $event)"
         />
 
-        <div v-else-if="activePopover === 'views' && props.showViewSwitcher" class="tl-pop-views">
+        <template v-else-if="activePopover === 'views' && props.showViewSwitcher">
           <div class="pop-title">视图</div>
           <button
             v-for="view in switcherViews()"
@@ -673,7 +712,7 @@ onBeforeUnmount(() => {
             <span class="pop-item-label">{{ view.label }}</span>
             <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
           </button>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -908,6 +947,109 @@ onBeforeUnmount(() => {
             <TimelineLucideIcon name="star" :stroke-width="1.8" />
           </span>
         </button>
+      </div>
+    </div>
+
+    <div v-else-if="effectiveView() === 'board'" ref="feedRef" class="feed scroll feed-x">
+      <div class="feed-inner view-board">
+        <section v-for="bucket in boardGroups()" :key="bucket.id" class="bd-col">
+          <header class="bd-col-head">
+            <span class="bd-dot" :style="{ '--dot': bucket.color }"></span>
+            <b class="bd-col-name">{{ bucket.label }}</b>
+            <span class="bd-col-count">{{ bucket.items.length }}</span>
+          </header>
+          <div class="bd-col-body">
+            <button
+              v-for="event in bucket.items"
+              :key="`${bucket.id}:${event.id}`"
+              :ref="(element) => setRowRef(event.id, element)"
+              type="button"
+              class="bd-card"
+              :class="{
+                active: !selectMode && event.id === props.selectedEventId,
+                selected: selectMode && isRowSelected(event.id),
+              }"
+              @click="onRowClick(event.id)"
+            >
+              <b class="bd-card-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+              <span class="bd-card-sum"><HighlightedText :text="buildEventPreview(event, 70)" :query="props.searchQuery" /></span>
+              <span class="bd-card-foot">
+                <span class="bd-card-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+                <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+                  <TimelineLucideIcon name="star" :stroke-width="1.8" />
+                </span>
+              </span>
+            </button>
+            <p v-if="!bucket.items.length" class="bd-col-empty">空</p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div v-else-if="effectiveView() === 'gallery'" ref="feedRef" class="feed scroll">
+      <div class="feed-inner view-gallery">
+        <button
+          v-for="event in galleryEvents()"
+          :key="event.id"
+          :ref="(element) => setRowRef(event.id, element)"
+          type="button"
+          class="gl-card"
+          :class="{
+            active: !selectMode && event.id === props.selectedEventId,
+            selected: selectMode && isRowSelected(event.id),
+          }"
+          @click="onRowClick(event.id)"
+        >
+          <span class="gl-thumb" :class="{ 'is-empty': !eventThumb(event) }">
+            <img v-if="eventThumb(event)" :src="eventThumb(event)" :alt="eventColumnValue(event, { key: 'title' })" loading="lazy" />
+            <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
+          </span>
+          <span class="gl-meta">
+            <b class="gl-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+            <span class="gl-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+          </span>
+          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="effectiveView() === 'outline'" ref="feedRef" class="feed scroll">
+      <div class="feed-inner view-outline">
+        <section v-for="group in props.groups" :key="group.key" class="ol-group">
+          <button
+            type="button"
+            class="ol-head"
+            :class="{ collapsed: isGroupCollapsed(group.key) }"
+            @click="toggleGroup(group.key)"
+          >
+            <TimelineLucideIcon class="ol-caret" :name="isGroupCollapsed(group.key) ? 'chevronRight' : 'chevronDown'" :stroke-width="2" />
+            <b class="ol-title"><HighlightedText :text="group.title" :query="props.searchQuery" /></b>
+            <span class="ol-sub">{{ group.subtitle }}</span>
+          </button>
+          <div v-if="!isGroupCollapsed(group.key)" class="ol-body">
+            <button
+              v-for="event in group.items"
+              :key="event.id"
+              :ref="(element) => setRowRef(event.id, element)"
+              type="button"
+              class="ol-row"
+              :class="{
+                active: !selectMode && event.id === props.selectedEventId,
+                selected: selectMode && isRowSelected(event.id),
+              }"
+              @click="onRowClick(event.id)"
+            >
+              <span class="ol-bullet" aria-hidden="true"></span>
+              <b class="ol-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+              <span class="ol-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+              <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+                <TimelineLucideIcon name="star" :stroke-width="1.8" />
+              </span>
+            </button>
+          </div>
+        </section>
       </div>
     </div>
 

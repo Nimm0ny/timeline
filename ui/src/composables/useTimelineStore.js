@@ -50,6 +50,12 @@ function detailToIndexEvent(event = {}) {
     displayLabel: event.displayLabel,
     headline: event.headline,
     era: event.era,
+    // Keep the primary image so a gallery card doesn't lose its thumbnail after
+    // the event is edited (this is the index event the gallery reads). The detail
+    // DTO has no separate thumb for the primary image — fall back to the full URL.
+    image: event.image ?? null,
+    imageUrl: event.imageUrl ?? null,
+    thumbUrl: event.thumbUrl ?? event.imageUrl ?? null,
     extra: event.extra,
     favorite: event.favorite,
     deletedAt: event.deletedAt,

@@ -370,11 +370,11 @@ export function timelineHasTrailingSpacer(columns, hiddenKeys = null, titleWidth
   return titleWidth != null && Number.isFinite(Number(titleWidth));
 }
 
-// Display views (axis 1) = different layouts of the SAME entry data. W2 ships
-// timeline/table/list; board/gallery/outline land in W3. `requires` is the
-// tooltip shown when a view is capability-gated off. The backend is the SSOT for
-// which views are enabled (services/timeline.py `topic_capabilities` sends the
-// live `capabilities` set in the topic meta) — these maps only add presentation
+// Display views (axis 1) = different layouts of the SAME entry data. W2 shipped
+// timeline/table/list; W3 adds board/gallery/outline. `requires` is the tooltip
+// shown when a view is capability-gated off. The backend is the SSOT for which
+// views are enabled (services/timeline.py `topic_capabilities` sends the live
+// `capabilities` set in the topic meta) — these maps only add presentation
 // metadata (icon/label) and the implemented-view gate, never re-derive capability
 // from a per-event scan. See docs/note-types-and-views-design.md.
 export const DEFAULT_DISPLAY_STYLE = "timeline";
@@ -386,7 +386,52 @@ export const DISPLAY_VIEW_META = {
   list: { label: "列表", icon: "list", requires: "" },
   outline: { label: "大纲", icon: "outline", requires: "需要笔记内容" },
 };
-export const IMPLEMENTED_DISPLAY_STYLES = ["timeline", "table", "list"];
+export const IMPLEMENTED_DISPLAY_STYLES = ["timeline", "table", "board", "gallery", "list", "outline"];
+
+// Board (axis-1 kanban) groups entries by one option property. Auto-pick the
+// first visible select column (single value → one card per column), else the
+// first visible option column (a multiselect card can appear under each of its
+// values). Null when the notebook has no option property — the backend gates the
+// `board` capability on exactly this, so the view is unreachable in that case.
+export function pickBoardColumn(columns) {
+  const options = normalizeTopicColumns(columns).filter((column) => column.visible && isOptionColumn(column));
+  return options.find((column) => column.type === "select") || options[0] || null;
+}
+
+// Sentinel bucket id for board cards whose grouping property is empty/cleared.
+export const BOARD_UNASSIGNED_ID = "__unassigned__";
+
+// Bucket events into board columns by `column`'s options, in option order, each
+// bucket chronologically sorted. A multiselect event joins every matching bucket;
+// an event with no defined-option value falls into a trailing 未分类 bucket that
+// is shown only when non-empty. Option buckets always render (stable board shape).
+export function buildBoardGroups(events, column) {
+  if (!isOptionColumn(column)) return [];
+  const list = Array.isArray(events) ? events : [];
+  const buckets = new Map();
+  for (const option of column.options || []) {
+    buckets.set(option.id, { id: option.id, label: option.label, color: option.color || "var(--accent)", items: [] });
+  }
+  const unassigned = { id: BOARD_UNASSIGNED_ID, label: "未分类", color: "var(--border-strong)", items: [] };
+  for (const event of list) {
+    // Dedup membership: a malformed multiselect value (a repeated option id that
+    // slipped past normalize_extra) must not push the same card into one bucket
+    // twice — that would also collide the `${bucket.id}:${event.id}` v-for key.
+    const seen = new Set();
+    let matchedAny = false;
+    for (const chip of resolvePropertyChips(event, column)) {
+      if (!buckets.has(chip.value) || seen.has(chip.value)) continue;
+      seen.add(chip.value);
+      buckets.get(chip.value).items.push(event);
+      matchedAny = true;
+    }
+    if (!matchedAny) unassigned.items.push(event);
+  }
+  const ordered = [...buckets.values()];
+  if (unassigned.items.length) ordered.push(unassigned);
+  for (const bucket of ordered) bucket.items.sort(compareTimelineEvents);
+  return ordered;
+}
 
 // Implemented views for the switcher, each flagged enabled per the backend
 // capability set. Unknown/empty capabilities → all enabled (backward compatible

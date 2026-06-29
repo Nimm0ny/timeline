@@ -474,6 +474,7 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
     date_year, date_month, date_day = date_key_to_parts(date_key)
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     image_filename = event.image.filename if event.image else None
+    thumb_filename = event.image.thumb_filename if event.image else None
     items = serialize_items(event)
     attachments = [build_attachment_payload(item) for item in deserialize_json_list(event.attachments_json)]
     related_ids = [int(value) for value in deserialize_json_list(event.related_event_ids_json) if str(value).strip().isdigit()]
@@ -496,6 +497,13 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "noteType": normalize_note_type(event.note_type),
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
+        # Thumb (with full-image fallback) so the gallery card keeps its real thumb
+        # after an edit round-trips through detailToIndexEvent, not the full-res image.
+        "thumbUrl": (
+            f"/images/{thumb_filename}"
+            if thumb_filename
+            else (f"/images/{image_filename}" if image_filename else None)
+        ),
         "bodyMarkdown": event.body_markdown or default_body_markdown(items),
         "bodyJson": deserialize_body_json(event.body_json),
         "extra": deserialize_json_dict(event.extra_json),
@@ -752,6 +760,12 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
     date_year, date_month, date_day = date_key_to_parts(date_key)
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     attachments = deserialize_json_list(event.attachments_json)
+    # The gallery view renders the event's primary image; the index list is the
+    # only payload it sees, so carry the image URLs here (thumb preferred for the
+    # grid). The build_timeline_index query joinedloads `image`, so this is a join,
+    # not an N+1. Both are null for imageless events.
+    image_filename = event.image.filename if event.image else None
+    thumb_filename = event.image.thumb_filename if event.image else None
     return {
         "id": event.id,
         "topicId": event.topic_id,
@@ -766,6 +780,13 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
         "headline": headline,
         "era": event.era,
         "noteType": normalize_note_type(event.note_type),
+        "image": image_filename,
+        "imageUrl": f"/images/{image_filename}" if image_filename else None,
+        "thumbUrl": (
+            f"/images/{thumb_filename}"
+            if thumb_filename
+            else (f"/images/{image_filename}" if image_filename else None)
+        ),
         "extra": deserialize_json_dict(event.extra_json),
         "favorite": bool(event.favorite),
         "deletedAt": serialize_datetime(event.deleted_at),
@@ -976,7 +997,7 @@ def get_event_detail(db: Session, event_id: int) -> dict:
 def build_timeline_index(db: Session) -> dict:
     rows = (
         db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items))
+        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
         .order_by(TimelineEvent.topic_id.asc(), TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
         .all()
     )
