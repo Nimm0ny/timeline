@@ -3502,28 +3502,79 @@ select:focus-visible {
 
 .prop-pop-type {
   flex: none;
-  max-width: 96px;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  max-width: 120px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   font-family: var(--tn-font);
   font-size: 11.5px;
-  text-align: right;
   cursor: pointer;
-  padding: 2px;
+  padding: 2px 2px 2px 6px;
+  border-radius: var(--radius-sm);
 }
 
-.prop-pop-type:focus {
+.prop-pop-type:hover,
+.prop-pop-type.open {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.prop-pop-type:focus-visible {
   outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
 }
 
-/* Locked type renders as plain text (no select chrome / chevron) so it never
-   reads as an editable dropdown. */
+.prop-pop-type .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--text-faint);
+}
+
+/* Locked type renders as plain text (no chevron / hover) so it never reads as an
+   editable dropdown. */
 .prop-pop-type-locked {
   display: inline-flex;
   align-items: center;
+  padding: 2px 2px 2px 6px;
   color: var(--text-faint);
   cursor: default;
+}
+
+.prop-pop-type-locked:hover {
+  background: transparent;
+  color: var(--text-faint);
+}
+
+/* Custom property-type dropdown — a fixed overlay reusing the shared .popover +
+   .pop-item menu chrome, so its font / size / border match the rest of the app. */
+.prop-type-menu {
+  position: fixed;
+  z-index: 52;
+  width: 140px;
+  padding: 4px;
+}
+
+.prop-type-item .lbl {
+  font-size: 13px;
+}
+
+.prop-type-item.is-active .lbl {
+  color: var(--accent);
+}
+
+.prop-type-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.prop-type-check {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex: none;
 }
 
 .prop-pop-opts {
