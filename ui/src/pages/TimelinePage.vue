@@ -173,6 +173,13 @@ const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineSt
 const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
+// Display-style view (axis 1): raw persisted style + the backend-derived capability
+// set flow straight from the topic meta; the feed resolves the effective view.
+const feedDisplayStyle = computed(() => state.activeTopicMeta?.displayStyle || "timeline");
+const feedCapabilities = computed(() => state.activeTopicMeta?.capabilities || []);
+const showViewSwitcher = computed(
+  () => !isMobile.value && !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
+);
 // Visible now means visible: once a user turns a property column on, the center
 // feed renders it even if every current row would show "—". This keeps the eye
 // toggle's behavior direct and predictable.
@@ -1245,7 +1252,10 @@ async function persistTopicColumns(topicId, columns, { silentSuccess = false } =
         columns: normalized,
       });
       if (revision !== latestColumnSaveRevisionByTopic.get(topicId)) return meta;
-      timelineStore.upsertTopic(meta);
+      // A column-save snapshot may carry a stale displayStyle if a view switch is
+      // in flight — keep the store's current view rather than reverting it.
+      const currentStyle = timelineStore.topicById(topicId)?.displayStyle;
+      timelineStore.upsertTopic(currentStyle ? { ...meta, displayStyle: currentStyle } : meta);
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       if (!silentSuccess) pushToast("列定义已保存");
       return meta;
@@ -1274,6 +1284,35 @@ async function saveTopicColumns(payload) {
   const columns = payload?.columns || [];
   if (!topicId) return;
   await persistTopicColumns(topicId, columns, { silentSuccess: true });
+}
+
+async function changeDisplayStyle(style) {
+  const topicId = state.activeTopicId;
+  if (!topicId || !style) return;
+  const topicMeta = timelineStore.topicById(topicId) || state.activeTopicMeta;
+  if (!topicMeta || topicMeta.displayStyle === style) return;
+  // Optimistic: reflect the new view immediately.
+  timelineStore.upsertTopic({ ...topicMeta, displayStyle: style });
+  if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+  // Serialize through the shared meta-save chain so a concurrent column-save PUT
+  // (or a rapid second view switch) can't land out of order and revert the view.
+  const task = async () => {
+    try {
+      const meta = await api.updateTopicMeta(topicId, { displayStyle: style });
+      timelineStore.upsertTopic({ ...meta, displayStyle: style });
+      if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+    } catch (error) {
+      try {
+        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+      } catch {
+        // Best-effort rollback to server truth; keep the error toast.
+      }
+      pushToast(`视图切换失败：${error.message}`, "error");
+    }
+  };
+  columnSaveChain = columnSaveChain.then(task, task);
+  return columnSaveChain;
 }
 
 async function resizeTopicColumn(payload) {
@@ -1486,6 +1525,9 @@ watch(
       :show-source="isGlobalFavoritesMode"
       :global-favorites-mode="isGlobalFavoritesMode"
       :show-column-controls="!isGlobalFavoritesMode"
+      :display-style="feedDisplayStyle"
+      :capabilities="feedCapabilities"
+      :show-view-switcher="showViewSwitcher"
       :search-placeholder="isGlobalFavoritesMode ? '搜索跨本收藏' : '搜索当前时间线'"
       :search-request-key="state.searchRequestKey"
       :command-search="!isMobile"
@@ -1494,6 +1536,7 @@ watch(
       @create-event="startCreateEvent"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
+      @change-view="changeDisplayStyle"
       @resize-column="resizeTopicColumn"
       @select-event="selectEvent"
       @toggle-favorite="toggleFavorite"

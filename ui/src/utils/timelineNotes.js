@@ -370,6 +370,67 @@ export function timelineHasTrailingSpacer(columns, hiddenKeys = null, titleWidth
   return titleWidth != null && Number.isFinite(Number(titleWidth));
 }
 
+// Display views (axis 1) = different layouts of the SAME entry data. W2 ships
+// timeline/table/list; board/gallery/outline land in W3. `requires` is the
+// tooltip shown when a view is capability-gated off. The backend is the SSOT for
+// which views are enabled (services/timeline.py `topic_capabilities` sends the
+// live `capabilities` set in the topic meta) — these maps only add presentation
+// metadata (icon/label) and the implemented-view gate, never re-derive capability
+// from a per-event scan. See docs/note-types-and-views-design.md.
+export const DEFAULT_DISPLAY_STYLE = "timeline";
+export const DISPLAY_VIEW_META = {
+  timeline: { label: "时间线", icon: "timeline", requires: "需要带日期的笔记" },
+  table: { label: "表格", icon: "table", requires: "" },
+  board: { label: "看板", icon: "board", requires: "需要一个单选或多选属性" },
+  gallery: { label: "画廊", icon: "gallery", requires: "需要带配图的笔记" },
+  list: { label: "列表", icon: "list", requires: "" },
+  outline: { label: "大纲", icon: "outline", requires: "需要笔记内容" },
+};
+export const IMPLEMENTED_DISPLAY_STYLES = ["timeline", "table", "list"];
+
+// Implemented views for the switcher, each flagged enabled per the backend
+// capability set. Unknown/empty capabilities → all enabled (backward compatible
+// with payloads predating the capability field).
+export function availableDisplayViews(capabilities) {
+  const known = Array.isArray(capabilities) && capabilities.length ? new Set(capabilities) : null;
+  return IMPLEMENTED_DISPLAY_STYLES.map((key) => ({
+    key,
+    label: DISPLAY_VIEW_META[key].label,
+    icon: DISPLAY_VIEW_META[key].icon,
+    requires: DISPLAY_VIEW_META[key].requires,
+    enabled: known ? known.has(key) : true,
+  }));
+}
+
+// Effective view to render: the persisted style if it's implemented AND currently
+// capable, else the first usable implemented view (table/list are always capable).
+// Guards a persisted board/gallery/outline (set via API or a later wave) and a
+// timeline notebook that has no dated events.
+export function resolveDisplayStyle(style, capabilities) {
+  const known = Array.isArray(capabilities) && capabilities.length ? new Set(capabilities) : null;
+  const usable = (key) => IMPLEMENTED_DISPLAY_STYLES.includes(key) && (!known || known.has(key));
+  if (style && usable(style)) return style;
+  return IMPLEMENTED_DISPLAY_STYLES.find(usable) || DEFAULT_DISPLAY_STYLE;
+}
+
+// Comparator for the table view's column sort (dir 1 asc / -1 desc). time →
+// dateKey numeric; checkbox → checked first; otherwise the localized rendered
+// value. A stable id tiebreaker keeps equal rows from jittering between sorts.
+export function compareEventsByColumn(column, dir = 1) {
+  const sign = dir < 0 ? -1 : 1;
+  return (a, b) => {
+    let primary;
+    if (!column || column.key === "time") {
+      primary = (a?.dateKey || 0) - (b?.dateKey || 0);
+    } else if (column.type === "checkbox") {
+      primary = (isCheckboxChecked(b?.extra?.[column.key]) ? 1 : 0) - (isCheckboxChecked(a?.extra?.[column.key]) ? 1 : 0);
+    } else {
+      primary = String(eventColumnValue(a, column)).localeCompare(String(eventColumnValue(b, column)), "zh");
+    }
+    return primary * sign || (a?.id || 0) - (b?.id || 0);
+  };
+}
+
 // A property column "has a value" for an event when the row renders something
 // other than the "—" placeholder for it (option chip, checked box, or non-blank
 // text/number/link). Mirrors the per-type rendering in `eventColumnValue` and

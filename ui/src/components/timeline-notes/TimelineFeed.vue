@@ -5,14 +5,18 @@ import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
+  availableDisplayViews,
   buildEventPreview,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   clampTimelineColumnWidth,
+  compareEventsByColumn,
   dateKeyFromLocator,
+  DISPLAY_VIEW_META,
   eventColumnValue,
   isCheckboxChecked,
   isOptionColumn,
+  resolveDisplayStyle,
   resolvePropertyChips,
   timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
@@ -104,6 +108,18 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  displayStyle: {
+    type: String,
+    default: "timeline",
+  },
+  capabilities: {
+    type: Array,
+    default: () => [],
+  },
+  showViewSwitcher: {
+    type: Boolean,
+    default: false,
+  },
   searchPlaceholder: {
     type: String,
     default: "搜索当前时间线",
@@ -140,6 +156,7 @@ const emit = defineEmits([
   "batch-restore",
   "batch-permanent-delete",
   "open-command-palette",
+  "change-view",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -165,6 +182,8 @@ let stopColumnResize = null;
 // restore/permanent), so no full-payload reconstruction is needed.
 const selectMode = ref(false);
 const selectedIds = ref([]);
+// Table view column sort (default: time ascending); clicking the active header flips.
+const tableSort = ref({ key: "time", dir: 1 });
 
 function isRowSelected(id) {
   return selectedIds.value.includes(id);
@@ -206,7 +225,45 @@ watch(
 
 function togglePopover(name) {
   if (name === "columns" && !props.showColumnControls) return;
+  if (name === "views" && !props.showViewSwitcher) return;
   activePopover.value = activePopover.value === name ? "" : name;
+}
+
+// Display-style views (axis 1). Mobile stays on the timeline; otherwise the
+// effective view is the persisted style resolved against the live capability set
+// (services/timeline.py is SSOT) so an unimplemented/incapable style degrades to
+// table instead of rendering blank.
+function effectiveView() {
+  if (props.mobile) return "timeline";
+  return resolveDisplayStyle(props.displayStyle, props.capabilities);
+}
+
+function switcherViews() {
+  return availableDisplayViews(props.capabilities);
+}
+
+function currentViewIcon() {
+  return DISPLAY_VIEW_META[effectiveView()]?.icon || "timeline";
+}
+
+function pickView(view) {
+  if (!view?.enabled) return;
+  activePopover.value = "";
+  if (view.key !== effectiveView()) emit("change-view", view.key);
+}
+
+function flatEvents() {
+  return props.groups.flatMap((group) => group.items);
+}
+
+function setTableSort(key) {
+  tableSort.value = tableSort.value.key === key ? { key, dir: tableSort.value.dir * -1 } : { key, dir: 1 };
+}
+
+function tableSortedEvents() {
+  const columns = visibleColumns();
+  const column = columns.find((col) => col.key === tableSort.value.key) || columns[0];
+  return [...flatEvents()].sort(compareEventsByColumn(column, tableSort.value.dir));
 }
 
 function columnsWithWidthOverrides() {
@@ -429,6 +486,9 @@ watch(
   () => props.topicId,
   (topicId) => {
     builtinWidths.value = loadBuiltinWidths(topicId);
+    // Reset table sort to the default so a custom column sorted in one notebook
+    // doesn't silently carry a now-missing caret into the next.
+    tableSort.value = { key: "time", dir: 1 };
   },
   { immediate: true }
 );
@@ -533,6 +593,7 @@ onBeforeUnmount(() => {
         </button>
 
         <button
+          v-if="effectiveView() === 'timeline'"
           id="previewBtn"
           type="button"
           class="iconbtn lg"
@@ -551,6 +612,18 @@ onBeforeUnmount(() => {
           @click.stop="toggleSelectMode"
         >
           <TimelineLucideIcon name="listChecks" :stroke-width="1.8" />
+        </button>
+
+        <button
+          v-if="props.showViewSwitcher"
+          type="button"
+          class="iconbtn lg"
+          data-popover-anchor="views"
+          :class="{ on: activePopover === 'views' }"
+          title="切换视图"
+          @click.stop="togglePopover('views')"
+        >
+          <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.8" />
         </button>
       </div>
 
@@ -583,6 +656,24 @@ onBeforeUnmount(() => {
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"
         />
+
+        <div v-else-if="activePopover === 'views' && props.showViewSwitcher" class="tl-pop-views">
+          <div class="pop-title">视图</div>
+          <button
+            v-for="view in switcherViews()"
+            :key="view.key"
+            type="button"
+            class="pop-item"
+            :class="{ 'is-active': view.key === effectiveView(), 'is-locked': !view.enabled }"
+            :disabled="!view.enabled"
+            :title="view.enabled ? '' : view.requires"
+            @click="pickView(view)"
+          >
+            <TimelineLucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.8" />
+            <span class="pop-item-label">{{ view.label }}</span>
+            <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -612,7 +703,7 @@ onBeforeUnmount(() => {
     <div v-if="props.loading" class="feed-empty">正在加载时间线...</div>
     <div v-else-if="props.error" class="feed-empty">{{ props.error }}</div>
     <div v-else-if="!props.groups.length" class="feed-empty">{{ props.emptyReason }}</div>
-    <div v-else ref="feedRef" class="feed scroll">
+    <div v-else-if="effectiveView() === 'timeline'" ref="feedRef" class="feed scroll">
       <div class="feed-inner" :style="{ '--rowgrid': rowGrid() }">
         <div class="tl-cols" id="tlCols">
           <span></span>
@@ -721,6 +812,129 @@ onBeforeUnmount(() => {
             </span>
           </button>
         </section>
+      </div>
+    </div>
+
+    <div v-else-if="effectiveView() === 'table'" ref="feedRef" class="feed scroll">
+      <div class="feed-inner view-table" :style="{ '--rowgrid': rowGrid() }">
+        <div class="tl-cols">
+          <span></span>
+          <button
+            v-for="column in visibleColumns()"
+            :key="column.key"
+            type="button"
+            class="tl-col-head th-sort"
+            :class="{ 'is-sorted': tableSort.key === column.key }"
+            @click.stop="setTableSort(column.key)"
+          >
+            <span>{{ column.label }}</span>
+            <TimelineLucideIcon
+              v-if="tableSort.key === column.key"
+              class="th-caret"
+              :name="tableSort.dir < 0 ? 'chevronDown' : 'chevronUp'"
+              :stroke-width="2"
+            />
+          </button>
+          <span v-if="hasTrailingSpacer()" aria-hidden="true"></span>
+          <span></span>
+        </div>
+
+        <button
+          v-for="event in tableSortedEvents()"
+          :key="event.id"
+          :ref="(element) => setRowRef(event.id, element)"
+          type="button"
+          class="row"
+          :class="{
+            active: !selectMode && event.id === props.selectedEventId,
+            selected: selectMode && isRowSelected(event.id),
+          }"
+          @click="onRowClick(event.id)"
+        >
+          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
+            <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+          </span>
+          <span v-else aria-hidden="true"></span>
+          <template v-for="column in visibleColumns()" :key="column.key">
+            <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
+            <span v-else-if="column.key === 'title'" class="c-title">
+              <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
+              <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
+                <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+              </span>
+            </span>
+            <span v-else-if="isOptionColumn(column)" class="c-tags">
+              <span
+                v-for="chip in resolvePropertyChips(event, column).slice(0, FEED_CHIP_LIMIT)"
+                :key="chip.value"
+                class="td"
+                :style="{ '--dot': chip.color }"
+              >
+                <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+              </span>
+              <span
+                v-if="resolvePropertyChips(event, column).length > FEED_CHIP_LIMIT"
+                class="td-more"
+                :title="resolvePropertyChips(event, column).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                >+{{ resolvePropertyChips(event, column).length - FEED_CHIP_LIMIT }}</span
+              >
+              <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
+            </span>
+            <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
+              <TimelineLucideIcon
+                v-if="isCheckboxChecked(event.extra?.[column.key])"
+                name="check"
+                :stroke-width="2.2"
+              />
+              <span v-else class="c-empty">—</span>
+            </span>
+            <span
+              v-else
+              class="c-source"
+              :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
+              :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
+            ><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
+          </template>
+          <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
+          <span
+            v-if="!selectMode"
+            class="row-act"
+            :title="props.trashView ? '永久删除' : '移入回收站'"
+            @click.stop="deleteRow(event)"
+          >
+            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+          </span>
+          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div v-else ref="feedRef" class="feed scroll">
+      <div class="feed-inner view-list">
+        <button
+          v-for="event in flatEvents()"
+          :key="event.id"
+          :ref="(element) => setRowRef(event.id, element)"
+          type="button"
+          class="lv-row"
+          :class="{
+            active: !selectMode && event.id === props.selectedEventId,
+            selected: selectMode && isRowSelected(event.id),
+          }"
+          @click="onRowClick(event.id)"
+        >
+          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
+            <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+          </span>
+          <b class="lv-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+          <span class="lv-sum"><HighlightedText :text="buildEventPreview(event, 80)" :query="props.searchQuery" /></span>
+          <span class="lv-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          </span>
+        </button>
       </div>
     </div>
   </section>
