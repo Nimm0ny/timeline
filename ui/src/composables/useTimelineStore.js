@@ -32,6 +32,7 @@ function normalizeIndexEvent(event = {}) {
     topicId: Number(event.topicId),
     dateKey,
     dateParts: event.dateParts || datePartsFromKey(dateKey),
+    noteType: event.noteType || "entry",
     extra: event.extra && typeof event.extra === "object" ? event.extra : {},
     favorite: Boolean(event.favorite),
     deletedAt: event.deletedAt ?? null,
@@ -50,6 +51,9 @@ function detailToIndexEvent(event = {}) {
     displayLabel: event.displayLabel,
     headline: event.headline,
     era: event.era,
+    // Keep the note kind so the feed still flags a mindmap (and routes its click to
+    // the canvas) after an edit round-trips through here.
+    noteType: event.noteType || "entry",
     // Keep the primary image so a gallery card doesn't lose its thumbnail after
     // the event is edited (this is the index event the gallery reads). The detail
     // DTO has no separate thumb for the primary image — fall back to the full URL.

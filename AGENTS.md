@@ -145,6 +145,6 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - 组件归属：业务判断在页面/composable，展示组件只收 props/emit；按 spec §9 文件映射改对应文件，禁止把逻辑堆错层。
 - 不变量（须显式保证并截图验证）：自适应且无 `transform:scale()` 承载布局、全局禁滚动条、默认两栏点击行展开右栏、三栏拖拽带 min/max、中栏行高固定且「显示预览」不改行高、右栏阅读↔编辑零位移且无边框无工具栏、编辑器内图片内联。
 - 数据契约：自定义列只用 `Topic.columns_json + TimelineEvent.extra_json`（spec §8.2）；改字段必须前后端 + 测试同步；未定义列键后端丢弃；无值显示 `—`，**禁止臆造数据**。
-- 依赖：除 `CodeMirror 6`（无感编辑）外不新增依赖；不改 `package-lock.json`（除非确有依赖变更）；不做无关重构/格式化。
+- 依赖：仅两项登记例外——`CodeMirror 6`（无感 markdown 编辑）与 `simple-mind-map`（W4 思维导图引擎，wanglin2/mind-map，MIT，框架无关核心，经 `MindmapEditor.vue` 动态 `import('simple-mind-map/full.js')` 懒加载，主包零膨胀）；除此之外不新增依赖；不改 `package-lock.json`（除非确有依赖变更）；不做无关重构/格式化。
 - 提交前逐条过 spec §14.2 自检清单；视觉改动按 `docs/agent-frontend-hardness.md` 做 QA 并归档截图；未达标不得 commit。
 - 禁止恢复旧基准元素：红色主强调、卡片流、底部 composer、有边框编辑器 + 工具栏、右栏上一条/下一条箭头、右栏用户栏、左栏日历；禁止未按 `docs/mobile-web-design.md` 独立断点基准擅自移动端重排、营销 hero、装饰渐变/glow/玻璃态、嵌套卡片。（暗色已解禁，经主题系统统一令牌实现，见 `docs/appearance-system-design.md`；仍禁装饰渐变/glow/玻璃态。）

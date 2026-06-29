@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from "vue-router";
 import CommandPalette from "@/components/timeline-notes/CommandPalette.vue";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
+import MindmapSurface from "@/components/timeline-notes/MindmapSurface.vue";
 import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
 import RelatedEventPreviewPopover from "@/components/timeline-notes/RelatedEventPreviewPopover.vue";
 import SettingsModal from "@/components/settings/SettingsModal.vue";
@@ -117,6 +118,10 @@ const state = reactive({
   confirmDeleteTopics: null,
   confirmPurgeIds: null,
   rightOpen: false,
+  // The mindmap note (note_type=mindmap) whose canvas is open in the center column
+  // (D-2: 中栏内嵌). Null → the feed list shows. mindmapSaving drives the bar status.
+  mindmapOpenId: null,
+  mindmapSaving: false,
   mobileSidebarOpen: false,
   mobileSearchOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
@@ -208,6 +213,17 @@ const detailPaneEvent = computed(() => {
   return selectedEvent.value;
 });
 const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.detailLoading || (detailRequiresFullEvent.value && !selectedEventDetail.value))));
+// The mindmap note whose canvas occupies the center column. Reads the full detail
+// (with bodyJson) from the cache; openMindmap ensures it is loaded first. The
+// topic+selection guard auto-hides a stale canvas after any context change (switch
+// notebook / filter / select another note) so the center can't get stuck showing an
+// old mindmap over the new feed — no per-navigation closeMindmap() needed.
+const mindmapNote = computed(() => {
+  if (!state.mindmapOpenId) return null;
+  const note = timelineStore.detailById(state.mindmapOpenId);
+  if (!note || note.topicId !== state.activeTopicId || state.selectedEventId !== state.mindmapOpenId) return null;
+  return note;
+});
 
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
@@ -553,6 +569,7 @@ function selectCommandEvent(result) {
   const topicId = Number(result?.topicId);
   const eventId = Number(result?.id);
   if (!topicId || !eventId) return;
+  const isMindmap = timelineStore.state.eventsIndex.find((item) => item.id === eventId)?.noteType === "mindmap";
   runOrConfirm(async () => {
     closeCommandPalette();
     state.collectionMode = "";
@@ -565,11 +582,17 @@ function selectCommandEvent(result) {
       preferredTopicId: topicId,
       preferredEventId: eventId,
       preferredMode: "view",
-      openDetail: true,
+      openDetail: !isMindmap,
     });
+    closeMobileSidebar();
+    // A mindmap opens its own center canvas, never the markdown detail pane.
+    if (isMindmap) {
+      await openMindmap(eventId);
+      return;
+    }
+    closeMindmap();
     state.detailError = "";
     state.rightOpen = true;
-    closeMobileSidebar();
     await syncRouteState({
       topicId,
       eventId,
@@ -646,6 +669,21 @@ function saveAndContinue() {
 async function applyEventSelection(eventId) {
   const id = Number(eventId);
   const event = timelineStore.state.eventsIndex.find((item) => item.id === id);
+  // A mindmap opens its own center canvas (D-2), never the markdown detail pane.
+  // Bring its notebook to the front first if it lives in another one.
+  if (event?.noteType === "mindmap") {
+    if (event.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
+      exitGlobalFavoritesMode({ reselect: false });
+      state.sidebarFilter = "all";
+      state.propertyFilter = { key: "", value: "" };
+      state.activeEra = "";
+      state.locateDate = "";
+      state.searchQuery = "";
+      applyWorkspaceSelection({ preferredTopicId: event.topicId, preferredEventId: id, preferredMode: "view", openDetail: false });
+    }
+    await openMindmap(id);
+    return;
+  }
   if (event?.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
     state.collectionMode = "";
     state.sidebarFilter = "all";
@@ -683,6 +721,103 @@ async function applyEventSelection(eventId) {
 
 function selectEvent(eventId) {
   runOrConfirm(() => applyEventSelection(eventId));
+}
+
+// Open a mindmap note's canvas in the center column (no markdown detail pane).
+// Context (notebook switch) is handled by the caller; here we just load the full
+// detail (for bodyJson) and flip the center surface.
+async function openMindmap(eventId) {
+  const id = Number(eventId);
+  state.selectedEventId = id;
+  state.detailMode = "view";
+  state.detailError = "";
+  state.rightOpen = false;
+  state.mindmapOpenId = id;
+  await timelineStore.ensureEventDetail(id);
+  await syncRouteState({ eventId: id, mode: "view" });
+}
+
+function closeMindmap() {
+  state.mindmapOpenId = null;
+}
+
+// Create a mindmap note (today-dated so it flows through the entry views as a
+// single node) seeded with one root, then open its canvas.
+function createMindmapNote() {
+  if (!state.activeTopicId) {
+    pushToast("请先选择一个笔记本", "error");
+    return;
+  }
+  runOrConfirm(async () => {
+    exitGlobalFavoritesMode();
+    closeMobileSidebar();
+    const today = new Date();
+    try {
+      const result = await api.createTopicEvent(state.activeTopicId, {
+        dateYear: today.getFullYear(),
+        dateMonth: today.getMonth() + 1,
+        dateDay: today.getDate(),
+        headline: "未命名导图",
+        noteType: "mindmap",
+        bodyJson: { data: { text: "中心主题" }, children: [] },
+      });
+      timelineStore.upsertEvent(result);
+      syncActiveTopicFromStore();
+      await openMindmap(result.id);
+      pushToast("已创建思维导图");
+    } catch (error) {
+      pushToast(`创建失败：${error.message}`, "error");
+    }
+  });
+}
+
+// simple-mind-map's rich-text nodes store HTML (e.g. "<p>中心主题</p>"); the note
+// headline is plain text, so decode tags AND entities before tracking the root label.
+function htmlToPlainText(html) {
+  const raw = String(html || "");
+  if (typeof document === "undefined") return raw.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const tmp = document.createElement("div");
+  tmp.innerHTML = raw;
+  return (tmp.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+// Saves are serialized through a chain so the editor's debounced data_change bursts
+// can't land out of order. The save carries the bound note id (the editor is keyed
+// per note) so a flush during a note switch — or after the canvas closed — writes to
+// the right note, never the newly-opened one. The headline tracks the root node text.
+let mindmapSaveChain = Promise.resolve();
+function saveMindmapTree(payload) {
+  mindmapSaveChain = mindmapSaveChain.then(() => persistMindmapTree(payload));
+  return mindmapSaveChain;
+}
+
+async function persistMindmapTree({ id, tree } = {}) {
+  const note = id ? timelineStore.detailById(id) : null;
+  if (!note) return;
+  state.mindmapSaving = true;
+  try {
+    const rootText = htmlToPlainText(tree?.data?.text) || note.headline || "未命名导图";
+    const result = await api.updateEvent(id, {
+      dateYear: note.dateParts.year,
+      dateMonth: note.dateParts.month,
+      dateDay: note.dateParts.day,
+      headline: rootText,
+      era: note.era || "",
+      noteType: "mindmap",
+      bodyJson: tree,
+      extra: note.extra || {},
+      // updateEvent is a full replace — forward the note's existing attachments and
+      // related links so a tree autosave can't blank them.
+      attachments: note.attachments || [],
+      relatedEventIds: note.relatedEventIds || [],
+    });
+    timelineStore.upsertEvent(result);
+    syncActiveTopicFromStore();
+  } catch (error) {
+    pushToast(`保存失败：${error.message}`, "error");
+  } finally {
+    state.mindmapSaving = false;
+  }
 }
 
 function relatedPreviewPosition(anchor) {
@@ -885,6 +1020,7 @@ async function saveEvent(payload) {
 async function selectTopic(topicId) {
   if (topicId === state.activeTopicId && !isGlobalFavoritesMode.value) return;
   runOrConfirm(async () => {
+    closeMindmap();
     exitGlobalFavoritesMode({ reselect: false });
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
@@ -1504,7 +1640,16 @@ watch(
       @update:property-filter="updatePropertyFilter"
     />
 
+    <MindmapSurface
+      v-if="mindmapNote"
+      :note="mindmapNote"
+      :saving="state.mindmapSaving"
+      @back="closeMindmap"
+      @save="saveMindmapTree"
+    />
+
     <TimelineFeed
+      v-else
       :loading="state.loading"
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"
@@ -1547,6 +1692,7 @@ watch(
       @batch-restore="batchRestoreEvents"
       @batch-permanent-delete="requestBatchPurge"
       @open-command-palette="openCommandPalette"
+      @create-mindmap="createMindmapNote"
     />
 
     <EventDetailPane

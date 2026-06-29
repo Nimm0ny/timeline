@@ -126,6 +126,47 @@ def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
     assert entry["bodyJson"] is None
 
 
+def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
+    """A mindmap's content is its tree (body_json); it needs neither markdown items
+    nor an era. W4 relaxed both for note_type=mindmap (entries still require body)."""
+    tree = {"data": {"text": "中心主题"}, "children": []}
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={
+            "dateYear": 2026,
+            "dateMonth": 6,
+            "dateDay": 30,
+            "headline": "导图笔记",
+            "noteType": "mindmap",
+            "bodyJson": tree,
+            # no "items", no "era"
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["noteType"] == "mindmap"
+    assert body["bodyJson"] == tree
+    assert body["era"] == ""
+
+    # An entry with no body still fails — the relaxation is mindmap-only.
+    entry = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "空条目", "era": "Modern China"},
+    )
+    assert entry.status_code == 400
+
+
+def test_mindmap_body_json_size_guard(client, seeded_topic):
+    """An oversized structured body is rejected (413) so one note can't store an
+    unbounded blob."""
+    huge = {"data": {"text": "x" * (5_000_001)}, "children": []}
+    res = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "巨树", "noteType": "mindmap", "bodyJson": huge},
+    )
+    assert res.status_code == 413
+
+
 def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_topic):
     """The gallery view (W3) reads the index DTO, so an event's primary image must
     ride it (thumb preferred for the grid). Imageless events keep null image fields."""

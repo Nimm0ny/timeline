@@ -20,6 +20,7 @@
     "@codemirror/state": "^6.7.0",
     "@codemirror/view": "^6.43.3",
     "@lucide/vue": "^1.21.0",
+    "simple-mind-map": "^0.14.0-fix.2",
     "vue": "^3.5.21",
     "vue-router": "^4.5.1"
   },

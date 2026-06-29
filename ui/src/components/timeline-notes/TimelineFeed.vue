@@ -146,6 +146,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   "create-event",
+  "create-mindmap",
   "select-event",
   "update:searchQuery",
   "locate-date",
@@ -254,6 +255,13 @@ function pickView(view) {
   if (!view?.enabled) return;
   activePopover.value = "";
   if (view.key !== effectiveView()) emit("change-view", view.key);
+}
+
+// 新建 = note-type picker (hard requirement): entry runs the current create flow,
+// mindmap creates + opens a canvas. The page owns both handlers.
+function pickNoteType(type) {
+  activePopover.value = "";
+  emit(type === "mindmap" ? "create-mindmap" : "create-event");
 }
 
 function flatEvents() {
@@ -668,7 +676,14 @@ onBeforeUnmount(() => {
 
       <span class="tl-divider" aria-hidden="true"></span>
 
-      <button type="button" class="iconbtn lg primary" title="新建时间点" @click="emit('create-event')">
+      <button
+        type="button"
+        class="iconbtn lg primary"
+        data-popover-anchor="newtype"
+        :class="{ on: activePopover === 'newtype' }"
+        title="新建笔记"
+        @click.stop="togglePopover('newtype')"
+      >
         <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
       </button>
 
@@ -711,6 +726,18 @@ onBeforeUnmount(() => {
             <TimelineLucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.8" />
             <span class="pop-item-label">{{ view.label }}</span>
             <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
+          </button>
+        </template>
+
+        <template v-else-if="activePopover === 'newtype'">
+          <div class="pop-title">新建</div>
+          <button type="button" class="pop-item" @click="pickNoteType('entry')">
+            <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.8" />
+            <span class="pop-item-label">条目</span>
+          </button>
+          <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
+            <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.8" />
+            <span class="pop-item-label">思维导图</span>
           </button>
         </template>
       </div>

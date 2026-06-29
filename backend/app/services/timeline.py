@@ -39,6 +39,10 @@ CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 # node tree stored in body_json. See docs/note-types-and-views-design.md.
 NOTE_TYPES = {"entry", "mindmap"}
 DEFAULT_NOTE_TYPE = "entry"
+# Upper bound on a structured body (mindmap tree) so a single note can't store an
+# unbounded blob. 5 MB is generous for a text tree (tens of thousands of nodes) yet
+# bounded even when nodes carry inline base64 images.
+MAX_BODY_JSON_BYTES = 5_000_000
 # Display styles for "entry" notes (axis 1); unlocked per data capability.
 DISPLAY_STYLES = {"timeline", "table", "board", "gallery", "list", "outline"}
 DEFAULT_DISPLAY_STYLE = "timeline"
@@ -248,6 +252,8 @@ def normalize_body_json(value, note_type: str):
         return None
     if not isinstance(value, (dict, list)):
         raise HTTPException(status_code=400, detail="bodyJson must be an object or array")
+    if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > MAX_BODY_JSON_BYTES:
+        raise HTTPException(status_code=413, detail="bodyJson is too large")
     return value
 
 
@@ -1173,7 +1179,7 @@ def derive_items_from_markdown(body_markdown: str) -> list[dict]:
     return [{"tag": DEFAULT_ITEM_TAG, "text": chunk} for chunk in chunks]
 
 
-def normalize_event_items(payload: dict, body_markdown: str | None = None) -> list[dict]:
+def normalize_event_items(payload: dict, body_markdown: str | None = None, *, note_type: str | None = None) -> list[dict]:
     raw_items = payload.get("items")
     if raw_items is None:
         raw_items = payload.get("events")
@@ -1185,6 +1191,10 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None) -> li
         derived = derive_items_from_markdown(body_markdown or "")
         if derived:
             return derived
+        # A mindmap's content lives in body_json (the tree), not markdown items —
+        # so an empty item list is valid for it. Entry notes still require body.
+        if note_type and note_type != DEFAULT_NOTE_TYPE:
+            return []
         raise HTTPException(status_code=400, detail="Event items are required")
 
     items = []
@@ -1207,10 +1217,13 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     note_type = normalize_note_type(payload.get("noteType"))
     body_json = normalize_body_json(payload.get("bodyJson"), note_type)
     era = str(payload.get("era", "")).strip()
-    if not era:
+    # Era is the timeline's grouping spine for entries; a mindmap is authored on its
+    # own canvas and may be undated/un-grouped, so it may omit era (falls into the
+    # "未分期" bucket if it surfaces in an entry view).
+    if not era and note_type == DEFAULT_NOTE_TYPE:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()
-    items = normalize_event_items(payload, body_markdown)
+    items = normalize_event_items(payload, body_markdown, note_type=note_type)
     attachments = normalize_attachments(payload)
     related_event_ids = normalize_related_event_ids(payload)
     extra = normalize_extra(payload, topic)
