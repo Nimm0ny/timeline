@@ -822,6 +822,9 @@ onBeforeUnmount(() => {
               <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
               <span v-else-if="column.key === 'title'" class="c-title">
                 <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
+                <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
+                  <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+                </span>
                 <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                   <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
                 </span>
@@ -925,6 +928,9 @@ onBeforeUnmount(() => {
             <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
             <span v-else-if="column.key === 'title'" class="c-title">
               <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
+              <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
+                <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+              </span>
               <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
                 <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
               </span>

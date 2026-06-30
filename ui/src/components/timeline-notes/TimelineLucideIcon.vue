@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from "vue";
 import {
+  AArrowDown,
+  AArrowUp,
   AlignLeft,
   ArrowLeft,
   Archive,
@@ -61,6 +63,12 @@ import {
   Type,
   Leaf,
   Trash2,
+  Bold,
+  PaintBucket,
+  Palette,
+  Redo2,
+  Undo2,
+  Workflow,
   X,
 } from "@lucide/vue";
 
@@ -119,6 +127,14 @@ const icons = {
   maximize: Maximize2,
   minimize: Minimize2,
   mindmap: Network,
+  undo: Undo2,
+  redo: Redo2,
+  bold: Bold,
+  fontDown: AArrowDown,
+  fontUp: AArrowUp,
+  palette: Palette,
+  paint: PaintBucket,
+  layout: Workflow,
   menu: Menu,
   more: MoreHorizontal,
   moreVertical: MoreVertical,

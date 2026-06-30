@@ -21,6 +21,7 @@ import {
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
+  mindmapRootData,
   normalizeTopicColumns,
 } from "@/utils/timelineNotes";
 
@@ -796,7 +797,9 @@ async function persistMindmapTree({ id, tree } = {}) {
   if (!note) return;
   state.mindmapSaving = true;
   try {
-    const rootText = htmlToPlainText(tree?.data?.text) || note.headline || "未命名导图";
+    // tree is now a full snapshot ({ root, layout, theme, view }); older notes may
+    // still hold the bare tree ({ data, children }). mindmapRootData reads either.
+    const rootText = htmlToPlainText(mindmapRootData(tree)?.data?.text) || note.headline || "未命名导图";
     const result = await api.updateEvent(id, {
       dateYear: note.dateParts.year,
       dateMonth: note.dateParts.month,

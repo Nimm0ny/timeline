@@ -5200,3 +5200,144 @@ button.prop-row-type.open .timeline-lucide-icon {
   font-size: 13px;
   pointer-events: none;
 }
+
+/* W5 mindmap toolbar: font/background/direction controls over the canvas. The row
+   sits above the canvas (z 5) so its dropdowns clear the SVG; a full-bleed scrim
+   (z 3) covers the canvas for click-away while leaving the toolbar interactive. */
+.mm-tools {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.mm-tools .iconbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.iconbtn.sm.wide {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.mm-ctl-label {
+  white-space: nowrap;
+}
+
+.mm-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  flex: none;
+  background: var(--border-soft);
+}
+
+.mm-ctl {
+  position: relative;
+  display: inline-flex;
+}
+
+.mm-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 6;
+  min-width: 150px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+.mm-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 8px;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.mm-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.mm-menu-item.on {
+  color: var(--accent);
+}
+
+.mm-menu.mm-swatches {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  width: max-content;
+  max-width: 168px;
+}
+
+.mm-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.mm-swatch.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 跟随主题 swatch: a dashed ring marks it as "auto / follow the app theme". */
+.mm-swatch.is-follow {
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
+.mm-hint {
+  margin-left: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.mm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+}
+
+/* Feed-row note-type badge: a mindmap note shows a small glyph after its title so
+   a mixed notebook reads at a glance (matches .clip's faint inline treatment). */
+.ev-type {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.ev-type .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+}

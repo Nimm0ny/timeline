@@ -433,6 +433,38 @@ export function buildBoardGroups(events, column) {
   return ordered;
 }
 
+// --- Mindmap (note_type=mindmap) ------------------------------------------
+// A mindmap note's body_json is either a full simple-mind-map snapshot
+// ({ root, layout, theme, view }, written once the toolbar can change layout/
+// theme) or, for notes seeded before that, the bare node tree ({ data, children }).
+// Return the root node ({ data, children }) from either shape, else null.
+export function mindmapRootData(value) {
+  if (!value || typeof value !== "object") return null;
+  const root = value.root && typeof value.root === "object" ? value.root : value;
+  if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") return null;
+  return root;
+}
+
+// Count nodes in a mindmap tree (root + all descendants) so the editor can turn
+// on the library's viewport culling only for maps large enough to benefit.
+export function countMindmapNodes(rootNode) {
+  if (!rootNode || typeof rootNode !== "object") return 0;
+  const children = Array.isArray(rootNode.children) ? rootNode.children : [];
+  return children.reduce((sum, child) => sum + countMindmapNodes(child), 1);
+}
+
+// Layout presets surfaced in the mindmap toolbar's 方向 menu — each changes the
+// "mind-chain direction". Keys are simple-mind-map's own layout names.
+export const DEFAULT_MINDMAP_LAYOUT = "logicalStructure";
+export const MINDMAP_LAYOUTS = [
+  { key: "logicalStructure", label: "逻辑结构（右）" },
+  { key: "logicalStructureLeft", label: "逻辑结构（左）" },
+  { key: "mindMap", label: "思维导图" },
+  { key: "organizationStructure", label: "组织结构" },
+  { key: "catalogOrganization", label: "目录组织" },
+  { key: "fishbone", label: "鱼骨图" },
+];
+
 // Implemented views for the switcher, each flagged enabled per the backend
 // capability set. Unknown/empty capabilities → all enabled (backward compatible
 // with payloads predating the capability field).

@@ -6,7 +6,10 @@ import {
   BOARD_UNASSIGNED_ID,
   buildBoardGroups,
   compareEventsByColumn,
+  countMindmapNodes,
   IMPLEMENTED_DISPLAY_STYLES,
+  MINDMAP_LAYOUTS,
+  mindmapRootData,
   pickBoardColumn,
   resolveDisplayStyle,
 } from "../src/utils/timelineNotes.js";
@@ -166,4 +169,43 @@ test("buildBoardGroups dedups a repeated multiselect value (one card per bucket)
   const events = [{ id: 1, dateKey: 1, extra: { tags: ["cn", "cn"] } }];
   const groups = buildBoardGroups(events, multi);
   assert.deepEqual(groups.find((g) => g.id === "cn").items.map((e) => e.id), [1]);
+});
+
+// --- W5 mindmap snapshot/tree helpers ---
+test("mindmapRootData reads the root from a full snapshot", () => {
+  const snapshot = { root: { data: { text: "中心" }, children: [{ data: { text: "枝" } }] }, layout: "mindMap", theme: {} };
+  assert.equal(mindmapRootData(snapshot).data.text, "中心");
+});
+
+test("mindmapRootData reads the root from a legacy bare tree", () => {
+  const tree = { data: { text: "旧根" }, children: [] };
+  assert.equal(mindmapRootData(tree).data.text, "旧根");
+});
+
+test("mindmapRootData returns null for empty/malformed values", () => {
+  assert.equal(mindmapRootData(null), null);
+  assert.equal(mindmapRootData({}), null);
+  assert.equal(mindmapRootData({ root: { children: [] } }), null); // no root.data
+});
+
+test("countMindmapNodes counts root plus all descendants", () => {
+  const root = {
+    data: { text: "r" },
+    children: [
+      { data: { text: "a" }, children: [{ data: { text: "a1" } }, { data: { text: "a2" } }] },
+      { data: { text: "b" } },
+    ],
+  };
+  assert.equal(countMindmapNodes(root), 5);
+  assert.equal(countMindmapNodes(null), 0);
+  assert.equal(countMindmapNodes({ data: { text: "solo" } }), 1);
+});
+
+test("MINDMAP_LAYOUTS exposes distinct direction presets with library keys", () => {
+  const keys = MINDMAP_LAYOUTS.map((item) => item.key);
+  assert.ok(keys.includes("logicalStructure"));
+  assert.ok(keys.includes("logicalStructureLeft"));
+  assert.ok(keys.includes("mindMap"));
+  assert.equal(new Set(keys).size, keys.length); // no dupes
+  assert.ok(MINDMAP_LAYOUTS.every((item) => item.key && item.label));
 });
