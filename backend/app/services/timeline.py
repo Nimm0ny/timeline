@@ -1,4 +1,5 @@
 import hashlib
+import html
 import io
 import json
 import mimetypes
@@ -9,7 +10,7 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
@@ -39,6 +40,7 @@ CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 # node tree stored in body_json. See docs/note-types-and-views-design.md.
 NOTE_TYPES = {"entry", "mindmap"}
 DEFAULT_NOTE_TYPE = "entry"
+UNDATED_LABEL = "未定时间"
 # Upper bound on a structured body (mindmap tree) so a single note can't store an
 # unbounded blob. 5 MB is generous for a text tree (tens of thousands of nodes) yet
 # bounded even when nodes carry inline base64 images.
@@ -73,6 +75,53 @@ def normalize_display_style(value: str | None) -> str:
 def normalize_note_type(value: str | None) -> str:
     candidate = str(value or "").strip()
     return candidate if candidate in NOTE_TYPES else DEFAULT_NOTE_TYPE
+
+
+def undated_display_label() -> str:
+    return UNDATED_LABEL
+
+
+def normalize_html_text(value) -> str:
+    raw = html.unescape(str(value or ""))
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def mindmap_root_data(value):
+    if not isinstance(value, dict):
+        return None
+    root = value.get("root") if isinstance(value.get("root"), dict) else value
+    data = root.get("data") if isinstance(root, dict) else None
+    if not isinstance(root, dict) or not isinstance(data, dict):
+        return None
+    return root
+
+
+def collect_mindmap_text(value) -> str:
+    root = mindmap_root_data(value)
+    if not root:
+        return ""
+    parts: list[str] = []
+
+    def visit(node):
+        if not isinstance(node, dict):
+            return
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        parts.extend(
+            text
+            for text in [
+                normalize_html_text(data.get("text")),
+                normalize_html_text(data.get("note")),
+                " ".join(str(item or "").strip() for item in (data.get("tag") or []) if str(item or "").strip()),
+                normalize_html_text(data.get("hyperlink")),
+            ]
+            if text
+        )
+        for child in node.get("children") or []:
+            visit(child)
+
+    visit(root)
+    return " ".join(parts)
 
 
 def topic_capability_signals(columns: list | None, *, event_count: int, has_dated: bool, has_image: bool) -> dict:
@@ -181,16 +230,16 @@ def apply_event_state(event: TimelineEvent, payload: dict):
         event.deleted_at = parse_optional_datetime(payload.get("deletedAt"))
 
 
-def parse_cursor_token(value: str | None) -> tuple[int, int | None] | None:
+def parse_cursor_token(value: str | None) -> tuple[int | None, int | None] | None:
     if value is None:
         return None
     raw = str(value).strip()
     if not raw:
         return None
     if ":" not in raw:
-        return parse_query_date_key(raw), None
+        return (None, None) if raw.lower() == "null" else (parse_query_date_key(raw), None)
     left, right = raw.split(":", 1)
-    cursor_key = parse_query_date_key(left)
+    cursor_key = None if left.lower() == "null" else parse_query_date_key(left)
     try:
         cursor_id = int(right)
     except ValueError as exc:
@@ -200,7 +249,7 @@ def parse_cursor_token(value: str | None) -> tuple[int, int | None] | None:
 
 def event_display_label(event: TimelineEvent) -> str:
     if event.date_key is None:
-        return event.year
+        return event.year or undated_display_label()
     return build_display_label(
         event.date_year or 0,
         event.date_month or 1,
@@ -476,9 +525,8 @@ def build_attachment_payload(attachment: dict) -> dict:
 
 
 def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None = None) -> dict:
-    date_key = event.date_key or normalize_date_key(event.sort_key)
-    date_year, date_month, date_day = date_key_to_parts(date_key)
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
+    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     image_filename = event.image.filename if event.image else None
     thumb_filename = event.image.thumb_filename if event.image else None
     items = serialize_items(event)
@@ -488,16 +536,9 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "id": event.id,
         "topicId": event.topic_id,
         "nodeType": "event",
-        "dateKey": date_key,
+        **date_payload,
         "sortKey": event.sort_key,
-        "isoDate": date_key_to_iso(date_key),
-        "dateParts": {
-            "year": date_year,
-            "month": date_month,
-            "day": date_day,
-        },
         "headline": headline,
-        "displayLabel": build_display_label(date_year, date_month, date_day, headline),
         "legacyYear": event.year,
         "era": event.era,
         "noteType": normalize_note_type(event.note_type),
@@ -533,8 +574,11 @@ def markdown_plain_text(source: str) -> str:
 
 def markdown_preview_text(event: TimelineEvent, *, max_length: int = 120) -> str:
     items = serialize_items(event)
-    source = event.body_markdown or default_body_markdown(items)
-    text = markdown_plain_text(source)
+    if normalize_note_type(event.note_type) != DEFAULT_NOTE_TYPE:
+        text = collect_mindmap_text(deserialize_body_json(event.body_json))
+    else:
+        source = event.body_markdown or default_body_markdown(items)
+        text = markdown_plain_text(source)
     return text[:max_length].rstrip()
 
 
@@ -574,14 +618,18 @@ def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: 
         items = serialize_items(event)
         extra = deserialize_json_dict(event.extra_json)
         headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
+        note_type = normalize_note_type(event.note_type)
         body_markdown = event.body_markdown or default_body_markdown(items)
+        body_json = deserialize_body_json(event.body_json)
         era = event.era
         topic = topic or event.topic
     else:
         items = data.get("items") or []
         extra = data.get("extra") or {}
         headline = str(data.get("headline") or "").strip() or extract_headline_from_legacy_label(data.get("legacyYear") or "")
+        note_type = normalize_note_type(data.get("noteType"))
         body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
+        body_json = data.get("bodyJson")
         era = data.get("era")
 
     return {
@@ -591,7 +639,7 @@ def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: 
         "body": " ".join(
             part
             for part in [
-                markdown_plain_text(str(body_markdown or "")),
+                collect_mindmap_text(body_json) if note_type != DEFAULT_NOTE_TYPE else markdown_plain_text(str(body_markdown or "")),
                 *[str(item.get("text", "")) for item in items if isinstance(item, dict)],
             ]
             if part
@@ -656,7 +704,7 @@ def rebuild_search_index(db: Session) -> None:
         db.query(TimelineEvent)
         .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.topic))
         .filter(TimelineEvent.deleted_at.is_(None))
-        .order_by(TimelineEvent.topic_id.asc(), TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+        .order_by(TimelineEvent.topic_id.asc(), *timeline_event_order_clauses())
         .all()
     )
     for event in rows:
@@ -714,7 +762,7 @@ def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFA
             JOIN timeline_events e ON e.id = {SEARCH_INDEX_TABLE}.event_id
             WHERE {SEARCH_INDEX_TABLE} MATCH :query
               AND e.deleted_at IS NULL
-            ORDER BY rank ASC, e.date_key ASC, e.id ASC
+            ORDER BY rank ASC, CASE WHEN e.date_key IS NULL THEN 1 ELSE 0 END ASC, e.date_key ASC, e.id ASC
             LIMIT :limit
             """
         ),
@@ -723,7 +771,7 @@ def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFA
 
     results = []
     for row in rows:
-        date_key = row["date_key"] or normalize_date_key(row["sort_key"])
+        date_key = resolve_event_date_key(row["date_key"], row["sort_key"])
         headline = (row["headline"] or "").strip() or extract_headline_from_legacy_label(row["legacy_year"] or "")
         results.append(
             {
@@ -738,12 +786,48 @@ def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFA
                     markdown_plain_text(row["body_markdown"] or ""),
                     headline,
                 ),
-                "dateKey": date_key,
-                "isoDate": date_key_to_iso(date_key),
+                "dateKey": date_key if date_key and date_key > 0 else None,
+                "isoDate": date_key_to_iso(date_key) if date_key and date_key > 0 else None,
                 "rank": row["rank"],
             }
         )
     return results
+
+
+def resolve_event_date_key(date_key: int | None, sort_key) -> int | None:
+    if date_key is not None:
+        return int(date_key)
+    if sort_key in {None, "", 0, 0.0, "0"}:
+        return None
+    try:
+        normalized = normalize_date_key(sort_key)
+    except HTTPException:
+        return None
+    return normalized if normalized > 0 else None
+
+
+def event_date_payload(*, date_key: int | None, sort_key, headline: str) -> dict:
+    resolved = resolve_event_date_key(date_key, sort_key)
+    if resolved is None:
+        return {
+            "hasDate": False,
+            "dateKey": None,
+            "isoDate": None,
+            "dateParts": {"year": None, "month": None, "day": None},
+            "displayLabel": undated_display_label(),
+        }
+    date_year, date_month, date_day = date_key_to_parts(resolved)
+    return {
+        "hasDate": True,
+        "dateKey": resolved,
+        "isoDate": date_key_to_iso(resolved),
+        "dateParts": {
+            "year": date_year,
+            "month": date_month,
+            "day": date_day,
+        },
+        "displayLabel": build_display_label(date_year, date_month, date_day, headline),
+    }
 
 
 def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> str:
@@ -753,7 +837,9 @@ def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> st
         event.headline,
         event.year,
         event.era,
-        markdown_plain_text(event.body_markdown or default_body_markdown(items)),
+        collect_mindmap_text(deserialize_body_json(event.body_json))
+        if normalize_note_type(event.note_type) != DEFAULT_NOTE_TYPE
+        else markdown_plain_text(event.body_markdown or default_body_markdown(items)),
         *[item["text"] for item in items],
         *flatten_search_values(extra),
         *[f"{attachment.get('name', '')} {attachment.get('filename', '')}" for attachment in attachments],
@@ -762,10 +848,9 @@ def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> st
 
 
 def event_to_index_dict(event: TimelineEvent) -> dict:
-    date_key = event.date_key or normalize_date_key(event.sort_key)
-    date_year, date_month, date_day = date_key_to_parts(date_key)
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     attachments = deserialize_json_list(event.attachments_json)
+    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     # The gallery view renders the event's primary image; the index list is the
     # only payload it sees, so carry the image URLs here (thumb preferred for the
     # grid). The build_timeline_index query joinedloads `image`, so this is a join,
@@ -775,14 +860,7 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
     return {
         "id": event.id,
         "topicId": event.topic_id,
-        "dateKey": date_key,
-        "isoDate": date_key_to_iso(date_key),
-        "dateParts": {
-            "year": date_year,
-            "month": date_month,
-            "day": date_day,
-        },
-        "displayLabel": build_display_label(date_year, date_month, date_day, headline),
+        **date_payload,
         "headline": headline,
         "era": event.era,
         "noteType": normalize_note_type(event.note_type),
@@ -819,18 +897,17 @@ def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[i
     related_rows = (
         db.query(TimelineEvent)
         .filter(TimelineEvent.id.in_(related_ids))
-        .order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+        .order_by(*timeline_event_order_clauses())
         .all()
     )
     lookup = {}
     for row in related_rows:
-        date_key = row.date_key or normalize_date_key(row.sort_key)
-        year, month, day = date_key_to_parts(date_key)
         headline = (row.headline or "").strip() or extract_headline_from_legacy_label(row.year or "")
+        date_payload = event_date_payload(date_key=row.date_key, sort_key=row.sort_key, headline=headline)
         lookup[row.id] = {
             "id": row.id,
             "headline": headline,
-            "displayLabel": build_display_label(year, month, day, headline),
+            "displayLabel": date_payload["displayLabel"],
         }
     return lookup
 
@@ -882,6 +959,14 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
         "hasImage": int(row[3] or 0) > 0,
         "supportedZoomLevels": SUPPORTED_ZOOM_LEVELS,
     }
+
+
+def timeline_event_order_clauses():
+    return (
+        case((TimelineEvent.date_key.is_(None), 1), else_=0).asc(),
+        TimelineEvent.date_key.asc(),
+        TimelineEvent.id.asc(),
+    )
 
 
 def list_topics(db: Session) -> list[dict]:
@@ -992,7 +1077,7 @@ def build_event_query(db: Session, topic_id: int):
 
 def list_topic_events(db: Session, topic_id: int) -> list[dict]:
     get_topic_or_404(db, topic_id)
-    events = build_event_query(db, topic_id).order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc()).all()
+    events = build_event_query(db, topic_id).order_by(*timeline_event_order_clauses()).all()
     return serialize_event_rows(db, events)
 
 
@@ -1004,7 +1089,7 @@ def build_timeline_index(db: Session) -> dict:
     rows = (
         db.query(TimelineEvent)
         .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
-        .order_by(TimelineEvent.topic_id.asc(), TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+        .order_by(TimelineEvent.topic_id.asc(), *timeline_event_order_clauses())
         .all()
     )
     return {
@@ -1019,7 +1104,7 @@ def query_topic_events(
     *,
     from_key: int | None = None,
     to_key: int | None = None,
-    cursor: tuple[int, int | None] | None = None,
+    cursor: tuple[int | None, int | None] | None = None,
     limit: int | None = None,
 ) -> dict:
     get_topic_or_404(db, topic_id)
@@ -1033,16 +1118,20 @@ def query_topic_events(
     if cursor is not None:
         cursor_key, cursor_id = cursor
         if cursor_id is None:
-            query = query.filter(TimelineEvent.date_key > cursor_key)
+            query = query.filter(TimelineEvent.date_key > cursor_key) if cursor_key is not None else query
         else:
-            query = query.filter(
-                or_(
-                    TimelineEvent.date_key > cursor_key,
-                    and_(TimelineEvent.date_key == cursor_key, TimelineEvent.id > cursor_id),
+            if cursor_key is None:
+                query = query.filter(and_(TimelineEvent.date_key.is_(None), TimelineEvent.id > cursor_id))
+            else:
+                query = query.filter(
+                    or_(
+                        TimelineEvent.date_key > cursor_key,
+                        TimelineEvent.date_key.is_(None),
+                        and_(TimelineEvent.date_key == cursor_key, TimelineEvent.id > cursor_id),
+                    )
                 )
-            )
 
-    query = query.order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc())
+    query = query.order_by(*timeline_event_order_clauses())
     if limit is not None:
         query = query.limit(limit + 1)
 
@@ -1056,7 +1145,7 @@ def query_topic_events(
 
     if rows and has_more:
         last_row = rows[-1]
-        next_cursor = f"{last_row.date_key}:{last_row.id}"
+        next_cursor = f"{last_row.date_key if last_row.date_key is not None else 'null'}:{last_row.id}"
 
     return {
         "items": serialize_event_rows(db, rows),
@@ -1233,7 +1322,10 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     if "deletedAt" in payload:
         state["deletedAt"] = parse_optional_datetime(payload.get("deletedAt"))
 
-    if {"dateYear", "dateMonth", "dateDay", "headline"} & set(payload.keys()):
+    has_date_parts = any(key in payload for key in {"dateYear", "dateMonth", "dateDay"})
+    uses_structured_contract = bool({"headline", "dateYear", "dateMonth", "dateDay"} & set(payload.keys()))
+    headline = str(payload.get("headline", "")).strip()
+    if uses_structured_contract and (note_type == DEFAULT_NOTE_TYPE or has_date_parts):
         try:
             year = int(payload.get("dateYear"))
             month = int(payload.get("dateMonth"))
@@ -1241,7 +1333,6 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
             validate_date_parts(year, month, day)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        headline = str(payload.get("headline", "")).strip()
         if not headline:
             raise HTTPException(status_code=400, detail="Headline is required")
         date_key = make_date_key(year, month, day)
@@ -1254,6 +1345,29 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
             "sortKey": float(date_key),
             "headline": headline,
             "legacyYear": legacy_year,
+            "era": era,
+            "noteType": note_type,
+            "bodyJson": body_json,
+            "bodyMarkdown": body_markdown or default_body_markdown(items),
+            "extra": extra,
+            "attachments": attachments,
+            "relatedEventIds": related_event_ids,
+            "items": items,
+            "image": image,
+            **state,
+        }
+
+    if uses_structured_contract and note_type != DEFAULT_NOTE_TYPE:
+        if not headline:
+            raise HTTPException(status_code=400, detail="Headline is required")
+        return {
+            "dateYear": None,
+            "dateMonth": None,
+            "dateDay": None,
+            "dateKey": None,
+            "sortKey": 0.0,
+            "headline": headline,
+            "legacyYear": undated_display_label(),
             "era": era,
             "noteType": note_type,
             "bodyJson": body_json,
@@ -1428,7 +1542,7 @@ def export_topic_data(db: Session, topic_id: int, *, from_key: int | None = None
         query = query.filter(TimelineEvent.date_key >= from_key)
     if to_key is not None:
         query = query.filter(TimelineEvent.date_key <= to_key)
-    rows = query.order_by(TimelineEvent.date_key.asc(), TimelineEvent.id.asc()).all()
+    rows = query.order_by(*timeline_event_order_clauses()).all()
     content = {
         "schemaVersion": 2,
         "title": topic.title or "",

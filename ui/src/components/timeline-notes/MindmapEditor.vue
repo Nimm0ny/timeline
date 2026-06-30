@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { countMindmapNodes, mindmapRootData } from "@/utils/timelineNotes.js";
 
 // Thin Vue wrapper around simple-mind-map (the authorized mindmap dependency; see
@@ -18,6 +18,7 @@ const props = defineProps({
   tree: { type: [Object, Array, null], default: null },
   // Seeds the root node's text when there is no stored tree yet.
   title: { type: String, default: "" },
+  readOnly: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["update", "ready", "active"]);
@@ -29,6 +30,7 @@ let saveTimer = null;
 let resizeObserver = null;
 let resizeTimer = null;
 let currentBackground = ""; // the one user-adjustable theme value; node colours come from tokens
+let suppressSaves = false;
 // JSON of the last-persisted snapshot. Saves that don't change it (the programmatic
 // data_change on init, a layout toggle that's then undone) are skipped — this keeps
 // open-without-edit from writing and collapses redundant autosaves.
@@ -115,6 +117,7 @@ function activeNodes() {
 }
 
 function flushSave() {
+  if (props.readOnly || suppressSaves) return;
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -134,6 +137,7 @@ function flushSave() {
 }
 
 function scheduleSave() {
+  if (props.readOnly || suppressSaves) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 600);
 }
@@ -191,7 +195,75 @@ function setTextColor(color) {
   scheduleSave();
 }
 
-defineExpose({ undo, redo, setLayout, setBackground, nudgeFontSize, toggleBold, setTextColor });
+function cancelPendingSave() {
+  suppressSaves = true;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+}
+
+function resumeSaves() {
+  suppressSaves = Boolean(props.readOnly);
+}
+
+function flushPendingSave() {
+  if (props.readOnly) return;
+  flushSave();
+}
+
+function syncMode() {
+  if (!mindMap.value?.setMode) return;
+  suppressSaves = Boolean(props.readOnly);
+  mindMap.value.setMode(props.readOnly ? "readonly" : "edit");
+}
+
+function replaceTree(nextTree) {
+  if (!mindMap.value) return false;
+  suppressSaves = false;
+  mindMap.value.setData(nextTree || seedRoot());
+  savedJson = null;
+  flushSave();
+  emit("active", 0);
+  return true;
+}
+
+async function importMarkdown(markdownText) {
+  if (!mindMap.value) return false;
+  const { default: MindMap } = await import("simple-mind-map/full.js");
+  return replaceTree(MindMap.markdown.transformMarkdownTo(String(markdownText || "")) || seedRoot());
+}
+
+async function importXmind(file) {
+  if (!mindMap.value || !file) return false;
+  const { default: MindMap } = await import("simple-mind-map/full.js");
+  return replaceTree(
+    (await MindMap.xmind.parseXmindFile(file, async (sheets) => {
+      throw new Error(`当前只支持导入单个 sheet，收到 ${Array.isArray(sheets) ? sheets.length : 0} 个`);
+    })) || seedRoot()
+  );
+}
+
+async function exportFile(type, name) {
+  if (!mindMap.value || !type) return null;
+  return mindMap.value.export(type, true, name || props.title || "思维导图");
+}
+
+defineExpose({
+  undo,
+  redo,
+  setLayout,
+  setBackground,
+  nudgeFontSize,
+  toggleBold,
+  setTextColor,
+  importMarkdown,
+  importXmind,
+  exportFile,
+  cancelPendingSave,
+  resumeSaves,
+  flushPendingSave,
+});
 
 onMounted(async () => {
   const { default: MindMap } = await import("simple-mind-map/full.js");
@@ -236,6 +308,7 @@ onMounted(async () => {
 
   mindMap.value.on("data_change", scheduleSave);
   mindMap.value.on("node_active", (_node, activeList) => emit("active", (activeList || []).length));
+  syncMode();
 
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(scheduleResize);
@@ -250,6 +323,13 @@ onMounted(async () => {
   }
   emit("ready", { layout: mindMap.value.getLayout?.() || "logicalStructure", background });
 });
+
+watch(
+  () => props.readOnly,
+  () => {
+    syncMode();
+  }
+);
 
 onBeforeUnmount(() => {
   if (resizeTimer) clearTimeout(resizeTimer);

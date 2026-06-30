@@ -82,6 +82,7 @@ const props = defineProps({
 const emit = defineEmits([
   "create-event",
   "create-event-in-topic",
+  "create-mindmap-in-topic",
   "create-topic",
   "rename-topic",
   "select-topic",
@@ -145,11 +146,13 @@ function onCreateBlur() {
 // a right-edge cluster on hover/active/menu-open — ⊕ (new note here) + ⋯ (more menu:
 // rename / delete). Resting count fades out beneath it; nothing reflows.
 const topicMenu = ref(null); // { topic, x, y } | null
+const topicCreateMenu = ref(null); // { topicId, x, y } | null
 const renamingTopicId = ref(null);
 const renameValue = ref("");
 const renameInputRef = ref(null);
 
 function openTopicMenu(topic, event) {
+  closeCreateTopicMenu();
   // Anchor a fixed-position menu under the ⋯ button, clamped to the viewport so it
   // never overflows (the pane scroll-clips, so the menu lives at the overlay layer).
   const rect = event.currentTarget.getBoundingClientRect();
@@ -163,15 +166,30 @@ function closeTopicMenu() {
   topicMenu.value = null;
 }
 
+function openCreateInTopicMenu(topicId, event) {
+  closeTopicMenu();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const width = 168;
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const y = Math.min(rect.bottom + 4, window.innerHeight - 112);
+  topicCreateMenu.value = { topicId, x, y };
+}
+
+function closeCreateTopicMenu() {
+  topicCreateMenu.value = null;
+}
+
 function onPaneScroll() {
   if (topicMenu.value) closeTopicMenu();
+  if (topicCreateMenu.value) closeCreateTopicMenu();
   if (typeMenu.value) typeMenu.value = null;
   if (editing.value) closePropertyPopover();
 }
 
-function createInTopic(topicId) {
+function createInTopic(topicId, noteType = "entry") {
   closeTopicMenu();
-  emit("create-event-in-topic", topicId);
+  closeCreateTopicMenu();
+  emit(noteType === "mindmap" ? "create-mindmap-in-topic" : "create-event-in-topic", topicId);
 }
 
 // Inline rename reuses the borderless create-row field (one list-edit grammar):
@@ -212,11 +230,14 @@ function deleteFromMenu(topic) {
 }
 
 function onMenuKeydown(event) {
-  if (event.key === "Escape") closeTopicMenu();
+  if (event.key === "Escape") {
+    closeTopicMenu();
+    closeCreateTopicMenu();
+  }
 }
 
-watch(topicMenu, (value) => {
-  if (value) document.addEventListener("keydown", onMenuKeydown);
+watch([topicMenu, topicCreateMenu], ([menu, createMenu]) => {
+  if (menu || createMenu) document.addEventListener("keydown", onMenuKeydown);
   else document.removeEventListener("keydown", onMenuKeydown);
 });
 
@@ -1060,14 +1081,14 @@ watch(typeMenu, (value) => {
                   v-else
                   type="button"
                   class="ti folder"
-                  :class="{
-                    active: !selectMode && topic.id === props.activeTopicId,
-                    selected: selectMode && isTopicSelected(topic.id),
-                    collapsed: !isTopicExpanded(topic.id),
-                    'menu-open': topicMenu && topicMenu.topic.id === topic.id,
-                  }"
-                  @click="toggleTopic(topic.id)"
-                >
+                    :class="{
+                      active: !selectMode && topic.id === props.activeTopicId,
+                      selected: selectMode && isTopicSelected(topic.id),
+                      collapsed: !isTopicExpanded(topic.id),
+                      'menu-open': (topicMenu && topicMenu.topic.id === topic.id) || (topicCreateMenu && topicCreateMenu.topicId === topic.id),
+                    }"
+                    @click="toggleTopic(topic.id)"
+                  >
                   <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(topic.id) }">
                     <TimelineLucideIcon v-if="isTopicSelected(topic.id)" name="check" :stroke-width="2.4" />
                   </span>
@@ -1079,7 +1100,7 @@ watch(typeMenu, (value) => {
                     <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(topic, $event)">
                       <TimelineLucideIcon name="more" :stroke-width="1.8" />
                     </span>
-                    <span class="ti-act" title="在此笔记本新建笔记" @click.stop="createInTopic(topic.id)">
+                    <span class="ti-act" title="在此笔记本新建笔记" @click.stop="openCreateInTopicMenu(topic.id, $event)">
                       <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
                     </span>
                   </span>
@@ -1294,6 +1315,19 @@ watch(typeMenu, (value) => {
         <button type="button" class="pop-item danger" @click="deleteFromMenu(topicMenu.topic)">
           <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
           <span class="lbl">删除</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="topicCreateMenu" class="ti-menu-backdrop" @click="closeCreateTopicMenu" @contextmenu.prevent="closeCreateTopicMenu">
+      <div class="popover ti-menu" :style="{ left: topicCreateMenu.x + 'px', top: topicCreateMenu.y + 'px' }" @click.stop>
+        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'entry')">
+          <TimelineLucideIcon name="note" :stroke-width="1.8" class="pop-item-ic" />
+          <span class="lbl">条目</span>
+        </button>
+        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'mindmap')">
+          <TimelineLucideIcon name="mindmap" :stroke-width="1.8" class="pop-item-ic" />
+          <span class="lbl">思维导图</span>
         </button>
       </div>
     </div>

@@ -21,9 +21,10 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-event"]);
+const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-event", "create-mindmap"]);
 
 const searchInputRef = ref(null);
+const createMenuOpen = ref(false);
 
 function toggleSearch() {
   const next = !props.searchOpen;
@@ -39,10 +40,20 @@ function closeSearchIfEmpty() {
   }
 }
 
+function toggleCreateMenu() {
+  createMenuOpen.value = !createMenuOpen.value;
+}
+
+function pickNoteType(type) {
+  createMenuOpen.value = false;
+  emit(type === "mindmap" ? "create-mindmap" : "create-event");
+}
+
 watch(
   () => props.searchOpen,
   (open) => {
     if (open) nextTick(() => searchInputRef.value?.focus());
+    if (open) createMenuOpen.value = false;
   }
 );
 </script>
@@ -72,8 +83,22 @@ watch(
     <button type="button" class="iconbtn mobile-topbar-btn" :class="{ on: props.searchOpen }" title="搜索" @click="toggleSearch">
       <TimelineLucideIcon name="search" :stroke-width="1.8" />
     </button>
-    <button type="button" class="iconbtn mobile-topbar-btn primary" title="新建时间点" @click="emit('create-event')">
-      <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
-    </button>
+    <div class="mobile-topbar-create">
+      <button type="button" class="iconbtn mobile-topbar-btn primary" :class="{ on: createMenuOpen }" title="新建笔记" @click="toggleCreateMenu">
+        <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
+      </button>
+      <div v-if="createMenuOpen" class="mobile-topbar-create-backdrop" @click="createMenuOpen = false"></div>
+      <div v-if="createMenuOpen" class="popover tl-pop-newtype mobile-topbar-create-menu" @click.stop>
+        <div class="pop-title">新建</div>
+        <button type="button" class="pop-item" @click="pickNoteType('entry')">
+          <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.8" />
+          <span class="pop-item-label">条目</span>
+        </button>
+        <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
+          <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.8" />
+          <span class="pop-item-label">思维导图</span>
+        </button>
+      </div>
+    </div>
   </header>
 </template>

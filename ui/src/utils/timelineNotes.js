@@ -124,6 +124,21 @@ function padTwo(value) {
   return String(value || 0).padStart(2, "0");
 }
 
+function htmlToPlainText(source) {
+  const raw = String(source || "");
+  if (!raw) return "";
+  if (typeof document === "undefined") {
+    return raw
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  const el = document.createElement("div");
+  el.innerHTML = raw;
+  return (el.textContent || "").replace(/\s+/g, " ").trim();
+}
+
 function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -187,8 +202,19 @@ function normalizeColumnOptions(options, type) {
 }
 
 export function compareTimelineEvents(left, right) {
-  const leftKey = left?.era === "更早" ? Number.MAX_SAFE_INTEGER + (left?.dateKey || 0) : left?.dateKey || 0;
-  const rightKey = right?.era === "更早" ? Number.MAX_SAFE_INTEGER + (right?.dateKey || 0) : right?.dateKey || 0;
+  const leftHasDate = eventHasDate(left);
+  const rightHasDate = eventHasDate(right);
+  if (leftHasDate !== rightHasDate) return leftHasDate ? -1 : 1;
+  const leftKey = !leftHasDate
+    ? Number.MAX_SAFE_INTEGER * 2
+    : left?.era === "更早"
+      ? Number.MAX_SAFE_INTEGER + (left?.dateKey || 0)
+      : left?.dateKey || 0;
+  const rightKey = !rightHasDate
+    ? Number.MAX_SAFE_INTEGER * 2
+    : right?.era === "更早"
+      ? Number.MAX_SAFE_INTEGER + (right?.dateKey || 0)
+      : right?.dateKey || 0;
   return leftKey - rightKey || (left?.id || 0) - (right?.id || 0);
 }
 
@@ -217,6 +243,7 @@ function formatYearLabel(year) {
 // dates (e.g. 1927-08-01 南昌起义) keep their full date: month-precision data is
 // stored the same way and can't be told apart, so we never coarsen a real day.
 export function formatEventDate(event) {
+  if (!eventHasDate(event)) return event?.displayLabel || "未定时间";
   const parts = event?.dateParts;
   if (parts && parts.year != null) {
     if (parts.month === 1 && parts.day === 1) return formatYearLabel(parts.year);
@@ -232,6 +259,7 @@ export function formatEventDate(event) {
 // Detail-pane (CJK) date, precision-aware like formatEventDate: year-only →
 // "1840年"; otherwise full "1921年7月23日". BC years render as "公元前N年".
 export function formatEventDisplayDate(event) {
+  if (!eventHasDate(event)) return event?.displayLabel || "未定时间";
   const parts = event?.dateParts;
   if (!parts || parts.year == null) return event?.displayLabel || "";
   const yearLabel = `${formatYearLabel(parts.year)}年`;
@@ -242,6 +270,7 @@ export function formatEventDisplayDate(event) {
 export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText) {
   const text =
     String(event?.preview || "").trim() ||
+    mindmapPlainText(event?.bodyJson) ||
     plainTextFromMarkdown(event?.bodyMarkdown) ||
     (event?.items || [])
       .map((item) => String(item?.text || "").trim())
@@ -443,6 +472,30 @@ export function mindmapRootData(value) {
   const root = value.root && typeof value.root === "object" ? value.root : value;
   if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") return null;
   return root;
+}
+
+export function mindmapPlainText(value) {
+  const root = mindmapRootData(value);
+  if (!root) return "";
+  const parts = [];
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    const data = node.data && typeof node.data === "object" ? node.data : {};
+    const tags = Array.isArray(data.tag) ? data.tag.map((item) => String(item || "").trim()).filter(Boolean).join(" ") : "";
+    [data.text, data.note, data.hyperlink, tags]
+      .map((item) => htmlToPlainText(item))
+      .filter(Boolean)
+      .forEach((item) => parts.push(item));
+    (Array.isArray(node.children) ? node.children : []).forEach(visit);
+  };
+  visit(root);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+export function eventHasDate(event) {
+  if (event?.hasDate === false) return false;
+  if (event?.dateKey != null) return true;
+  return Number.isInteger(event?.dateParts?.year);
 }
 
 // Count nodes in a mindmap tree (root + all descendants) so the editor can turn
@@ -745,6 +798,7 @@ export function matchesEventSearch(event, query, columns = []) {
     event?.displayLabel,
     event?.era,
     event?.legacyYear,
+    mindmapPlainText(event?.bodyJson),
     event?.bodyMarkdown,
     event?.preview,
     event?.searchText,

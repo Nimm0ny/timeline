@@ -193,7 +193,7 @@ watch(
               </span>
               <span class="command-row-meta">
                 <NotebookChip :topic-id="item.value.topicId" :topics="props.topics" />
-                <span class="command-date">{{ item.value.isoDate || item.value.dateKey }}</span>
+                <span class="command-date">{{ item.value.isoDate || item.value.dateKey || "未定时间" }}</span>
               </span>
             </template>
 

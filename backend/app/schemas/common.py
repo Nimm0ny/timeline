@@ -32,11 +32,12 @@ class ColumnDef(BaseModel):
 
 class TimelineEventIn(BaseModel):
     id: int | None = None
-    dateYear: int
-    dateMonth: int
-    dateDay: int
+    # entry requires a concrete date; mindmap may omit it (undated canvas note).
+    dateYear: int | None = None
+    dateMonth: int | None = None
+    dateDay: int | None = None
     headline: str
-    era: str
+    era: str = ""
     # Note kind: "entry" (markdown body) or "mindmap" (tree in bodyJson).
     noteType: str = "entry"
     bodyMarkdown: str = ""

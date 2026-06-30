@@ -128,18 +128,15 @@ def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
 
 def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     """A mindmap's content is its tree (body_json); it needs neither markdown items
-    nor an era. W4 relaxed both for note_type=mindmap (entries still require body)."""
+    nor an era nor a date. Entries still require body + date."""
     tree = {"data": {"text": "中心主题"}, "children": []}
     created = client.post(
         f"/api/topics/{seeded_topic.id}/events",
         json={
-            "dateYear": 2026,
-            "dateMonth": 6,
-            "dateDay": 30,
             "headline": "导图笔记",
             "noteType": "mindmap",
             "bodyJson": tree,
-            # no "items", no "era"
+            # no "items", no "era", no date
         },
     )
     assert created.status_code == 200
@@ -147,6 +144,9 @@ def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     assert body["noteType"] == "mindmap"
     assert body["bodyJson"] == tree
     assert body["era"] == ""
+    assert body["hasDate"] is False
+    assert body["dateKey"] is None
+    assert body["displayLabel"] == "未定时间"
 
     # An entry with no body still fails — the relaxation is mindmap-only.
     entry = client.post(
@@ -165,6 +165,32 @@ def test_mindmap_body_json_size_guard(client, seeded_topic):
         json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "巨树", "noteType": "mindmap", "bodyJson": huge},
     )
     assert res.status_code == 413
+
+
+def test_mindmap_tree_text_flows_into_index_preview_and_search(client, seeded_topic):
+    tree = {
+        "data": {"text": "<p>中心主题</p>"},
+        "children": [
+            {"data": {"text": "<p>分支甲</p>", "note": "<p>细节点</p>"}, "children": []},
+        ],
+    }
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "导图检索", "noteType": "mindmap", "bodyJson": tree},
+    )
+    assert created.status_code == 200
+    event_id = created.json()["id"]
+
+    indexed = client.get("/api/index").json()["events"]
+    row = next(item for item in indexed if item["id"] == event_id)
+    assert row["preview"] == "中心主题 分支甲 细节点"
+    assert "分支甲" in row["searchText"]
+    assert row["dateKey"] is None
+
+    matched = client.get("/api/search", params={"q": "细节点"})
+    assert matched.status_code == 200
+    result = next(item for item in matched.json() if item["id"] == event_id)
+    assert result["isoDate"] is None
 
 
 def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_topic):

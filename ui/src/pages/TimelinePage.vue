@@ -28,6 +28,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
+const mindmapSurfaceRef = ref(null);
 const timelineStore = useTimelineStore();
 const { isMobile, isCompactDesktop } = useViewport();
 
@@ -179,10 +180,21 @@ const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineSt
 const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
-// Display-style view (axis 1): raw persisted style + the backend-derived capability
-// set flow straight from the topic meta; the feed resolves the effective view.
+// Display-style view (axis 1): start from the persisted style, then derive the live
+// capability set from the local notebook snapshot so note creates/deletes (including
+// undated mindmaps) update the switcher immediately, before a fresh /meta round-trip.
 const feedDisplayStyle = computed(() => state.activeTopicMeta?.displayStyle || "timeline");
-const feedCapabilities = computed(() => state.activeTopicMeta?.capabilities || []);
+const feedCapabilities = computed(() => {
+  if (isGlobalFavoritesMode.value) return [];
+  const enabled = new Set(["list", "table", feedDisplayStyle.value]);
+  const columns = normalizeTopicColumns(state.activeTopicMeta?.columns);
+  const events = state.events || [];
+  if (events.some((event) => event.hasDate !== false && event.dateKey != null)) enabled.add("timeline");
+  if (events.length) enabled.add("outline");
+  if (columns.some((column) => ["select", "multiselect"].includes(column.type))) enabled.add("board");
+  if (events.some((event) => event.image || event.imageUrl || event.thumbUrl)) enabled.add("gallery");
+  return [...enabled];
+});
 const showViewSwitcher = computed(
   () => !isMobile.value && !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
 );
@@ -742,22 +754,31 @@ function closeMindmap() {
   state.mindmapOpenId = null;
 }
 
-// Create a mindmap note (today-dated so it flows through the entry views as a
-// single node) seeded with one root, then open its canvas.
-function createMindmapNote() {
-  if (!state.activeTopicId) {
+// Create a mindmap note seeded with one root, then open its canvas. Mindmaps are
+// undated by default in W5 so they can live as free-form canvases; dated legacy maps
+// still round-trip because saveMindmapTree forwards an existing date when present.
+function createMindmapNote(topicId = state.activeTopicId) {
+  const targetTopicId = Number(topicId || state.activeTopicId);
+  if (!targetTopicId) {
     pushToast("请先选择一个笔记本", "error");
     return;
   }
   runOrConfirm(async () => {
-    exitGlobalFavoritesMode();
+    exitGlobalFavoritesMode({ reselect: false });
+    if (targetTopicId !== state.activeTopicId) {
+      state.propertyFilter = { key: "", value: "" };
+      state.activeEra = "";
+      state.searchQuery = "";
+      applyWorkspaceSelection({
+        preferredTopicId: targetTopicId,
+        preferredEventId: null,
+        preferredMode: "view",
+        openDetail: false,
+      });
+    }
     closeMobileSidebar();
-    const today = new Date();
     try {
-      const result = await api.createTopicEvent(state.activeTopicId, {
-        dateYear: today.getFullYear(),
-        dateMonth: today.getMonth() + 1,
-        dateDay: today.getDate(),
+      const result = await api.createTopicEvent(targetTopicId, {
         headline: "未命名导图",
         noteType: "mindmap",
         bodyJson: { data: { text: "中心主题" }, children: [] },
@@ -794,16 +815,13 @@ function saveMindmapTree(payload) {
 
 async function persistMindmapTree({ id, tree } = {}) {
   const note = id ? timelineStore.detailById(id) : null;
-  if (!note) return;
+  if (!note || note.deletedAt) return;
   state.mindmapSaving = true;
   try {
     // tree is now a full snapshot ({ root, layout, theme, view }); older notes may
     // still hold the bare tree ({ data, children }). mindmapRootData reads either.
     const rootText = htmlToPlainText(mindmapRootData(tree)?.data?.text) || note.headline || "未命名导图";
-    const result = await api.updateEvent(id, {
-      dateYear: note.dateParts.year,
-      dateMonth: note.dateParts.month,
-      dateDay: note.dateParts.day,
+    const payload = {
       headline: rootText,
       era: note.era || "",
       noteType: "mindmap",
@@ -813,7 +831,13 @@ async function persistMindmapTree({ id, tree } = {}) {
       // related links so a tree autosave can't blank them.
       attachments: note.attachments || [],
       relatedEventIds: note.relatedEventIds || [],
-    });
+    };
+    if (note.hasDate && note.dateParts?.year != null) {
+      payload.dateYear = note.dateParts.year;
+      payload.dateMonth = note.dateParts.month;
+      payload.dateDay = note.dateParts.day;
+    }
+    const result = await api.updateEvent(id, payload);
     timelineStore.upsertEvent(result);
     syncActiveTopicFromStore();
   } catch (error) {
@@ -1152,7 +1176,7 @@ function closeEventMenu() {
 }
 
 async function moveEventToTrash(event) {
-  if (!event?.id) return;
+  if (!event?.id) return false;
   try {
     const result = await api.softDeleteEvent(event.id);
     timelineStore.patchEvent(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
@@ -1161,13 +1185,15 @@ async function moveEventToTrash(event) {
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已移入回收站");
+    return true;
   } catch (error) {
     pushToast(`删除失败：${error.message}`, "error");
+    return false;
   }
 }
 
 async function restoreEvent(event) {
-  if (!event?.id) return;
+  if (!event?.id) return false;
   try {
     const result = await api.restoreEvent(event.id);
     timelineStore.upsertEvent(result);
@@ -1176,13 +1202,15 @@ async function restoreEvent(event) {
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已恢复");
+    return true;
   } catch (error) {
     pushToast(`恢复失败：${error.message}`, "error");
+    return false;
   }
 }
 
 async function permanentlyDeleteEvent(event) {
-  if (!event?.id) return;
+  if (!event?.id) return false;
   try {
     await api.permanentlyDeleteEvent(event.id);
     timelineStore.removeEvent(event.id);
@@ -1191,8 +1219,46 @@ async function permanentlyDeleteEvent(event) {
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已永久删除");
+    return true;
   } catch (error) {
     pushToast(`永久删除失败：${error.message}`, "error");
+    return false;
+  }
+}
+
+async function trashMindmapNote(event) {
+  mindmapSurfaceRef.value?.flushAutosave?.();
+  mindmapSurfaceRef.value?.pauseAutosave?.();
+  await mindmapSaveChain.catch(() => null);
+  const ok = await moveEventToTrash(event);
+  if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
+    closeMindmap();
+    setDefaultSelection();
+  }
+  if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
+    mindmapSurfaceRef.value?.resumeAutosave?.();
+  }
+}
+
+async function restoreMindmapNote(event) {
+  await restoreEvent(event);
+  if (Number(event?.id) === Number(state.mindmapOpenId)) {
+    closeMindmap();
+    setDefaultSelection();
+  }
+}
+
+async function permanentlyDeleteMindmapNote(event) {
+  mindmapSurfaceRef.value?.flushAutosave?.();
+  mindmapSurfaceRef.value?.pauseAutosave?.();
+  await mindmapSaveChain.catch(() => null);
+  const ok = await permanentlyDeleteEvent(event);
+  if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
+    closeMindmap();
+    setDefaultSelection();
+  }
+  if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
+    mindmapSurfaceRef.value?.resumeAutosave?.();
   }
 }
 
@@ -1604,6 +1670,7 @@ watch(
       :search-open="state.mobileSearchOpen"
       @open-drawer="openMobileSidebar"
       @create-event="startCreateEvent"
+      @create-mindmap="createMindmapNote"
       @update:searchQuery="updateSearchQuery"
       @update:search-open="state.mobileSearchOpen = $event"
     />
@@ -1628,6 +1695,7 @@ watch(
       :create-topic-request-key="state.topicCreateRequestKey"
       @create-event="startCreateEvent"
       @create-event-in-topic="createEventInTopic"
+      @create-mindmap-in-topic="createMindmapNote"
       @create-topic="createTopic"
       @rename-topic="renameTopic"
       @delete-topic="requestDeleteTopic"
@@ -1645,10 +1713,15 @@ watch(
 
     <MindmapSurface
       v-if="mindmapNote"
+      ref="mindmapSurfaceRef"
       :note="mindmapNote"
       :saving="state.mindmapSaving"
       @back="closeMindmap"
       @save="saveMindmapTree"
+      @toggle-favorite="toggleFavorite"
+      @move-to-trash="trashMindmapNote"
+      @restore="restoreMindmapNote"
+      @permanent-delete="permanentlyDeleteMindmapNote"
     />
 
     <TimelineFeed

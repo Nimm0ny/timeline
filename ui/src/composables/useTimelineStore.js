@@ -1,6 +1,6 @@
 import { reactive } from "vue";
 import { api } from "@/composables/useApi";
-import { buildEventPreview, compareTimelineEvents } from "@/utils/timelineNotes";
+import { buildEventPreview, compareTimelineEvents, mindmapPlainText } from "@/utils/timelineNotes";
 import { plainTextFromMarkdown } from "@/utils/markdownPreview";
 
 function datePartsFromKey(dateKey) {
@@ -25,13 +25,15 @@ function normalizeTopic(topic = {}) {
 }
 
 function normalizeIndexEvent(event = {}) {
-  const dateKey = Number.parseInt(event.dateKey, 10) || 0;
+  const rawDateKey = event.dateKey == null || event.dateKey === "" ? null : Number.parseInt(event.dateKey, 10);
+  const dateKey = Number.isFinite(rawDateKey) ? rawDateKey : null;
   return {
     ...event,
     id: Number(event.id),
     topicId: Number(event.topicId),
     dateKey,
-    dateParts: event.dateParts || datePartsFromKey(dateKey),
+    hasDate: event.hasDate !== false && dateKey != null,
+    dateParts: event.dateParts || (dateKey != null ? datePartsFromKey(dateKey) : { year: null, month: null, day: null }),
     noteType: event.noteType || "entry",
     extra: event.extra && typeof event.extra === "object" ? event.extra : {},
     favorite: Boolean(event.favorite),
@@ -54,6 +56,7 @@ function detailToIndexEvent(event = {}) {
     // Keep the note kind so the feed still flags a mindmap (and routes its click to
     // the canvas) after an edit round-trips through here.
     noteType: event.noteType || "entry",
+    hasDate: event.hasDate !== false && event.dateKey != null,
     // Keep the primary image so a gallery card doesn't lose its thumbnail after
     // the event is edited (this is the index event the gallery reads). The detail
     // DTO has no separate thumb for the primary image — fall back to the full URL.
@@ -85,6 +88,7 @@ function detailSearchText(event = {}) {
     event.displayLabel,
     event.legacyYear,
     event.era,
+    mindmapPlainText(event.bodyJson),
     plainTextFromMarkdown(event.bodyMarkdown || ""),
     ...(event.items || []).map((item) => item?.text || ""),
     ...flattenSearchValues(event.extra),

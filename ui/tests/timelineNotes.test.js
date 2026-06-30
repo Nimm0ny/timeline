@@ -19,10 +19,12 @@ import {
   emptyTimelineColumnKeys,
   eventColumnHasValue,
   eventColumnValue,
+  eventHasDate,
   formatEventDate,
   formatEventDisplayDate,
   groupTimelineEvents,
   isCheckboxChecked,
+  mindmapPlainText,
   matchesPropertyFilter,
   normalizeEventExtra,
   normalizeTopicColumns,
@@ -150,6 +152,38 @@ test("search can use lightweight index full search text outside preview", () => 
   const event = { headline: "Index Row", preview: "首段摘要", searchText: "首段摘要 附件名 深层正文关键词", extra: {} };
 
   assert.equal(groupTimelineEvents([event], "era", "深层正文关键词").length, 1);
+});
+
+test("mindmapPlainText flattens a snapshot tree into searchable text", () => {
+  const snapshot = {
+    root: {
+      data: { text: "<p>中心主题</p>" },
+      children: [{ data: { text: "<p>分支甲</p>", note: "<p>细节点</p>" }, children: [] }],
+    },
+  };
+
+  assert.equal(mindmapPlainText(snapshot), "中心主题 分支甲 细节点");
+});
+
+test("buildEventPreview and search can bridge mindmap bodyJson text", () => {
+  const event = {
+    headline: "导图检索",
+    bodyJson: {
+      data: { text: "<p>中心主题</p>" },
+      children: [{ data: { text: "<p>分支甲</p>" }, children: [] }],
+    },
+    extra: {},
+  };
+
+  assert.equal(buildEventPreview(event, 40), "中心主题 分支甲");
+  assert.equal(groupTimelineEvents([event], "era", "分支甲").length, 1);
+});
+
+test("eventHasDate/formatEventDate handle undated notes explicitly", () => {
+  const undated = { hasDate: false, dateKey: null, dateParts: { year: null, month: null, day: null } };
+  assert.equal(eventHasDate(undated), false);
+  assert.equal(formatEventDate(undated), "未定时间");
+  assert.equal(formatEventDisplayDate(undated), "未定时间");
 });
 
 test("resolvePropertyChips maps option ids to labels and colors, keeping unknown ids", () => {

@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import { pushToast } from "@/composables/useToast";
 import { MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
 
 // Center-column host for a mindmap note (D-2: 中栏内嵌 + 可全屏). Owns the frame
@@ -12,14 +13,16 @@ const props = defineProps({
   note: { type: Object, required: true },
   saving: { type: Boolean, default: false },
 });
-const emit = defineEmits(["back", "save"]);
+const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "restore", "permanent-delete"]);
 
 const editor = ref(null);
 const fullscreen = ref(false);
-const openMenu = ref(""); // "" | "layout" | "bg" | "color"
+const openMenu = ref(""); // "" | "layout" | "bg" | "color" | "bridge"
 const activeCount = ref(0);
 const currentLayout = ref("logicalStructure");
 const currentBackground = ref("");
+const markdownInputRef = ref(null);
+const xmindInputRef = ref(null);
 
 // Canvas backgrounds + node text colours. Raw hex on purpose: these are written into
 // simple-mind-map's own snapshot (body_json), not app CSS, so the library needs
@@ -64,6 +67,73 @@ function pickTextColor(color) {
 function currentLayoutLabel() {
   return MINDMAP_LAYOUTS.find((item) => item.key === currentLayout.value)?.label || "布局";
 }
+
+function requestTrash() {
+  editor.value?.cancelPendingSave?.();
+  emit("move-to-trash", props.note);
+}
+
+function requestPermanentDelete() {
+  editor.value?.cancelPendingSave?.();
+  emit("permanent-delete", props.note);
+}
+
+function fileBaseName() {
+  return (String(props.note?.headline || "思维导图").trim() || "思维导图").replace(/[<>:\"/\\\\|?*]+/g, "-");
+}
+
+async function exportFile(type) {
+  openMenu.value = "";
+  try {
+    await editor.value?.exportFile(type, fileBaseName());
+  } catch (error) {
+    pushToast(`导出失败：${error.message || error}`, "error");
+  }
+}
+
+function triggerImport(kind) {
+  openMenu.value = "";
+  if (kind === "xmind") xmindInputRef.value?.click();
+  else markdownInputRef.value?.click();
+}
+
+async function onMarkdownImport(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    await editor.value?.importMarkdown(await file.text());
+    pushToast("Markdown 已导入");
+  } catch (error) {
+    pushToast(`Markdown 导入失败：${error.message || error}`, "error");
+  }
+}
+
+async function onXmindImport(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    await editor.value?.importXmind(file);
+    pushToast(".xmind 已导入");
+  } catch (error) {
+    pushToast(`.xmind 导入失败：${error.message || error}`, "error");
+  }
+}
+
+function pauseAutosave() {
+  editor.value?.cancelPendingSave?.();
+}
+
+function resumeAutosave() {
+  editor.value?.resumeSaves?.();
+}
+
+function flushAutosave() {
+  editor.value?.flushPendingSave?.();
+}
+
+defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
 </script>
 
 <template>
@@ -76,7 +146,26 @@ function currentLayoutLabel() {
         <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
         <h2>{{ note.headline || "未命名导图" }}</h2>
       </div>
-      <span class="mm-status">{{ saving ? "保存中…" : "已保存" }}</span>
+      <button
+        v-if="!note.deletedAt"
+        type="button"
+        class="iconbtn lg"
+        :class="{ on: note.favorite }"
+        :title="note.favorite ? '取消收藏' : '收藏'"
+        @click="emit('toggle-favorite', note)"
+      >
+        <TimelineLucideIcon name="star" :stroke-width="1.8" />
+      </button>
+      <button v-if="!note.deletedAt" type="button" class="iconbtn lg" title="移入回收站" @click="requestTrash">
+        <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+      </button>
+      <button v-else type="button" class="iconbtn lg" title="恢复" @click="emit('restore', note)">
+        <TimelineLucideIcon name="restore" :stroke-width="1.8" />
+      </button>
+      <button v-if="note.deletedAt" type="button" class="iconbtn lg" title="永久删除" @click="requestPermanentDelete">
+        <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+      </button>
+      <span class="mm-status">{{ note.deletedAt ? "回收站 · 只读" : saving ? "保存中…" : "已保存" }}</span>
       <span class="spacer"></span>
       <button type="button" class="iconbtn lg" :title="fullscreen ? '退出全屏' : '全屏'" @click="toggleFullscreen">
         <TimelineLucideIcon :name="fullscreen ? 'minimize' : 'maximize'" :stroke-width="1.8" />
@@ -84,19 +173,25 @@ function currentLayoutLabel() {
     </header>
 
     <div class="mm-tools">
-      <button type="button" class="iconbtn sm" title="撤销" @click="editor?.undo()">
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="撤销" @click="editor?.undo()">
         <TimelineLucideIcon name="undo" :stroke-width="1.8" />
       </button>
-      <button type="button" class="iconbtn sm" title="重做" @click="editor?.redo()">
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="重做" @click="editor?.redo()">
         <TimelineLucideIcon name="redo" :stroke-width="1.8" />
       </button>
 
       <span class="mm-sep"></span>
 
       <div class="mm-ctl">
-        <button type="button" class="iconbtn sm wide" :class="{ on: openMenu === 'layout' }" title="布局方向" @click.stop="toggleMenu('layout')">
+        <button
+          type="button"
+          class="iconbtn sm mm-layout-btn"
+          :class="{ on: openMenu === 'layout' }"
+          :disabled="note.deletedAt"
+          :title="`布局：${currentLayoutLabel()}`"
+          @click.stop="toggleMenu('layout')"
+        >
           <TimelineLucideIcon name="layout" :stroke-width="1.8" />
-          <span class="mm-ctl-label">{{ currentLayoutLabel() }}</span>
           <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
         </button>
         <div v-if="openMenu === 'layout'" class="mm-menu">
@@ -115,7 +210,7 @@ function currentLayoutLabel() {
       </div>
 
       <div class="mm-ctl">
-        <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'bg' }" title="画布背景" @click.stop="toggleMenu('bg')">
+        <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'bg' }" :disabled="note.deletedAt" title="画布背景" @click.stop="toggleMenu('bg')">
           <TimelineLucideIcon name="paint" :stroke-width="1.8" />
         </button>
         <div v-if="openMenu === 'bg'" class="mm-menu mm-swatches">
@@ -134,17 +229,50 @@ function currentLayoutLabel() {
 
       <span class="mm-sep"></span>
 
-      <button type="button" class="iconbtn sm" :disabled="!activeCount" title="缩小字号（先选中节点）" @click="editor?.nudgeFontSize(-2)">
+      <div class="mm-ctl">
+        <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'bridge' }" title="导入 / 导出" @click.stop="toggleMenu('bridge')">
+          <TimelineLucideIcon name="file" :stroke-width="1.8" />
+        </button>
+        <div v-if="openMenu === 'bridge'" class="mm-menu">
+          <button type="button" class="mm-menu-item" @click="exportFile('xmind')">
+            <span>导出 .xmind</span>
+            <TimelineLucideIcon name="download" :stroke-width="1.8" />
+          </button>
+          <button type="button" class="mm-menu-item" @click="exportFile('md')">
+            <span>导出 Markdown</span>
+            <TimelineLucideIcon name="download" :stroke-width="1.8" />
+          </button>
+          <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('xmind')">
+            <span>导入 .xmind</span>
+            <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+          </button>
+          <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('markdown')">
+            <span>导入 Markdown</span>
+            <TimelineLucideIcon name="note" :stroke-width="1.8" />
+          </button>
+        </div>
+      </div>
+
+      <span class="mm-sep"></span>
+
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="缩小字号（先选中节点）" @click="editor?.nudgeFontSize(-2)">
         <TimelineLucideIcon name="fontDown" :stroke-width="1.8" />
       </button>
-      <button type="button" class="iconbtn sm" :disabled="!activeCount" title="放大字号（先选中节点）" @click="editor?.nudgeFontSize(2)">
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="放大字号（先选中节点）" @click="editor?.nudgeFontSize(2)">
         <TimelineLucideIcon name="fontUp" :stroke-width="1.8" />
       </button>
-      <button type="button" class="iconbtn sm" :disabled="!activeCount" title="加粗（先选中节点）" @click="editor?.toggleBold()">
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="加粗（先选中节点）" @click="editor?.toggleBold()">
         <TimelineLucideIcon name="bold" :stroke-width="1.8" />
       </button>
       <div class="mm-ctl">
-        <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'color' }" :disabled="!activeCount" title="文字颜色（先选中节点）" @click.stop="toggleMenu('color')">
+        <button
+          type="button"
+          class="iconbtn sm"
+          :class="{ on: openMenu === 'color' }"
+          :disabled="note.deletedAt || !activeCount"
+          title="文字颜色（先选中节点）"
+          @click.stop="toggleMenu('color')"
+        >
           <TimelineLucideIcon name="palette" :stroke-width="1.8" />
         </button>
         <div v-if="openMenu === 'color'" class="mm-menu mm-swatches">
@@ -159,10 +287,14 @@ function currentLayoutLabel() {
         </div>
       </div>
 
-      <span v-if="!activeCount" class="mm-hint">选中节点后可调字号与颜色</span>
+      <span v-if="note.deletedAt" class="mm-hint">回收站中的导图为只读，可恢复或永久删除</span>
+      <span v-else-if="!activeCount" class="mm-hint">选中节点后可调字号与颜色</span>
     </div>
 
     <div v-if="openMenu" class="mm-scrim" @click="openMenu = ''"></div>
+
+    <input ref="markdownInputRef" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden @change="onMarkdownImport" />
+    <input ref="xmindInputRef" type="file" accept=".xmind,application/octet-stream" hidden @change="onXmindImport" />
 
     <MindmapEditor
       ref="editor"
@@ -170,6 +302,7 @@ function currentLayoutLabel() {
       :note-id="note.id"
       :tree="note.bodyJson"
       :title="note.headline"
+      :read-only="Boolean(note.deletedAt)"
       @ready="onReady"
       @active="activeCount = $event"
       @update="emit('save', $event)"

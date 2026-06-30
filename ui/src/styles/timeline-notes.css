@@ -4271,6 +4271,11 @@ button.prop-row-type.open .timeline-lucide-icon {
     flex: 0 0 auto;
   }
 
+  .mobile-topbar-create {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
   .mobile-topbar-title {
     flex: 1;
     min-width: 0;
@@ -4328,6 +4333,19 @@ button.prop-row-type.open .timeline-lucide-icon {
     background: transparent;
     color: var(--text);
     font-size: 13px;
+  }
+
+  .mobile-topbar-create-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 74;
+  }
+
+  .mobile-topbar-create-menu {
+    position: fixed;
+    top: calc(var(--mobile-topbar-h) - 4px);
+    right: calc(10px + var(--mobile-overflow-guard));
+    z-index: 75;
   }
 
   .is-mobile .mobile-drawer-scrim {
@@ -5221,18 +5239,12 @@ button.prop-row-type.open .timeline-lucide-icon {
   cursor: not-allowed;
 }
 
-.iconbtn.sm.wide {
-  width: auto;
+.iconbtn.mm-layout-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  font-size: 12.5px;
-  color: var(--text-muted);
-}
-
-.mm-ctl-label {
-  white-space: nowrap;
+  width: auto;
+  padding: 0 6px;
+  gap: 3px;
 }
 
 .mm-sep {
