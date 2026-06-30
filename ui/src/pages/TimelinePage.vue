@@ -118,6 +118,8 @@ const state = reactive({
   confirmUnsaved: false,
   pendingAction: null,
   afterSaveAction: null,
+  restoreRouteOnCancel: false,
+  routeRestoreSnapshot: null,
   menuEvent: null,
   settingsOpen: false,
   confirmDeleteTopics: null,
@@ -388,6 +390,80 @@ function setDefaultSelection(preferredEventId = null) {
   state.selectedEventId = items[0]?.id ?? null;
 }
 
+function buildRouteSelectionSpec() {
+  const eventId = parseRouteNumber("event");
+  const routeTopicId = parseRouteNumber("topic");
+  const mode = parseRouteMode();
+  const event = eventId ? timelineStore.state.eventsIndex.find((item) => item.id === eventId) || null : null;
+  const topicId = event?.topicId || routeTopicId || null;
+  const openMindmap = event?.noteType === "mindmap";
+  return {
+    event,
+    eventId,
+    mode,
+    openDetail: openMindmap ? false : mode !== "view" || eventId !== null,
+    openMindmap,
+    topicId,
+  };
+}
+
+function routeSelectionMatchesState(spec) {
+  const expectedMode =
+    spec.mode === "create"
+      ? "create"
+      : spec.mode === "edit" && spec.eventId
+        ? "edit"
+        : "view";
+  const topicMatches = spec.topicId ? state.activeTopicId === spec.topicId : true;
+  const eventMatches = spec.eventId ? state.selectedEventId === spec.eventId : true;
+
+  if (spec.openMindmap) {
+    return topicMatches && eventMatches && state.mindmapOpenId === spec.eventId && !state.rightOpen && state.detailMode === "view";
+  }
+
+  return (
+    topicMatches &&
+    eventMatches &&
+    state.mindmapOpenId == null &&
+    state.detailMode === expectedMode &&
+    state.rightOpen === Boolean(spec.openDetail && (spec.eventId || expectedMode === "create"))
+  );
+}
+
+async function applyRouteSelectionFromQuery() {
+  if (!timelineStore.state.indexLoaded || !state.topics.length) return;
+  const spec = buildRouteSelectionSpec();
+  if (routeSelectionMatchesState(spec)) return;
+
+  if (spec.event?.topicId && (isGlobalFavoritesMode.value || spec.event.topicId !== state.activeTopicId)) {
+    state.collectionMode = "";
+    state.sidebarFilter = "all";
+    state.propertyFilter = { key: "", value: "" };
+    state.activeEra = "";
+    state.locateDate = "";
+    state.searchQuery = "";
+  }
+
+  applyWorkspaceSelection({
+    preferredEventId: spec.eventId,
+    preferredMode: spec.mode,
+    preferredTopicId: spec.topicId,
+    openDetail: spec.openDetail,
+  });
+
+  if (spec.openMindmap && spec.eventId) {
+    state.selectedEventId = spec.eventId;
+    state.detailMode = "view";
+    state.detailError = "";
+    state.rightOpen = false;
+    state.mindmapOpenId = spec.eventId;
+    await timelineStore.ensureEventDetail(spec.eventId);
+    return;
+  }
+
+  closeMindmap();
+}
+
 function syncActiveTopicFromStore() {
   state.topics = [...timelineStore.state.topics];
   state.activeTopicMeta = state.activeTopicId ? timelineStore.topicById(state.activeTopicId) : null;
@@ -461,6 +537,7 @@ async function loadWorkspace(options = {}) {
       media: normalizeMediaConfig(config?.media),
     };
     applyWorkspaceSelection(options);
+    await applyRouteSelectionFromQuery();
   } catch (error) {
     state.error = error.message || "加载失败";
     pushToast(`加载失败：${error.message}`, "error");
@@ -469,13 +546,18 @@ async function loadWorkspace(options = {}) {
   }
 }
 
-function runOrConfirm(action) {
+function runOrConfirm(action, options = {}) {
+  const { restoreRouteOnCancel = false, routeRestoreSnapshot = null } = options;
   if ((state.detailMode === "edit" || state.detailMode === "create") && state.detailDirty) {
     closeRelatedPreview();
     state.pendingAction = action;
+    state.restoreRouteOnCancel = restoreRouteOnCancel;
+    state.routeRestoreSnapshot = routeRestoreSnapshot;
     state.confirmUnsaved = true;
     return;
   }
+  state.restoreRouteOnCancel = false;
+  state.routeRestoreSnapshot = null;
   action();
 }
 
@@ -513,8 +595,13 @@ function openGlobalFavorites() {
 }
 
 function closeUnsavedDialog() {
+  const shouldRestoreRoute = state.restoreRouteOnCancel;
+  const restoreSnapshot = state.routeRestoreSnapshot;
   state.confirmUnsaved = false;
   state.pendingAction = null;
+  state.restoreRouteOnCancel = false;
+  state.routeRestoreSnapshot = null;
+  if (shouldRestoreRoute) void syncRouteState(restoreSnapshot || {});
 }
 
 function openMobileSidebar() {
@@ -666,6 +753,8 @@ function discardAndContinue() {
   state.detailDirty = false;
   state.confirmUnsaved = false;
   state.pendingAction = null;
+  state.restoreRouteOnCancel = false;
+  state.routeRestoreSnapshot = null;
   detailPaneRef.value?.discardDraft?.();
   if (action) action();
 }
@@ -680,6 +769,8 @@ function saveAndContinue() {
   state.afterSaveAction = action;
   state.confirmUnsaved = false;
   state.pendingAction = null;
+  state.restoreRouteOnCancel = false;
+  state.routeRestoreSnapshot = null;
 }
 
 async function applyEventSelection(eventId) {
@@ -1645,11 +1736,38 @@ watch(
 
 watch(
   () => [route.query.topic, route.query.event, route.query.mode, route.query.filter, route.query.pk, route.query.pv, route.query.era, route.query.date],
-  () => {
-    state.sidebarFilter = parseRouteFilter();
-    state.propertyFilter = parseRoutePropertyFilter();
-    state.activeEra = parseRouteString("era");
-    state.locateDate = parseRouteString("date");
+  (next, prev = []) => {
+    const applyRouteFilterState = () => {
+      state.sidebarFilter = parseRouteFilter();
+      state.propertyFilter = parseRoutePropertyFilter();
+      state.activeEra = parseRouteString("era");
+      state.locateDate = parseRouteString("date");
+    };
+    if (state.loading) return;
+    const [nextTopic, nextEvent, nextMode] = next;
+    const [prevTopic, prevEvent, prevMode] = prev;
+    if (nextTopic !== prevTopic || nextEvent !== prevEvent || nextMode !== prevMode) {
+      const spec = buildRouteSelectionSpec();
+      if (routeSelectionMatchesState(spec)) {
+        applyRouteFilterState();
+        return;
+      }
+      const restoreSnapshot = {
+        topicId: state.activeTopicId,
+        eventId: state.rightOpen ? state.selectedEventId : null,
+        mode: state.detailMode,
+        filter: state.sidebarFilter,
+        propertyFilter: { ...state.propertyFilter },
+        era: state.activeEra,
+        date: state.locateDate,
+      };
+      runOrConfirm(() => {
+        applyRouteFilterState();
+        void applyRouteSelectionFromQuery();
+      }, { restoreRouteOnCancel: true, routeRestoreSnapshot: restoreSnapshot });
+      return;
+    }
+    applyRouteFilterState();
   }
 );
 </script>

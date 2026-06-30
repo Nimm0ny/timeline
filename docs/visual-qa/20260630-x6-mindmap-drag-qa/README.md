@@ -18,8 +18,8 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 Checks:
 
-- Direct URL `?topic=5&event=1138` lands on the feed/detail state first; it does not auto-open the mindmap canvas.
-- Clicking the single mindmap row opens the X6 canvas successfully.
+- Initial QA baseline: direct URL `?topic=5&event=1138` originally landed on the feed/detail state first and required one extra row click.
+- After the route-selection fix, the same direct URL now settles into the X6 canvas directly after load.
 - Dragging child node `12312` changed its screen position from roughly `(960,550)` to `(1130,448)`.
 - The corresponding edge path updated immediately after drag; no console errors were emitted.
 - Text audit after drag:
@@ -30,8 +30,9 @@ Checks:
 
 Artifacts:
 
-- `1920-direct-url-feed-state.png`: direct URL state before clicking into canvas
+- `1920-direct-url-feed-state.png`: pre-fix baseline, direct URL before the route-selection patch
 - `1920-canvas-after-drag.png`: canvas state after dragging a child node and observing edge follow
+- `1920-deeplink-canvas-after-fix.png`: post-fix direct URL, now opening the X6 canvas after load
 
 Cleanup note:
 
