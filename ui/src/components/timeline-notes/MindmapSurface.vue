@@ -3,7 +3,7 @@ import { ref } from "vue";
 import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { pushToast } from "@/composables/useToast";
-import { MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
+import { DEFAULT_MINDMAP_LAYOUT, MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
 
 // Center-column host for a mindmap note (D-2: 中栏内嵌 + 可全屏). Owns the frame
 // chrome (back / title / save status / fullscreen), the editing toolbar, and the
@@ -19,15 +19,13 @@ const editor = ref(null);
 const fullscreen = ref(false);
 const openMenu = ref(""); // "" | "layout" | "bg" | "color" | "bridge"
 const activeCount = ref(0);
-const currentLayout = ref("logicalStructure");
+const currentLayout = ref(DEFAULT_MINDMAP_LAYOUT);
 const currentBackground = ref("");
 const markdownInputRef = ref(null);
-const xmindInputRef = ref(null);
+const jsonInputRef = ref(null);
 
-// Canvas backgrounds + node text colours. Raw hex on purpose: these are written into
-// simple-mind-map's own snapshot (body_json), not app CSS, so the library needs
-// concrete colours — it can't resolve var(--token). "跟随主题" (value "") keeps the
-// canvas transparent so the map tracks the app's light/dark theme.
+// Canvas backgrounds + node text colours are written into the persisted X6
+// snapshot, so the editor stores raw hex instead of CSS variable references.
 const BACKGROUNDS = [
   { value: "", label: "跟随主题" },
   { value: "#faf8f4", label: "纸白" },
@@ -93,8 +91,20 @@ async function exportFile(type) {
 
 function triggerImport(kind) {
   openMenu.value = "";
-  if (kind === "xmind") xmindInputRef.value?.click();
+  if (kind === "json") jsonInputRef.value?.click();
   else markdownInputRef.value?.click();
+}
+
+async function onJsonImport(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    await editor.value?.importSnapshot(await file.text());
+    pushToast("X6 JSON 已导入");
+  } catch (error) {
+    pushToast(`X6 JSON 导入失败：${error.message || error}`, "error");
+  }
 }
 
 async function onMarkdownImport(event) {
@@ -106,18 +116,6 @@ async function onMarkdownImport(event) {
     pushToast("Markdown 已导入");
   } catch (error) {
     pushToast(`Markdown 导入失败：${error.message || error}`, "error");
-  }
-}
-
-async function onXmindImport(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) return;
-  try {
-    await editor.value?.importXmind(file);
-    pushToast(".xmind 已导入");
-  } catch (error) {
-    pushToast(`.xmind 导入失败：${error.message || error}`, "error");
   }
 }
 
@@ -234,17 +232,17 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           <TimelineLucideIcon name="file" :stroke-width="1.8" />
         </button>
         <div v-if="openMenu === 'bridge'" class="mm-menu">
-          <button type="button" class="mm-menu-item" @click="exportFile('xmind')">
-            <span>导出 .xmind</span>
+          <button type="button" class="mm-menu-item" @click="exportFile('json')">
+            <span>导出 X6 JSON</span>
             <TimelineLucideIcon name="download" :stroke-width="1.8" />
           </button>
           <button type="button" class="mm-menu-item" @click="exportFile('md')">
             <span>导出 Markdown</span>
             <TimelineLucideIcon name="download" :stroke-width="1.8" />
           </button>
-          <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('xmind')">
-            <span>导入 .xmind</span>
-            <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+          <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('json')">
+            <span>导入 X6 JSON</span>
+            <TimelineLucideIcon name="file" :stroke-width="1.8" />
           </button>
           <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('markdown')">
             <span>导入 Markdown</span>
@@ -293,8 +291,8 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
 
     <div v-if="openMenu" class="mm-scrim" @click="openMenu = ''"></div>
 
+    <input ref="jsonInputRef" type="file" accept=".json,application/json,text/json" hidden @change="onJsonImport" />
     <input ref="markdownInputRef" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden @change="onMarkdownImport" />
-    <input ref="xmindInputRef" type="file" accept=".xmind,application/octet-stream" hidden @change="onXmindImport" />
 
     <MindmapEditor
       ref="editor"

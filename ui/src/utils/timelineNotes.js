@@ -1,5 +1,6 @@
 import { CONTENT_LIMITS } from "../constants/contentLimits.js";
 import { plainTextFromMarkdown } from "./markdownPreview.js";
+import { x6SnapshotToTree } from "./mindmapX6.js";
 
 // Unified property model: every column is a property. Only the two structural
 // columns (date + headline) are reserved; type/tags are ordinary, deletable
@@ -463,12 +464,15 @@ export function buildBoardGroups(events, column) {
 }
 
 // --- Mindmap (note_type=mindmap) ------------------------------------------
-// A mindmap note's body_json is either a full simple-mind-map snapshot
-// ({ root, layout, theme, view }, written once the toolbar can change layout/
-// theme) or, for notes seeded before that, the bare node tree ({ data, children }).
-// Return the root node ({ data, children }) from either shape, else null.
+// body_json is backward-compatible across three shapes:
+// 1. legacy bare tree ({ data, children })
+// 2. simple-mind-map snapshot ({ root, layout, theme, view })
+// 3. X6 snapshot ({ _fmt:"x6-mindmap-v1", cells, background, view, layout })
+// Return a normalized root tree ({ data, children }) from any supported shape.
 export function mindmapRootData(value) {
   if (!value || typeof value !== "object") return null;
+  const x6Tree = x6SnapshotToTree(value);
+  if (x6Tree) return x6Tree;
   const root = value.root && typeof value.root === "object" ? value.root : value;
   if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") return null;
   return root;
@@ -498,24 +502,21 @@ export function eventHasDate(event) {
   return Number.isInteger(event?.dateParts?.year);
 }
 
-// Count nodes in a mindmap tree (root + all descendants) so the editor can turn
-// on the library's viewport culling only for maps large enough to benefit.
+// Count nodes in a normalized mindmap tree (root + descendants).
 export function countMindmapNodes(rootNode) {
   if (!rootNode || typeof rootNode !== "object") return 0;
   const children = Array.isArray(rootNode.children) ? rootNode.children : [];
   return children.reduce((sum, child) => sum + countMindmapNodes(child), 1);
 }
 
-// Layout presets surfaced in the mindmap toolbar's 方向 menu — each changes the
-// "mind-chain direction". Keys are simple-mind-map's own layout names.
-export const DEFAULT_MINDMAP_LAYOUT = "logicalStructure";
+// Layout presets surfaced in the X6 mindmap toolbar. "free" keeps manual
+// coordinates untouched; the others reflow the existing tree into a preset.
+export const DEFAULT_MINDMAP_LAYOUT = "free";
 export const MINDMAP_LAYOUTS = [
+  { key: "free", label: "自由布局" },
   { key: "logicalStructure", label: "逻辑结构（右）" },
   { key: "logicalStructureLeft", label: "逻辑结构（左）" },
-  { key: "mindMap", label: "思维导图" },
   { key: "organizationStructure", label: "组织结构" },
-  { key: "catalogOrganization", label: "目录组织" },
-  { key: "fishbone", label: "鱼骨图" },
 ];
 
 // Implemented views for the switcher, each flagged enabled per the backend

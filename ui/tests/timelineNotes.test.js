@@ -165,6 +165,21 @@ test("mindmapPlainText flattens a snapshot tree into searchable text", () => {
   assert.equal(mindmapPlainText(snapshot), "中心主题 分支甲 细节点");
 });
 
+test("mindmapPlainText flattens an X6 snapshot into searchable text", () => {
+  const snapshot = {
+    _fmt: "x6-mindmap-v1",
+    cells: [
+      { id: "root", x: 80, y: 80, width: 128, height: 38, data: { text: "中心主题", level: 0 } },
+      { id: "branch", x: 260, y: 80, width: 108, height: 32, data: { text: "分支甲", level: 1 } },
+      { id: "leaf", x: 420, y: 120, width: 92, height: 28, data: { text: "细节点", level: 2 } },
+      { id: "e-root-branch", source: { cell: "root" }, target: { cell: "branch" } },
+      { id: "e-branch-leaf", source: { cell: "branch" }, target: { cell: "leaf" } },
+    ],
+  };
+
+  assert.equal(mindmapPlainText(snapshot), "中心主题 分支甲 细节点");
+});
+
 test("buildEventPreview and search can bridge mindmap bodyJson text", () => {
   const event = {
     headline: "导图检索",

@@ -15,6 +15,9 @@ import { pushToast } from "@/composables/useToast";
 import { useTimelineStore } from "@/composables/useTimelineStore";
 import { useViewport } from "@/composables/useViewport";
 import {
+  buildX6SeedSnapshot,
+} from "@/utils/mindmapX6.js";
+import {
   buildOptionId,
   compareTimelineEvents,
   buildGlobalFavoriteEvents,
@@ -754,9 +757,9 @@ function closeMindmap() {
   state.mindmapOpenId = null;
 }
 
-// Create a mindmap note seeded with one root, then open its canvas. Mindmaps are
-// undated by default in W5 so they can live as free-form canvases; dated legacy maps
-// still round-trip because saveMindmapTree forwards an existing date when present.
+// Create a mindmap note seeded with one X6 root snapshot, then open its canvas.
+// Mindmaps are undated by default so they can live as free-form canvases; dated
+// legacy maps still round-trip because persistMindmapTree forwards an existing date.
 function createMindmapNote(topicId = state.activeTopicId) {
   const targetTopicId = Number(topicId || state.activeTopicId);
   if (!targetTopicId) {
@@ -781,7 +784,7 @@ function createMindmapNote(topicId = state.activeTopicId) {
       const result = await api.createTopicEvent(targetTopicId, {
         headline: "未命名导图",
         noteType: "mindmap",
-        bodyJson: { data: { text: "中心主题" }, children: [] },
+        bodyJson: buildX6SeedSnapshot("中心主题"),
       });
       timelineStore.upsertEvent(result);
       syncActiveTopicFromStore();
@@ -793,8 +796,8 @@ function createMindmapNote(topicId = state.activeTopicId) {
   });
 }
 
-// simple-mind-map's rich-text nodes store HTML (e.g. "<p>中心主题</p>"); the note
-// headline is plain text, so decode tags AND entities before tracking the root label.
+// Legacy snapshots may store rich-text HTML in node text; the note headline stays
+// plain text, so decode tags + entities before tracking the root label.
 function htmlToPlainText(html) {
   const raw = String(html || "");
   if (typeof document === "undefined") return raw.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
@@ -818,8 +821,8 @@ async function persistMindmapTree({ id, tree } = {}) {
   if (!note || note.deletedAt) return;
   state.mindmapSaving = true;
   try {
-    // tree is now a full snapshot ({ root, layout, theme, view }); older notes may
-    // still hold the bare tree ({ data, children }). mindmapRootData reads either.
+    // tree may be a legacy tree/snapshot or the new X6 snapshot; mindmapRootData
+    // normalizes all supported shapes so headline sync stays stable through migration.
     const rootText = htmlToPlainText(mindmapRootData(tree)?.data?.text) || note.headline || "未命名导图";
     const payload = {
       headline: rootText,

@@ -177,6 +177,24 @@ test("mindmapRootData reads the root from a full snapshot", () => {
   assert.equal(mindmapRootData(snapshot).data.text, "中心");
 });
 
+test("mindmapRootData rebuilds a root tree from an X6 snapshot", () => {
+  const snapshot = {
+    _fmt: "x6-mindmap-v1",
+    cells: [
+      { id: "root", x: 80, y: 80, width: 128, height: 38, data: { text: "中心主题", level: 0 } },
+      { id: "branch", x: 260, y: 80, width: 108, height: 32, data: { text: "分支甲", level: 1 } },
+      { id: "leaf", x: 420, y: 120, width: 92, height: 28, data: { text: "细节点", level: 2 } },
+      { id: "e-root-branch", source: { cell: "root" }, target: { cell: "branch" } },
+      { id: "e-branch-leaf", source: { cell: "branch" }, target: { cell: "leaf" } },
+    ],
+  };
+
+  const root = mindmapRootData(snapshot);
+  assert.equal(root.data.text, "中心主题");
+  assert.equal(root.children[0].data.text, "分支甲");
+  assert.equal(root.children[0].children[0].data.text, "细节点");
+});
+
 test("mindmapRootData reads the root from a legacy bare tree", () => {
   const tree = { data: { text: "旧根" }, children: [] };
   assert.equal(mindmapRootData(tree).data.text, "旧根");
@@ -201,11 +219,12 @@ test("countMindmapNodes counts root plus all descendants", () => {
   assert.equal(countMindmapNodes({ data: { text: "solo" } }), 1);
 });
 
-test("MINDMAP_LAYOUTS exposes distinct direction presets with library keys", () => {
+test("MINDMAP_LAYOUTS exposes the X6 free/tree presets with stable keys", () => {
   const keys = MINDMAP_LAYOUTS.map((item) => item.key);
+  assert.ok(keys.includes("free"));
   assert.ok(keys.includes("logicalStructure"));
   assert.ok(keys.includes("logicalStructureLeft"));
-  assert.ok(keys.includes("mindMap"));
+  assert.ok(keys.includes("organizationStructure"));
   assert.equal(new Set(keys).size, keys.length); // no dupes
   assert.ok(MINDMAP_LAYOUTS.every((item) => item.key && item.label));
 });

@@ -3,7 +3,7 @@ type: plan
 status: define-first
 owner: lhr
 created: 2026-06-29
-source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind-map + 视图扩容）
+source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图画布 + 视图扩容）；2026-06-30 导图内核切换为 AntV X6
 参考: D:/py_pj/sikao/docs/plan/sik-375-note-tab-redesign-*.md（反向参考，方向不同：本项目保留 CM6/markdown，Topic 不改名，单用户无 user_id）
 ---
 
@@ -48,7 +48,7 @@ source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind
 | 新列 | 类型 | 说明 |
 |---|---|---|
 | `note_type` | `String(32)` default `'entry'` | 笔记类型判别：`entry`（条目）/ `mindmap`（思维导图）；未来可扩 |
-| `body_json` | `Text` nullable | 结构化正文（按 `note_type` 解释）；`mindmap` = simple-mind-map 树 JSON；`entry` 留空走 `body_markdown` |
+| `body_json` | `Text` nullable | 结构化正文（按 `note_type` 解释）；`mindmap` = X6 snapshot JSON（`cells/background/view/layout`，兼容读取 legacy tree / simple snapshot）；`entry` 留空走 `body_markdown` |
 
 - `entry`：正文走现有 `body_markdown`（不动 CM6）；`body_json` 为 null。
 - `mindmap`：正文走 `body_json`（整树 JSON）；`body_markdown` 为空。
@@ -59,7 +59,7 @@ source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind
 
 1. 树=JSON 字符串存 `Text`，和现有 4 个 `*_json` 列同款；SQLite TEXT 上限约 1GB，导图 KB 级。
 2. 迁移=在 `legacy_migration.py` 现有幂等 ALTER 序列**加 3 行**（`display_style` / `note_type` / `body_json`），全 nullable+默认 → 老行零破坏回填，和当年加 `extra_json` 一模一样。
-3. **不在 DB 里查树**：整树由 simple-mind-map 一次性 load/save，DB 当不透明 blob，不需要递归 SQL / JSON 函数。
+3. **不在 DB 里查树**：整图由 X6 snapshot 一次性 load/save，DB 当不透明 blob，不需要递归 SQL / JSON 函数；旧 simple snapshot 仅做读取兼容。
 
 ---
 
@@ -84,7 +84,7 @@ source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind
 ## 4. 轴二 · 笔记类型（note_type）
 
 - **`entry`**（条目）：现有形态，`body_markdown`（CM6），走轴一各视图。
-- **`mindmap`**（思维导图）：simple-mind-map 节点树（`body_json`），**自带画布**。
+- **`mindmap`**（思维导图）：X6 snapshot（`body_json`），**自带画布**。
   - **编辑面**：点开占据**中栏/全屏宽画布**（右栏 412px 太窄，不走右栏无感编辑）；属于「不同类型=不同编辑面」的有意偏离。
   - **可选 date**：带日期则在条目视图露单节点（mindmap 图标），否则只在笔记本列表里作为一项。
 - **新建笔记 = 类型选择器**（用户硬需求）：中栏「新建」由直接建时间点 → 先弹**类型选择**（条目 / 思维导图 / …），选 `entry` 落当前视图、选 `mindmap` 建空导图并打开画布。
@@ -94,9 +94,9 @@ source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind
 
 ## 5. 依赖例外（撞 `AGENTS.md §9`「除 CM6 外不新增依赖」，已用户授权）
 
-- **simple-mind-map**（`wanglin2/mind-map`，MIT，12.4k★，2026-06-29 仍在维护，框架无关核心，能读写真 `.xmind` + markdown + json/png/svg/pdf，插件化按需打包）。
-- 像 CM6 一样**登记为 baseline 第二个依赖例外**：落地时在 `AGENTS.md §9` 依赖项补一行；本文件即为决策记录。
-- Vue3 集成：`onMounted` new + `init(tree)`，`onUnmounted` destroy，`v-model` 同步树 JSON；按需只引所需插件控体积。备选 mind-elixir-core（更轻 TS，但无原生 .xmind），本期不选。
+- **AntV X6**（`@antv/x6` + `@antv/x6-plugin-history` + `@antv/x6-plugin-selection`，MIT），提供自由坐标拖拽、连线自动跟随、原生历史栈；导图文件互通基线收敛为 app-native JSON + Markdown。
+- 像 CM6 一样**登记为 baseline 第二个依赖例外**：落地时在 `AGENTS.md §9` 依赖项补一行；本文件即为当前决策记录。
+- Vue3 集成：`onMounted` 初始化 X6 graph，`onUnmounted` dispose，`body_json` 持久化完整 snapshot；旧 bare tree / simple snapshot 在首次保存后迁移为 X6 snapshot。
 
 ---
 
@@ -123,8 +123,8 @@ source: 用户 2026-06-29 会话拍板（两轴模型 + 思维导图 simple-mind
 - **W1 数据层**：3 列迁移 + ORM 同步 + `note_type`/`display_style` 常量 + `topic_capabilities` 纯函数（FE/BE 同源）+ 后端测试（迁移幂等 + 能力推导 + 默认值回填）。
 - **W2 视图·表格（先做）**：中栏 display_style 切换器 UI + `table` 渲染器（复用列）+ `list` 兜底 + capability gate 置灰。
 - **W3 视图·看板/画廊/大纲**：`board`（group by select）/ `gallery`（image grid）/ `outline`（era tree）。
-- **W4 笔记类型·思维导图**：simple-mind-map 集成（依赖例外登记）+ 新建类型选择器 + 宽画布编辑面 + `body_json` 读写 + 可选 date 联动 + mindmap 在条目视图的单节点呈现。
-- **W5 打磨/互通**：`.xmind` 导入导出、markdown ↔ 导图桥、笔记类型间的搜索/收藏/回收一致性收口。
+- **W4 笔记类型·思维导图**：X6 集成（依赖例外登记）+ 新建类型选择器 + 宽画布编辑面 + `body_json` 读写 + 可选 date 联动 + mindmap 在条目视图的单节点呈现。
+- **W5 打磨/互通**：X6 JSON / Markdown 导入导出、markdown ↔ 导图桥、笔记类型间的搜索/收藏/回收一致性收口；`.xmind` 若要恢复，需单列桥接项目。
 
 ---
 
