@@ -1087,8 +1087,8 @@ onBeforeUnmount(() => {
                 <b>{{ item.headline || item.displayLabel || "未命名事件" }}</b>
                 <span>{{ item.displayLabel || formatEventDate(item) }}</span>
               </div>
-              <span class="lrow-act">
-                <TimelineLucideIcon :name="inEditMode ? 'trash' : 'arrowRight'" :stroke-width="1.8" />
+              <span v-if="inEditMode" class="lrow-act">
+                <TimelineLucideIcon name="trash" :stroke-width="1.8" />
               </span>
             </button>
           </div>

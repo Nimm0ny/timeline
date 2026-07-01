@@ -1870,11 +1870,11 @@ button {
 }
 
 .body-wrap {
-  /* Body now sits below the 属性 metadata area; a divider groups them (spec §7.2
-     reordered to Obsidian metadata-first). */
-  margin-top: 22px;
+  /* The draggable metadata divider is now the ONLY separator between 属性 and
+     body, so the handle and section rule visually overlap as one shared line. */
+  margin-top: 0;
   padding-top: 14px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 0;
   /* Read .body and the CM6 editor must share font metrics, otherwise the same
      source renders to different heights and everything below shifts on
      read<->edit toggle. The editor inherits these; read .body sets the same. */
@@ -2930,8 +2930,8 @@ select:focus-visible {
   color: var(--text-faint);
 }
 
-/* 属性 area sits directly under the title as the first block — no top divider
-   (it's the leading section); the body below carries the first divider. */
+/* 属性 area sits directly under the title as the first block — no top divider.
+   The shared 属性/body separator now belongs to the draggable metadata handle. */
 .detail-meta-sec {
   margin-top: 14px;
   padding-top: 0;
