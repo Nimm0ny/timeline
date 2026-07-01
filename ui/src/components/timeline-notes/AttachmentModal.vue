@@ -65,6 +65,7 @@ onBeforeUnmount(() => {
           :src="props.attachment.url || props.attachment.imageUrl"
           :alt="title"
           loading="lazy"
+          decoding="async"
         />
         <iframe
           v-else-if="kind === 'pdf' && props.attachment?.url"

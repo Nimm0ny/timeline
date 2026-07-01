@@ -132,6 +132,8 @@ def ensure_timeline_event_schema():
         statements.append("ALTER TABLE timeline_events ADD COLUMN created_at DATETIME")
     if "favorite" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN favorite BOOLEAN DEFAULT 0 NOT NULL")
+    if "favorite_at" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN favorite_at DATETIME")
     if "deleted_at" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN deleted_at DATETIME")
 
@@ -224,7 +226,11 @@ def ensure_timeline_event_schema():
                     attachments_json = COALESCE(attachments_json, '[]'),
                     related_event_ids_json = COALESCE(related_event_ids_json, '[]'),
                     created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP),
-                    favorite = COALESCE(favorite, 0)
+                    favorite = COALESCE(favorite, 0),
+                    favorite_at = CASE
+                        WHEN COALESCE(favorite, 0) = 1 THEN COALESCE(favorite_at, updated_at, created_at, CURRENT_TIMESTAMP)
+                        ELSE NULL
+                    END
                 """
             )
         )

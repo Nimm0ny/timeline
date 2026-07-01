@@ -386,6 +386,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
     assert created["createdAt"]
     assert created["updatedAt"]
     assert created["favorite"] is True
+    assert created["favoriteAt"]
     assert created["deletedAt"] is None
     # Body is the canonical store; items derive from markdown with a neutral tag.
     assert created["items"][0]["tag"] == "note"
@@ -413,6 +414,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
     assert payload["bodyMarkdown"] == "Updated body"
     assert payload["extra"] == {"type": "", "tags": ["archive"], "place": "南京", "source": "条约文本"}
     assert payload["favorite"] is True
+    assert payload["favoriteAt"] == created["favoriteAt"]
 
     exported, _ = export_topic_data(db_session, seeded_topic.id)
     assert exported["columns"][0]["key"] == "type"
@@ -464,6 +466,7 @@ def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanen
     favorite = client.put(f"/api/events/{event_id}", json={"favorite": True})
     assert favorite.status_code == 200
     assert favorite.json()["favorite"] is True
+    assert favorite.json()["favoriteAt"]
     assert favorite.json()["deletedAt"] is None
 
     deleted = client.delete(f"/api/events/{event_id}")
@@ -496,6 +499,11 @@ def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanen
     restored = client.put(f"/api/events/{event_id}", json={"deletedAt": None})
     assert restored.status_code == 200
     assert restored.json()["deletedAt"] is None
+
+    unfavorite = client.put(f"/api/events/{event_id}", json={"favorite": False})
+    assert unfavorite.status_code == 200
+    assert unfavorite.json()["favorite"] is False
+    assert unfavorite.json()["favoriteAt"] is None
 
     permanent = client.delete(f"/api/events/{event_id}", params={"permanent": "true"})
     assert permanent.status_code == 200

@@ -3,6 +3,7 @@ import { ref } from "vue";
 import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { pushToast } from "@/composables/useToast";
+import { DEFAULT_EDGE_STYLE, MINDMAP_EDGE_STYLES } from "@/utils/mindmapX6.js";
 import { DEFAULT_MINDMAP_LAYOUT, MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
 
 // Center-column host for a mindmap note (D-2: 中栏内嵌 + 可全屏). Owns the frame
@@ -17,10 +18,11 @@ const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "r
 
 const editor = ref(null);
 const fullscreen = ref(false);
-const openMenu = ref(""); // "" | "layout" | "bg" | "color" | "bridge"
+const openMenu = ref(""); // "" | "layout" | "edge" | "bg" | "color" | "bridge"
 const activeCount = ref(0);
 const currentLayout = ref(DEFAULT_MINDMAP_LAYOUT);
 const currentBackground = ref("");
+const currentEdgeStyle = ref(DEFAULT_EDGE_STYLE);
 const markdownInputRef = ref(null);
 const jsonInputRef = ref(null);
 
@@ -47,6 +49,7 @@ function onReady(payload) {
   // A transparent canvas (follow-theme) normalises to "" so the 跟随主题 swatch lights up.
   const bg = payload?.background;
   currentBackground.value = bg && bg !== "transparent" ? bg : "";
+  currentEdgeStyle.value = payload?.edgeStyle || DEFAULT_EDGE_STYLE;
 }
 function pickLayout(key) {
   editor.value?.setLayout(key);
@@ -64,6 +67,16 @@ function pickTextColor(color) {
 }
 function currentLayoutLabel() {
   return MINDMAP_LAYOUTS.find((item) => item.key === currentLayout.value)?.label || "布局";
+}
+
+function currentEdgeStyleLabel() {
+  return MINDMAP_EDGE_STYLES.find((item) => item.key === currentEdgeStyle.value)?.label || "连线样式";
+}
+
+function pickEdgeStyle(style) {
+  editor.value?.setEdgeStyle(style);
+  currentEdgeStyle.value = style;
+  openMenu.value = "";
 }
 
 function requestTrash() {
@@ -177,6 +190,15 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="重做" @click="editor?.redo()">
         <TimelineLucideIcon name="redo" :stroke-width="1.8" />
       </button>
+      <button
+        type="button"
+        class="iconbtn sm primary"
+        :disabled="note.deletedAt || !activeCount"
+        title="新增子节点（先选中节点）"
+        @click="editor?.addChild()"
+      >
+        <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+      </button>
 
       <span class="mm-sep"></span>
 
@@ -203,6 +225,33 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           >
             <span>{{ item.label }}</span>
             <TimelineLucideIcon v-if="item.key === currentLayout" name="check" :stroke-width="2" />
+          </button>
+        </div>
+      </div>
+
+      <div class="mm-ctl">
+        <button
+          type="button"
+          class="iconbtn sm mm-layout-btn"
+          :class="{ on: openMenu === 'edge' }"
+          :disabled="note.deletedAt"
+          :title="`连线样式：${currentEdgeStyleLabel()}`"
+          @click.stop="toggleMenu('edge')"
+        >
+          <TimelineLucideIcon name="timeline" :stroke-width="1.8" />
+          <TimelineLucideIcon name="chevronDown" :stroke-width="1.8" />
+        </button>
+        <div v-if="openMenu === 'edge'" class="mm-menu">
+          <button
+            v-for="item in MINDMAP_EDGE_STYLES"
+            :key="item.key"
+            type="button"
+            class="mm-menu-item"
+            :class="{ on: item.key === currentEdgeStyle }"
+            @click="pickEdgeStyle(item.key)"
+          >
+            <span>{{ item.label }}</span>
+            <TimelineLucideIcon v-if="item.key === currentEdgeStyle" name="check" :stroke-width="2" />
           </button>
         </div>
       </div>

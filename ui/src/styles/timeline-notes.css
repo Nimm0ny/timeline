@@ -603,6 +603,128 @@ button {
   line-height: 1.6;
 }
 
+.fav-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 10px;
+}
+
+.fav-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+.fav-banner-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fav-copy {
+  margin: 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.fav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fav-head,
+.fav-subhead {
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.fav-subhead {
+  padding-top: 4px;
+}
+
+.fav-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fav-attrs {
+  gap: 3px;
+}
+
+.fav-facet-row .ti-ic {
+  width: 15px;
+  justify-content: center;
+}
+
+.fav-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  margin: 0 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-align: left;
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease);
+}
+
+.fav-recent-row:hover {
+  background: var(--bg-hover);
+}
+
+.fav-recent-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.fav-recent-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.fav-recent-title {
+  font-size: 12.5px;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fav-recent-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pane-foot {
   height: 42px;
   display: flex;
@@ -685,6 +807,31 @@ button {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.tl-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 1px 4px 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+}
+
+.tl-context-label {
+  min-width: 0;
+  max-width: 220px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tl-context-clear {
+  color: var(--text-faint);
 }
 
 .tl-bar .spacer {
@@ -2791,6 +2938,53 @@ select:focus-visible {
   border-top: 0;
 }
 
+.detail-prop-list-wrap {
+  overflow: auto;
+}
+
+.detail-meta-divider {
+  width: 100%;
+  height: 10px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+  position: relative;
+}
+
+.detail-meta-divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--border-soft);
+  transition: background var(--motion-base) var(--ease);
+}
+
+.detail-meta-divider::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 32px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+  background: var(--border-strong);
+  transition: background var(--motion-base) var(--ease);
+}
+
+.detail-meta-divider:hover::before,
+.detail-meta-divider.active::before,
+.detail-meta-divider:hover::after,
+.detail-meta-divider.active::after {
+  background: var(--accent-line);
+}
+
 /* Date / group edit trigger: same footprint as the read value (.detail-prop-value
    > strong) so the metadata row doesn't shift on read<->edit. Notion-style:
    transparent at rest, soft hover fill, no border. */
@@ -3285,6 +3479,7 @@ select:focus-visible {
 
 .prop-row.active {
   background: var(--accent-soft);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
 .prop-row-ic {
@@ -3483,54 +3678,24 @@ button.prop-row-type.open .timeline-lucide-icon {
   font-size: 10.5px;
 }
 
-/* Per-property editor popover — anchored beside the clicked row at the overlay
-   layer. Transparent inputs throughout (无感编辑); autosave, no save/cancel. */
+/* Per-property editor popover — drops downward from the clicked row (anchored
+   to rect.bottom). It now carries only the config body (name field + options),
+   leaving the list row itself as the single visible property header. */
 .prop-pop {
   position: fixed;
   z-index: 51;
-  width: 280px;
-  padding: 8px;
+  padding: 8px 0 4px;
+  border-radius: 0 0 var(--radius) var(--radius);
   max-height: calc(100vh - 24px);
   overflow-y: auto;
 }
 
-.prop-pop-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 2px 8px;
+.prop-pop-field {
+  padding-bottom: 6px;
 }
 
-.prop-pop-head .prop-row-ic {
-  width: 22px;
-  height: 22px;
-}
-
-.prop-pop-name {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-strong);
-  font-family: var(--tn-font);
-  font-size: 13.5px;
-  font-weight: 600;
-  padding: 2px 0;
-}
-
-.prop-pop-name:focus {
-  outline: none;
-}
-
-/* Type is now chosen from the row chip, so the popover head only shows a small
-   static tag for context (the icon already carries the tone). */
-.prop-pop-type-tag {
-  flex: none;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  color: var(--text-faint);
-  font-size: 10.5px;
+.prop-pop-name-input {
+  font-size: 13px;
 }
 
 /* Custom property-type dropdown — a fixed overlay reusing the shared .popover +
@@ -3563,8 +3728,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 .prop-pop-opts {
-  margin-top: 4px;
-  padding: 8px 2px 2px;
+  padding: 6px 8px 4px;
   border-top: 1px solid var(--border-soft);
 }
 
@@ -5219,6 +5383,53 @@ button.prop-row-type.open .timeline-lucide-icon {
   pointer-events: none;
 }
 
+/* Inline text-edit overlay for X6 node rename (double-click). Hidden by default;
+   shown as an absolute textarea positioned over the active node. */
+.mm-edit-overlay {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  text-align: center;
+  font-family: var(--tn-font);
+  line-height: 1;
+  z-index: 50;
+  align-items: center;
+  justify-content: center;
+}
+
+.mm-node-plus {
+  position: absolute;
+  z-index: 12;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-pop);
+  transform: translate(-50%, -50%);
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease),
+    border-color var(--motion-base) var(--ease);
+}
+
+.mm-node-plus:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
 /* W5 mindmap toolbar: font/background/direction controls over the canvas. The row
    sits above the canvas (z 5) so its dropdowns clear the SVG; a full-bleed scrim
    (z 3) covers the canvas for click-away while leaving the toolbar interactive. */
@@ -5234,16 +5445,30 @@ button.prop-row-type.open .timeline-lucide-icon {
   border-bottom: 1px solid var(--border-soft);
 }
 
+.mm-tools .iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .mm-tools .iconbtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
+.mm-tools .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+  flex: none;
+}
+
 .iconbtn.mm-layout-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   width: auto;
-  padding: 0 6px;
+  padding: 0 5px;
   gap: 3px;
 }
 

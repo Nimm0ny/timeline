@@ -3,14 +3,22 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { Graph } from "@antv/x6";
 import { History } from "@antv/x6-plugin-history";
 import { Selection } from "@antv/x6-plugin-selection";
+import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
   buildNodeAttrs,
+  buildNodePorts,
   buildX6SeedSnapshot,
+  computeMindmapRoute,
+  DEFAULT_EDGE_ROUTING,
+  DEFAULT_EDGE_STYLE,
   applyColorsToGraph,
+  edgeConnectorForStyle,
+  edgeRoutingForStyle,
   isX6MindmapSnapshot,
   makeEdge,
   markdownToTree,
   NODE_SIZES,
+  normalizeEdgeStyle,
   relayout,
   treeToX6Cells,
   X6_MINDMAP_FORMAT,
@@ -46,12 +54,18 @@ const loading = ref(true);
 let applyingLayout = false;
 let currentBackground = "";
 let currentLayout = FREE_LAYOUT_KEY;
+let currentEdgeStyle = DEFAULT_EDGE_STYLE;
+let currentEdgeRouting = DEFAULT_EDGE_ROUTING;
 let editingNodeId = "";
+let hoveredNodeId = "";
+let syncingEdges = false;
+let hoverClearTimer = null;
 let resizeObserver = null;
 let resizeTimer = null;
 let saveTimer = null;
 let savedJson = null;
 let suppressSaves = false;
+const sideControls = ref([]);
 
 function seedTitle() {
   return props.title?.trim() || "中心主题";
@@ -95,6 +109,163 @@ function readColors(background) {
   };
 }
 
+function clearHoverClearTimer() {
+  if (hoverClearTimer) {
+    clearTimeout(hoverClearTimer);
+    hoverClearTimer = null;
+  }
+}
+
+function scheduleHoverClear(nodeId = "") {
+  clearHoverClearTimer();
+  hoverClearTimer = setTimeout(() => {
+    if (!nodeId || hoveredNodeId === nodeId) {
+      hoveredNodeId = "";
+      updateSideControls();
+    }
+  }, 120);
+}
+
+function serializeNodeBox(node) {
+  const position = node.getPosition();
+  const size = node.getSize();
+  return { id: node.id, x: position.x, y: position.y, width: size.width, height: size.height };
+}
+
+function ensureNodePorts(node) {
+  if (!node?.isNode?.()) return;
+  if ((node.getPorts?.() || []).length) return;
+  node.prop("ports", buildNodePorts());
+}
+
+function withHistorySuppressed(action) {
+  const history = graphHistory.value;
+  if (!history) {
+    action();
+    return;
+  }
+  const enabled = history.isEnabled();
+  if (enabled) history.disable();
+  try {
+    action();
+  } finally {
+    if (enabled) history.enable();
+  }
+}
+
+function syncEdgeStyleFromGraph() {
+  const g = graph.value;
+  if (!g) return;
+  const edge = g.getEdges().find((item) => item.getData()?._isMindEdge);
+  const data = edge?.getData?.() || {};
+  currentEdgeStyle = normalizeEdgeStyle(data.edgeStyle || currentEdgeStyle);
+  currentEdgeRouting = edgeRoutingForStyle(currentEdgeStyle);
+}
+
+function currentControlNode() {
+  const g = graph.value;
+  if (!g) return null;
+  if (hoveredNodeId) {
+    const hovered = g.getCellById(hoveredNodeId);
+    if (hovered?.isNode?.()) return hovered;
+  }
+  const selected = selectedNodes()[0];
+  if (selected?.isNode?.()) return selected;
+  return null;
+}
+
+function controlSides(node) {
+  if (!node?.isNode?.()) return [];
+  return ["top", "right", "bottom", "left"];
+}
+
+function updateSideControls() {
+  const g = graph.value;
+  const host = editorRef.value;
+  if (!g || !host || props.readOnly || editingNodeId) {
+    sideControls.value = [];
+    return;
+  }
+  const node = currentControlNode();
+  if (!node?.isNode?.()) {
+    sideControls.value = [];
+    return;
+  }
+
+  const position = node.getPosition();
+  const size = node.getSize();
+  const rect = g.localToPage({ x: position.x, y: position.y, width: size.width, height: size.height });
+  const hostRect = host.getBoundingClientRect();
+  const cx = rect.x - hostRect.left + rect.width / 2;
+  const cy = rect.y - hostRect.top + rect.height / 2;
+  const inset = 12;
+  sideControls.value = controlSides(node).map((side) => {
+    if (side === "top") return { key: `${node.id}:top`, nodeId: node.id, side, x: cx, y: rect.y - hostRect.top - inset };
+    if (side === "bottom") return { key: `${node.id}:bottom`, nodeId: node.id, side, x: cx, y: rect.y - hostRect.top + rect.height + inset };
+    if (side === "left") return { key: `${node.id}:left`, nodeId: node.id, side, x: rect.x - hostRect.left - inset, y: cy };
+    return { key: `${node.id}:right`, nodeId: node.id, side, x: rect.x - hostRect.left + rect.width + inset, y: cy };
+  });
+}
+
+function refreshEdgeGeometry() {
+  const g = graph.value;
+  if (!g || syncingEdges) return;
+  const nodes = g.getNodes().filter((node) => node.isNode?.());
+  nodes.forEach(ensureNodePorts);
+  const nodeBoxes = nodes.map(serializeNodeBox);
+  const occupied = [];
+  const edges = g
+    .getEdges()
+    .filter((edge) => edge.getData()?._isMindEdge)
+    .sort((left, right) => {
+      const leftSource = left.getSourceCell();
+      const rightSource = right.getSourceCell();
+      const leftPos = leftSource?.getPosition?.()?.y ?? 0;
+      const rightPos = rightSource?.getPosition?.()?.y ?? 0;
+      return leftPos - rightPos || String(left.id).localeCompare(String(right.id));
+    });
+
+  syncingEdges = true;
+  withHistorySuppressed(() => {
+    g.startBatch("mindmap-edges");
+    try {
+      edges.forEach((edge) => {
+        const sourceNode = edge.getSourceCell();
+        const targetNode = edge.getTargetCell();
+        if (!sourceNode?.isNode?.() || !targetNode?.isNode?.()) return;
+        const data = edge.getData() || {};
+        const route = computeMindmapRoute(serializeNodeBox(sourceNode), serializeNodeBox(targetNode), {
+          edgeStyle: currentEdgeStyle,
+          preferredSourceSide: data.preferredSourceSide,
+          preferredTargetSide: data.preferredTargetSide,
+          nodeBoxes,
+          occupiedSegments: occupied,
+        });
+        edge.setSource({ cell: sourceNode.id, port: route.sourceSide });
+        edge.setTarget({ cell: targetNode.id, port: route.targetSide });
+        edge.setRouter({ name: "normal" });
+        edge.setConnector(edgeConnectorForStyle(currentEdgeStyle));
+        edge.setVertices(route.vertices);
+        edge.setData({
+          ...data,
+          _isMindEdge: true,
+          preferredSourceSide: data.preferredSourceSide || route.sourceSide,
+          preferredTargetSide: data.preferredTargetSide || route.targetSide,
+          sourceSide: route.sourceSide,
+          targetSide: route.targetSide,
+          edgeStyle: currentEdgeStyle,
+          edgeRouting: currentEdgeRouting,
+        });
+        occupied.push(...route.segments);
+      });
+    } finally {
+      g.stopBatch("mindmap-edges");
+    }
+  });
+  syncingEdges = false;
+  updateSideControls();
+}
+
 function normalizeLayoutKey(layout) {
   const key = String(layout || "").trim();
   if (key === "organizationStructure") return key;
@@ -125,6 +296,7 @@ function resizeGraph() {
 function cancelEdit() {
   editingNodeId = "";
   if (editOverlayRef.value) editOverlayRef.value.style.display = "none";
+  updateSideControls();
 }
 
 function buildSnapshot() {
@@ -136,6 +308,8 @@ function buildSnapshot() {
     cells: g.toJSON().cells || [],
     background: currentBackground,
     layout: currentLayout,
+    edgeRouting: currentEdgeRouting,
+    edgeStyle: currentEdgeStyle,
     view: {
       tx,
       ty,
@@ -171,7 +345,10 @@ function scheduleSave() {
 
 function scheduleResize() {
   if (resizeTimer) clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(resizeGraph, 80);
+  resizeTimer = setTimeout(() => {
+    resizeGraph();
+    updateSideControls();
+  }, 80);
 }
 
 function downloadFile(filename, text, mimeType) {
@@ -197,6 +374,7 @@ function showEditOverlay(node) {
   const scale = size.width ? rect.width / size.width : 1;
 
   editingNodeId = node.id;
+  sideControls.value = [];
   overlay.style.left = `${rect.x - hostRect.left}px`;
   overlay.style.top = `${rect.y - hostRect.top}px`;
   overlay.style.width = `${rect.width}px`;
@@ -224,19 +402,26 @@ function commitEdit() {
   cancelEdit();
 }
 
-function childPosition(parentNode, childSize) {
+function childPosition(parentNode, childSize, side = "right") {
   const parentPos = parentNode.getPosition();
   const parentSize = parentNode.getSize();
-  const siblingCount = graph.value?.getOutgoingEdges(parentNode)?.length || 0;
+  const siblingCount =
+    graph.value?.getOutgoingEdges(parentNode)?.filter((edge) => (edge.getData()?.preferredSourceSide || "right") === side).length || 0;
   const verticalOffset = siblingCount * (childSize.h + 18);
   const horizontalOffset = siblingCount * (childSize.w + 18);
-  if (currentLayout === "logicalStructureLeft") {
+  if (side === "left") {
     return {
       x: parentPos.x - childSize.w - 80,
       y: parentPos.y + (parentSize.height - childSize.h) / 2 + verticalOffset,
     };
   }
-  if (currentLayout === "organizationStructure") {
+  if (side === "top") {
+    return {
+      x: parentPos.x + (parentSize.width - childSize.w) / 2 + horizontalOffset,
+      y: parentPos.y - childSize.h - 60,
+    };
+  }
+  if (side === "bottom") {
     return {
       x: parentPos.x + (parentSize.width - childSize.w) / 2 + horizontalOffset,
       y: parentPos.y + parentSize.height + 60,
@@ -269,34 +454,45 @@ function collectSubtreeNodes(rootNode) {
   return ordered;
 }
 
-function addChild() {
+function defaultChildSide(parent) {
+  if (currentLayout === "logicalStructureLeft") return "left";
+  if (currentLayout === "organizationStructure") return "bottom";
+  return "right";
+}
+
+function addChild(side = "", targetNodeId = "") {
   const g = graph.value;
-  const nodes = selectedNodes();
-  if (!g || !nodes.length || props.readOnly) return;
-  const parent = nodes[0];
+  const explicit = targetNodeId ? g?.getCellById(targetNodeId) : null;
+  const parent = explicit?.isNode?.() ? explicit : selectedNodes()[0];
+  if (!g || !parent?.isNode?.() || props.readOnly) return;
+  const sourceSide = side || defaultChildSide(parent);
   const parentData = parent.getData() || {};
   const childLevel = (parentData.level ?? 0) + 1;
   const childSize = sizeFor(childLevel);
-  const childPos = childPosition(parent, childSize);
-  const nodeId = `n-${Math.random().toString(36).slice(2, 9)}`;
+  const childPos = childPosition(parent, childSize, sourceSide);
+  const targetSide = sourceSide === "left" ? "right" : sourceSide === "right" ? "left" : sourceSide === "top" ? "bottom" : "top";
+  const childId = `n-${Math.random().toString(36).slice(2, 9)}`;
 
   g.startBatch("add-node");
   const childNode = g.addNode({
-    id: nodeId,
+    id: childId,
     shape: "rect",
     x: childPos.x,
     y: childPos.y,
     width: childSize.w,
     height: childSize.h,
+    ports: buildNodePorts(),
     attrs: buildNodeAttrs(childLevel, "子主题", {}, readColors(currentBackground)),
     data: { text: "子主题", level: childLevel },
   });
-  g.addEdge(makeEdge(parent.id, nodeId, readColors(currentBackground)));
+  g.addEdge(makeEdge(parent.id, childId, readColors(currentBackground), { edgeStyle: currentEdgeStyle, sourceSide, targetSide }));
   g.stopBatch("add-node");
 
   graphSelection.value?.clean();
   graphSelection.value?.select(childNode);
   currentLayout = FREE_LAYOUT_KEY;
+  currentEdgeRouting = edgeRoutingForStyle(currentEdgeStyle);
+  refreshEdgeGeometry();
   scheduleSave();
   requestAnimationFrame(() => showEditOverlay(childNode));
 }
@@ -343,6 +539,7 @@ function setLayout(layoutKey) {
   if (!g) return;
   if (nextLayout === FREE_LAYOUT_KEY) {
     currentLayout = FREE_LAYOUT_KEY;
+    refreshEdgeGeometry();
     scheduleSave();
     return;
   }
@@ -351,11 +548,38 @@ function setLayout(layoutKey) {
   relayout(g, directionFromLayout(nextLayout));
   applyingLayout = false;
   currentLayout = nextLayout;
+  refreshEdgeGeometry();
   try {
     g.centerContent();
   } catch {
     // Ignore fit failures on empty graphs.
   }
+  scheduleSave();
+}
+
+function setEdgeStyle(style) {
+  const g = graph.value;
+  const nextStyle = normalizeEdgeStyle(style);
+  if (!g || nextStyle === currentEdgeStyle) return;
+  currentEdgeStyle = nextStyle;
+  currentEdgeRouting = edgeRoutingForStyle(nextStyle);
+  g.startBatch("mindmap-edge-style");
+  try {
+    g.getEdges()
+      .filter((edge) => edge.getData()?._isMindEdge)
+      .forEach((edge) => {
+        const data = edge.getData() || {};
+        edge.setData({
+          ...data,
+          _isMindEdge: true,
+          edgeStyle: nextStyle,
+          edgeRouting: currentEdgeRouting,
+        });
+      });
+  } finally {
+    g.stopBatch("mindmap-edge-style");
+  }
+  refreshEdgeGeometry();
   scheduleSave();
 }
 
@@ -442,10 +666,14 @@ function applyGraphState(payload, persist) {
 
   currentBackground = payload?.background || "";
   currentLayout = normalizeLayoutKey(payload?.layout);
+  currentEdgeStyle = normalizeEdgeStyle(payload?.edgeStyle);
+  currentEdgeRouting = String(payload?.edgeRouting || edgeRoutingForStyle(currentEdgeStyle));
 
   if (currentBackground) g.drawBackground({ color: currentBackground });
   else g.clearBackground();
   applyColorsToGraph(g, readColors(currentBackground));
+  g.getNodes().forEach(ensureNodePorts);
+  refreshEdgeGeometry();
   resizeGraph();
 
   if (payload?.view?.tx != null || payload?.view?.ty != null) {
@@ -471,6 +699,7 @@ function applyGraphState(payload, persist) {
   } else {
     setSavedBaseline();
   }
+  updateSideControls();
   return true;
 }
 
@@ -480,6 +709,8 @@ function payloadFromStoredTree(stored) {
       cells: stored.cells || [],
       background: stored.background || "",
       layout: normalizeLayoutKey(stored.layout),
+      edgeRouting: stored.edgeRouting || DEFAULT_EDGE_ROUTING,
+      edgeStyle: stored.edgeStyle || DEFAULT_EDGE_STYLE,
       view: stored.view || null,
     };
   }
@@ -489,6 +720,8 @@ function payloadFromStoredTree(stored) {
       cells: stored.cells,
       background: stored.background || "",
       layout: normalizeLayoutKey(stored.layout),
+      edgeRouting: stored.edgeRouting || DEFAULT_EDGE_ROUTING,
+      edgeStyle: stored.edgeStyle || DEFAULT_EDGE_STYLE,
       view: stored.view || null,
     };
   }
@@ -499,15 +732,29 @@ function payloadFromStoredTree(stored) {
     const { cells } = treeToX6Cells(mindmapRootData(stored) || { data: { text: seedTitle() }, children: [] }, {
       colors: readColors(background),
       direction: directionFromLayout(legacyLayout),
+      edgeStyle: DEFAULT_EDGE_STYLE,
     });
-    return { cells, background, layout: legacyLayout, view: null };
+    return {
+      cells,
+      background,
+      layout: legacyLayout,
+      edgeRouting: DEFAULT_EDGE_ROUTING,
+      edgeStyle: DEFAULT_EDGE_STYLE,
+      view: null,
+    };
   }
 
-  const seeded = buildX6SeedSnapshot(seedTitle(), { colors: readColors(), layout: FREE_LAYOUT_KEY });
+  const seeded = buildX6SeedSnapshot(seedTitle(), {
+    colors: readColors(),
+    layout: FREE_LAYOUT_KEY,
+    edgeStyle: DEFAULT_EDGE_STYLE,
+  });
   return {
     cells: seeded.cells,
     background: seeded.background,
     layout: normalizeLayoutKey(seeded.layout),
+    edgeRouting: seeded.edgeRouting,
+    edgeStyle: seeded.edgeStyle,
     view: seeded.view,
   };
 }
@@ -515,8 +762,22 @@ function payloadFromStoredTree(stored) {
 async function importMarkdown(text) {
   const tree = markdownToTree(String(text || ""));
   if (!tree) return false;
-  const { cells } = treeToX6Cells(tree, { colors: readColors(currentBackground), direction: "LR" });
-  return applyGraphState({ cells, background: currentBackground, layout: "logicalStructure", view: null }, true);
+  const { cells } = treeToX6Cells(tree, {
+    colors: readColors(currentBackground),
+    direction: "LR",
+    edgeStyle: currentEdgeStyle,
+  });
+  return applyGraphState(
+    {
+      cells,
+      background: currentBackground,
+      layout: "logicalStructure",
+      edgeRouting: edgeRoutingForStyle(currentEdgeStyle),
+      edgeStyle: currentEdgeStyle,
+      view: null,
+    },
+    true
+  );
 }
 
 async function importSnapshot(text) {
@@ -541,9 +802,11 @@ async function exportFile(type, name) {
 }
 
 defineExpose({
+  addChild,
   undo,
   redo,
   setLayout,
+  setEdgeStyle,
   setBackground,
   nudgeFontSize,
   toggleBold,
@@ -618,18 +881,43 @@ onMounted(() => {
 
   g.on("node:moved", () => {
     if (!applyingLayout) currentLayout = FREE_LAYOUT_KEY;
+    refreshEdgeGeometry();
     scheduleSave();
   });
-  g.on("history:change", scheduleSave);
+  g.on("history:change", () => {
+    if (syncingEdges) return;
+    syncEdgeStyleFromGraph();
+    refreshEdgeGeometry();
+    scheduleSave();
+  });
   g.on("selection:changed", ({ selected }) => {
     emit("active", (selected || []).filter((cell) => cell.isNode?.()).length);
+    updateSideControls();
   });
-  g.on("scale", scheduleSave);
-  g.on("translate", scheduleSave);
+  g.on("scale", () => {
+    updateSideControls();
+    scheduleSave();
+  });
+  g.on("translate", () => {
+    updateSideControls();
+    scheduleSave();
+  });
   g.on("node:dblclick", ({ node }) => showEditOverlay(node));
+  g.on("node:mouseenter", ({ node }) => {
+    clearHoverClearTimer();
+    hoveredNodeId = node?.id || "";
+    updateSideControls();
+  });
+  g.on("node:mouseleave", ({ node }) => {
+    scheduleHoverClear(node?.id || "");
+  });
   g.on("blank:click", () => {
     if (editingNodeId) commitEdit();
-    else cancelEdit();
+    else {
+      clearHoverClearTimer();
+      hoveredNodeId = "";
+      cancelEdit();
+    }
   });
 
   if (typeof ResizeObserver !== "undefined") {
@@ -638,7 +926,7 @@ onMounted(() => {
   }
 
   loading.value = false;
-  emit("ready", { layout: currentLayout, background: currentBackground });
+  emit("ready", { layout: currentLayout, background: currentBackground, edgeStyle: currentEdgeStyle, edgeRouting: currentEdgeRouting });
 });
 
 watch(
@@ -649,12 +937,14 @@ watch(
     suppressSaves = readOnly;
     g.options.interacting = readOnly ? false : INTERACTING_OPTIONS;
     if (readOnly) graphSelection.value?.clean();
+    updateSideControls();
   }
 );
 
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
   if (resizeTimer) clearTimeout(resizeTimer);
+  clearHoverClearTimer();
   resizeObserver?.disconnect();
   if (containerRef.value) containerRef.value.removeEventListener("keydown", onKeydown);
   cancelEdit();
@@ -678,6 +968,20 @@ onBeforeUnmount(() => {
       @keydown.escape.prevent="cancelEdit"
       @blur="commitEdit"
     />
+    <button
+      v-for="control in sideControls"
+      :key="control.key"
+      type="button"
+      class="mm-node-plus"
+      :style="{ left: `${control.x}px`, top: `${control.y}px` }"
+      :title="`从${control.side}侧新增子节点`"
+      @mouseenter="clearHoverClearTimer(); hoveredNodeId = control.nodeId; updateSideControls()"
+      @mouseleave="scheduleHoverClear(control.nodeId)"
+      @mousedown.prevent
+      @click.stop="addChild(control.side, control.nodeId)"
+    >
+      <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+    </button>
     <div v-if="loading" class="mm-loading">正在加载思维导图…</div>
   </div>
 </template>

@@ -268,7 +268,20 @@ export function formatEventDisplayDate(event) {
   return `${yearLabel}${parts.month}月${parts.day}日`;
 }
 
+const EVENT_PREVIEW_CACHE = new Map();
+const EVENT_PREVIEW_CACHE_LIMIT = 2000;
+
+function previewCacheKey(event, maxLength) {
+  const id = event?.id;
+  if (id == null) return "";
+  const stamp = String(event?.updatedAt || event?.createdAt || "");
+  const preview = String(event?.preview || "").trim();
+  return preview ? `${id}|${stamp}|${maxLength}|${preview}` : `${id}|${stamp}|${maxLength}|fallback`;
+}
+
 export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText) {
+  const cacheKey = previewCacheKey(event, maxLength);
+  if (cacheKey && EVENT_PREVIEW_CACHE.has(cacheKey)) return EVENT_PREVIEW_CACHE.get(cacheKey);
   const text =
     String(event?.preview || "").trim() ||
     mindmapPlainText(event?.bodyJson) ||
@@ -277,8 +290,14 @@ export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText)
       .map((item) => String(item?.text || "").trim())
       .filter(Boolean)
       .join(" ");
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength).trim()}...`;
+  const result = text.length <= maxLength ? text : `${text.slice(0, maxLength).trim()}...`;
+  if (cacheKey) {
+    EVENT_PREVIEW_CACHE.set(cacheKey, result);
+    if (EVENT_PREVIEW_CACHE.size > EVENT_PREVIEW_CACHE_LIMIT) {
+      EVENT_PREVIEW_CACHE.delete(EVENT_PREVIEW_CACHE.keys().next().value);
+    }
+  }
+  return result;
 }
 
 export function normalizeTopicColumns(columns) {
@@ -589,6 +608,104 @@ export function buildGlobalFavoriteEvents(events) {
   return [...(events || [])]
     .filter((event) => event?.favorite && !event?.deletedAt)
     .sort(compareTimelineEvents);
+}
+
+function favoriteRecencyTimestamp(event) {
+  const raw = event?.favoriteAt || event?.updatedAt || event?.createdAt || "";
+  const time = raw ? Date.parse(raw) : Number.NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+export function buildRecentFavoriteEvents(events, limit = 5) {
+  return [...(events || [])]
+    .sort((left, right) => favoriteRecencyTimestamp(right) - favoriteRecencyTimestamp(left) || compareTimelineEvents(left, right))
+    .slice(0, Math.max(0, Number(limit) || 0));
+}
+
+function favoriteFacetColumns(topics) {
+  return new Map(
+    (Array.isArray(topics) ? topics : []).map((topic) => [
+      Number(topic?.id),
+      new Map(normalizeTopicColumns(topic?.columns).map((column) => [column.key, column])),
+    ])
+  );
+}
+
+function favoriteFacetEntries(event, facetKey, columnsByTopic) {
+  const topicColumns = columnsByTopic.get(Number(event?.topicId)) || new Map();
+  const column = topicColumns.get(facetKey);
+  if (facetKey === "tags") {
+    if (column && isOptionColumn(column)) return resolvePropertyChips(event, column);
+    const raw = event?.extra?.tags;
+    const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    return values
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => ({ value, label: value, color: "var(--accent)" }));
+  }
+  if (facetKey === "type") {
+    if (column && isOptionColumn(column)) return resolvePropertyChips(event, column);
+    const value = String(event?.extra?.type ?? "").trim();
+    return value ? [{ value, label: value, color: "var(--accent)" }] : [];
+  }
+  return [];
+}
+
+export function buildFavoriteFacetRows(events, topics, facetKey) {
+  const counts = new Map();
+  const columnsByTopic = favoriteFacetColumns(topics);
+  const topicNames = new Map((Array.isArray(topics) ? topics : []).map((topic) => [Number(topic?.id), topic?.title || topic?.name || `笔记本 ${topic?.id}`]));
+  for (const event of Array.isArray(events) ? events : []) {
+    for (const entry of favoriteFacetEntries(event, facetKey, columnsByTopic)) {
+      const topicId = Number(event?.topicId) || null;
+      const scopedKey = `${topicId}:${entry.value}`;
+      const existing = counts.get(scopedKey) || {
+        key: scopedKey,
+        topicId,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color || "var(--accent)",
+        count: 0,
+      };
+      existing.count += 1;
+      if (!existing.label && entry.label) existing.label = entry.label;
+      if (existing.color === "var(--accent)" && entry.color) existing.color = entry.color;
+      counts.set(scopedKey, existing);
+    }
+  }
+  const rows = [...counts.values()];
+  const duplicateCounts = rows.reduce((map, row) => {
+    map.set(row.label, (map.get(row.label) || 0) + 1);
+    return map;
+  }, new Map());
+  return rows
+    .map((row) => ({
+      ...row,
+      displayLabel:
+        (duplicateCounts.get(row.label) || 0) > 1 && row.topicId != null ? `${row.label} · ${topicNames.get(row.topicId) || row.topicId}` : row.label,
+    }))
+    .sort((left, right) => right.count - left.count || left.displayLabel.localeCompare(right.displayLabel, "zh-CN"));
+}
+
+export function filterFavoriteEventsByScope(events, scope = {}, topics = [], activeTopicId = null) {
+  const list = Array.isArray(events) ? [...events] : [];
+  const kind = String(scope?.kind || "all");
+  if (kind === "current-topic") return list.filter((event) => Number(event?.topicId) === Number(activeTopicId));
+  if (kind === "recent") return buildRecentFavoriteEvents(list, 5);
+  if (kind === "topic") return list.filter((event) => Number(event?.topicId) === Number(scope?.topicId));
+  if (kind === "type" || kind === "tag") {
+    const facetKey = kind === "type" ? "type" : "tags";
+    const target = String(scope?.value || "").trim();
+    const targetTopicId = scope?.topicId == null ? null : Number(scope.topicId);
+    if (!target) return list;
+    const columnsByTopic = favoriteFacetColumns(topics);
+    return list.filter((event) =>
+      favoriteFacetEntries(event, facetKey, columnsByTopic).some(
+        (entry) => String(entry.value) === target && (targetTopicId == null || Number(event?.topicId) === targetTopicId)
+      )
+    );
+  }
+  return list;
 }
 
 export function optionMeta(column, id) {

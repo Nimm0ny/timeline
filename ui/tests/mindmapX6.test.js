@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { treeToX6Cells, x6CellsToMarkdown, x6SnapshotToTree } from "../src/utils/mindmapX6.js";
+import {
+  buildX6SeedSnapshot,
+  computeMindmapRoute,
+  treeToX6Cells,
+  x6CellsToMarkdown,
+  x6SnapshotToTree,
+} from "../src/utils/mindmapX6.js";
 
 test("treeToX6Cells preserves legacy note metadata through an X6 roundtrip", () => {
   const legacyTree = {
@@ -46,4 +52,25 @@ test("x6CellsToMarkdown emits siblings in visual top-to-bottom order", () => {
   ];
 
   assert.equal(x6CellsToMarkdown(cells), "# 中心主题\n- 较高分支\n- 较低分支\n");
+});
+
+test("buildX6SeedSnapshot writes the phase-2 default edge routing and style", () => {
+  const snapshot = buildX6SeedSnapshot("中心主题");
+
+  assert.equal(snapshot.edgeRouting, "smart-orthogonal");
+  assert.equal(snapshot.edgeStyle, "rounded");
+});
+
+test("computeMindmapRoute avoids a blocking node on the direct horizontal path", () => {
+  const route = computeMindmapRoute(
+    { id: "parent", x: 0, y: 80, width: 120, height: 40 },
+    { id: "child", x: 320, y: 80, width: 120, height: 40 },
+    {
+      edgeStyle: "rounded",
+      nodeBoxes: [{ id: "blocker", x: 150, y: 70, width: 120, height: 60 }],
+    }
+  );
+
+  assert.equal(route.vertices.length >= 2, true);
+  assert.equal(route.vertices.some((point) => point.y !== 100), true);
 });

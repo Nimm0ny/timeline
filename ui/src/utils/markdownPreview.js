@@ -24,7 +24,7 @@ function renderInlineSegment(segment) {
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
     const safeAlt = escapeHtml(alt || "");
     const safeSrc = escapeHtml(src || "");
-    return `<img class="timeline-markdown-image" src="${safeSrc}" alt="${safeAlt}" loading="lazy">`;
+    return `<img class="timeline-markdown-image" src="${safeSrc}" alt="${safeAlt}" loading="lazy" decoding="async" fetchpriority="low">`;
   });
   output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
     const safeHref = safeLinkHref(href);

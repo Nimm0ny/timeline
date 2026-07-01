@@ -82,6 +82,7 @@ class TimelineEvent(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    favorite_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     topic: Mapped[Topic] = relationship("Topic", back_populates="events")

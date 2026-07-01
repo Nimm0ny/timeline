@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { buildEventPreview, formatEventDisplayDate } from "@/utils/timelineNotes";
 
@@ -40,11 +40,45 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "open-full"]);
 const rootRef = ref(null);
+const viewportShift = ref(0);
 
 const title = computed(() => props.event?.headline || props.event?.displayLabel || "关联事件");
 const dateLabel = computed(() => formatEventDisplayDate(props.event) || props.event?.isoDate || "未设置日期");
 const groupLabel = computed(() => [props.topicTitle, props.event?.era].filter(Boolean).join(" · ") || "未分组");
 const previewText = computed(() => buildEventPreview(props.event, 220) || "暂无正文预览。");
+const mergedStyle = computed(() => {
+  const top = pxNumber(props.styleVars?.top);
+  const anchorY = pxNumber(props.styleVars?.["--related-anchor-y"], 38);
+  return {
+    ...props.styleVars,
+    top: `${Math.round(top + viewportShift.value)}px`,
+    "--related-anchor-y": `${Math.round(anchorY - viewportShift.value)}px`,
+  };
+});
+
+function pxNumber(value, fallback = 0) {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function syncViewportFit() {
+  if (!props.open) return;
+  viewportShift.value = 0;
+  nextTick(() => {
+    const node = rootRef.value;
+    if (!node || typeof window === "undefined") return;
+    const margin = 12;
+    const rect = node.getBoundingClientRect();
+    let shift = 0;
+    if (rect.bottom > window.innerHeight - margin) shift -= rect.bottom - (window.innerHeight - margin);
+    if (rect.top + shift < margin) shift += margin - (rect.top + shift);
+    viewportShift.value = Math.round(shift);
+  });
+}
+
+function handleWindowResize() {
+  syncViewportFit();
+}
 
 function close() {
   emit("close");
@@ -65,17 +99,29 @@ watch(
     if (open) {
       window.addEventListener("keydown", closeOnEscape);
       document.addEventListener("pointerdown", closeOnPointerDown);
+      window.addEventListener("resize", handleWindowResize);
+      syncViewportFit();
       return;
     }
     window.removeEventListener("keydown", closeOnEscape);
     document.removeEventListener("pointerdown", closeOnPointerDown);
+    window.removeEventListener("resize", handleWindowResize);
+    viewportShift.value = 0;
   },
   { immediate: true }
+);
+
+watch(
+  () => [props.loading, props.error, previewText.value, props.styleVars?.top, props.styleVars?.["--related-anchor-y"]],
+  () => {
+    if (props.open) syncViewportFit();
+  }
 );
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", closeOnEscape);
   document.removeEventListener("pointerdown", closeOnPointerDown);
+  window.removeEventListener("resize", handleWindowResize);
 });
 </script>
 
@@ -86,7 +132,7 @@ onBeforeUnmount(() => {
       ref="rootRef"
       class="related-preview-popover"
       :class="[`place-${props.placement}`, { pinned: props.pinned }]"
-      :style="props.styleVars"
+      :style="mergedStyle"
       role="dialog"
       aria-label="关联事件预览"
     >

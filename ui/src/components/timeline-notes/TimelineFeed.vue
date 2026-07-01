@@ -46,6 +46,14 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  filterContextLabel: {
+    type: String,
+    default: "",
+  },
+  filterContextClearable: {
+    type: Boolean,
+    default: false,
+  },
   topicId: {
     type: Number,
     default: null,
@@ -160,6 +168,7 @@ const emit = defineEmits([
   "batch-permanent-delete",
   "open-command-palette",
   "change-view",
+  "clear-context-filter",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -597,6 +606,18 @@ onBeforeUnmount(() => {
       <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
         <span class="tl-count">· 共 {{ props.eventCount }} 条</span>
+        <span v-if="props.filterContextLabel" class="tl-context">
+          <span class="tl-context-label">{{ props.filterContextLabel }}</span>
+          <button
+            v-if="props.filterContextClearable"
+            type="button"
+            class="iconbtn sm tl-context-clear"
+            title="清空当前筛选"
+            @click.stop="emit('clear-context-filter')"
+          >
+            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+          </button>
+        </span>
       </div>
       <span class="spacer"></span>
 
@@ -1034,7 +1055,14 @@ onBeforeUnmount(() => {
           @click="onRowClick(event.id)"
         >
           <span class="gl-thumb" :class="{ 'is-empty': !eventThumb(event) }">
-            <img v-if="eventThumb(event)" :src="eventThumb(event)" :alt="eventColumnValue(event, { key: 'title' })" loading="lazy" />
+            <img
+              v-if="eventThumb(event)"
+              :src="eventThumb(event)"
+              :alt="eventColumnValue(event, { key: 'title' })"
+              loading="lazy"
+              decoding="async"
+              fetchpriority="low"
+            />
             <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
           </span>
           <span class="gl-meta">

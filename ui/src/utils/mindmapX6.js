@@ -3,12 +3,62 @@
 // lifecycle and editor interactions.
 
 export const X6_MINDMAP_FORMAT = "x6-mindmap-v1";
+export const DEFAULT_EDGE_ROUTING = "smart-orthogonal";
+export const DEFAULT_EDGE_STYLE = "rounded";
+export const MINDMAP_EDGE_STYLES = [
+  { key: "polyline", label: "直角", routing: DEFAULT_EDGE_ROUTING },
+  { key: "rounded", label: "圆角", routing: DEFAULT_EDGE_ROUTING },
+  { key: "smooth", label: "平滑曲线", routing: DEFAULT_EDGE_ROUTING },
+];
 
 export const NODE_SIZES = [
   { w: 128, h: 38 },
   { w: 108, h: 32 },
   { w: 92, h: 28 },
 ];
+
+const NODE_PORT_RADIUS = 6;
+const EDGE_STEP = 24;
+const EDGE_DOGLEG = 36;
+
+export function normalizeEdgeStyle(style) {
+  const key = String(style || "").trim();
+  if (key === "bezier") return "smooth";
+  return MINDMAP_EDGE_STYLES.some((item) => item.key === key) ? key : DEFAULT_EDGE_STYLE;
+}
+
+export function edgeRoutingForStyle(style) {
+  return DEFAULT_EDGE_ROUTING;
+}
+
+export function buildNodePorts() {
+  return {
+    groups: {
+      top: {
+        position: "top",
+        attrs: { circle: { r: NODE_PORT_RADIUS, magnet: false, stroke: "transparent", fill: "transparent" } },
+      },
+      right: {
+        position: "right",
+        attrs: { circle: { r: NODE_PORT_RADIUS, magnet: false, stroke: "transparent", fill: "transparent" } },
+      },
+      bottom: {
+        position: "bottom",
+        attrs: { circle: { r: NODE_PORT_RADIUS, magnet: false, stroke: "transparent", fill: "transparent" } },
+      },
+      left: {
+        position: "left",
+        attrs: { circle: { r: NODE_PORT_RADIUS, magnet: false, stroke: "transparent", fill: "transparent" } },
+      },
+    },
+    items: [
+      { id: "top", group: "top" },
+      { id: "right", group: "right" },
+      { id: "bottom", group: "bottom" },
+      { id: "left", group: "left" },
+    ],
+  };
+}
 
 export function extractText(raw) {
   if (!raw) return "";
@@ -28,6 +78,230 @@ export function isX6MindmapSnapshot(value) {
 
 function sizeFor(level) {
   return NODE_SIZES[Math.min(level, NODE_SIZES.length - 1)];
+}
+
+function oppositeSide(side) {
+  if (side === "left") return "right";
+  if (side === "right") return "left";
+  if (side === "top") return "bottom";
+  return "top";
+}
+
+function stepFromSide(point, side, distance = EDGE_STEP) {
+  if (side === "left") return { x: point.x - distance, y: point.y };
+  if (side === "right") return { x: point.x + distance, y: point.y };
+  if (side === "top") return { x: point.x, y: point.y - distance };
+  return { x: point.x, y: point.y + distance };
+}
+
+function boxFromNode(node = {}) {
+  const x = Number(node?.x || 0);
+  const y = Number(node?.y || 0);
+  const width = Number(node?.width || 0);
+  const height = Number(node?.height || 0);
+  return {
+    id: node?.id,
+    x,
+    y,
+    width,
+    height,
+    left: x,
+    right: x + width,
+    top: y,
+    bottom: y + height,
+    centerX: x + width / 2,
+    centerY: y + height / 2,
+  };
+}
+
+function portPoint(box, side) {
+  if (side === "left") return { x: box.left, y: box.centerY };
+  if (side === "right") return { x: box.right, y: box.centerY };
+  if (side === "top") return { x: box.centerX, y: box.top };
+  return { x: box.centerX, y: box.bottom };
+}
+
+function samePoint(left, right) {
+  return left && right && left.x === right.x && left.y === right.y;
+}
+
+function isCollinear(a, b, c) {
+  return (a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y);
+}
+
+function preservesDirection(a, b, c) {
+  if (a.x === b.x && b.x === c.x) {
+    return (b.y - a.y) * (c.y - b.y) >= 0;
+  }
+  if (a.y === b.y && b.y === c.y) {
+    return (b.x - a.x) * (c.x - b.x) >= 0;
+  }
+  return false;
+}
+
+function simplifyPoints(points) {
+  const simplified = [];
+  for (const point of points) {
+    if (!point) continue;
+    if (simplified.length && samePoint(simplified[simplified.length - 1], point)) continue;
+    if (
+      simplified.length >= 2 &&
+      isCollinear(simplified[simplified.length - 2], simplified[simplified.length - 1], point) &&
+      preservesDirection(simplified[simplified.length - 2], simplified[simplified.length - 1], point)
+    ) {
+      simplified[simplified.length - 1] = point;
+      continue;
+    }
+    simplified.push(point);
+  }
+  return simplified;
+}
+
+function segmentLength(a, b) {
+  return Math.abs((a?.x || 0) - (b?.x || 0)) + Math.abs((a?.y || 0) - (b?.y || 0));
+}
+
+function normalizeSegment(a, b) {
+  if (a.x === b.x) {
+    return { kind: "v", axis: a.x, start: Math.min(a.y, b.y), end: Math.max(a.y, b.y) };
+  }
+  return { kind: "h", axis: a.y, start: Math.min(a.x, b.x), end: Math.max(a.x, b.x) };
+}
+
+function pathSegments(points) {
+  const segments = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1];
+    const next = points[index];
+    if (!prev || !next || samePoint(prev, next)) continue;
+    segments.push(normalizeSegment(prev, next));
+  }
+  return segments;
+}
+
+function inflateBox(box, padding) {
+  return {
+    left: box.left - padding,
+    right: box.right + padding,
+    top: box.top - padding,
+    bottom: box.bottom + padding,
+  };
+}
+
+function rangeOverlaps(aStart, aEnd, bStart, bEnd) {
+  return Math.max(aStart, bStart) < Math.min(aEnd, bEnd);
+}
+
+function segmentHitsBox(segment, box) {
+  if (segment.kind === "h") {
+    return segment.axis > box.top && segment.axis < box.bottom && rangeOverlaps(segment.start, segment.end, box.left, box.right);
+  }
+  return segment.axis > box.left && segment.axis < box.right && rangeOverlaps(segment.start, segment.end, box.top, box.bottom);
+}
+
+function segmentNearBox(segment, box, padding = 12) {
+  return segmentHitsBox(segment, inflateBox(box, padding)) && !segmentHitsBox(segment, box);
+}
+
+function overlapPenalty(segments, occupied) {
+  return segments.reduce((penalty, segment) => {
+    return (
+      penalty +
+      occupied.filter(
+        (item) =>
+          item.kind === segment.kind &&
+          item.axis === segment.axis &&
+          rangeOverlaps(item.start, item.end, segment.start, segment.end)
+      ).length
+    );
+  }, 0);
+}
+
+function sidePairs(sourceBox, targetBox, preferredSourceSide = "", preferredTargetSide = "") {
+  const pairs = [];
+  const push = (sourceSide, targetSide) => {
+    const signature = `${sourceSide}:${targetSide}`;
+    if (pairs.some((item) => item.signature === signature)) return;
+    pairs.push({ sourceSide, targetSide, signature });
+  };
+
+  if (preferredSourceSide && preferredTargetSide) push(preferredSourceSide, preferredTargetSide);
+  else if (preferredSourceSide) push(preferredSourceSide, oppositeSide(preferredSourceSide));
+  else if (preferredTargetSide) push(oppositeSide(preferredTargetSide), preferredTargetSide);
+
+  const dx = targetBox.centerX - sourceBox.centerX;
+  const dy = targetBox.centerY - sourceBox.centerY;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx >= 0) {
+      push("right", "left");
+      push("bottom", "left");
+      push("top", "left");
+      push("right", "top");
+      push("right", "bottom");
+    } else {
+      push("left", "right");
+      push("bottom", "right");
+      push("top", "right");
+      push("left", "top");
+      push("left", "bottom");
+    }
+  } else if (dy >= 0) {
+    push("bottom", "top");
+    push("right", "top");
+    push("left", "top");
+    push("bottom", "left");
+    push("bottom", "right");
+  } else {
+    push("top", "bottom");
+    push("right", "bottom");
+    push("left", "bottom");
+    push("top", "left");
+    push("top", "right");
+  }
+  return pairs;
+}
+
+function doglegX(sourceBox, targetBox, sourceSide, targetSide) {
+  if (sourceSide === "right" && targetSide === "left") {
+    if (sourceBox.right <= targetBox.left) return (sourceBox.right + targetBox.left) / 2;
+    return Math.max(sourceBox.right, targetBox.right) + EDGE_DOGLEG;
+  }
+  if (sourceSide === "left" && targetSide === "right") {
+    if (targetBox.right <= sourceBox.left) return (sourceBox.left + targetBox.right) / 2;
+    return Math.min(sourceBox.left, targetBox.left) - EDGE_DOGLEG;
+  }
+  return (sourceBox.centerX + targetBox.centerX) / 2;
+}
+
+function doglegY(sourceBox, targetBox, sourceSide, targetSide) {
+  if (sourceSide === "bottom" && targetSide === "top") {
+    if (sourceBox.bottom <= targetBox.top) return (sourceBox.bottom + targetBox.top) / 2;
+    return Math.max(sourceBox.bottom, targetBox.bottom) + EDGE_DOGLEG;
+  }
+  if (sourceSide === "top" && targetSide === "bottom") {
+    if (targetBox.bottom <= sourceBox.top) return (sourceBox.top + targetBox.bottom) / 2;
+    return Math.min(sourceBox.top, targetBox.top) - EDGE_DOGLEG;
+  }
+  return (sourceBox.centerY + targetBox.centerY) / 2;
+}
+
+function orthogonalCandidates(sourceBox, targetBox, sourceSide, targetSide) {
+  const source = portPoint(sourceBox, sourceSide);
+  const target = portPoint(targetBox, targetSide);
+  const sourceExit = stepFromSide(source, sourceSide);
+  const targetExit = stepFromSide(target, targetSide);
+  const midX = doglegX(sourceBox, targetBox, sourceSide, targetSide);
+  const midY = doglegY(sourceBox, targetBox, sourceSide, targetSide);
+  const variants = [
+    [source, sourceExit, { x: sourceExit.x, y: targetExit.y }, targetExit, target],
+    [source, sourceExit, { x: targetExit.x, y: sourceExit.y }, targetExit, target],
+    [source, sourceExit, { x: midX, y: sourceExit.y }, { x: midX, y: targetExit.y }, targetExit, target],
+    [source, sourceExit, { x: sourceExit.x, y: midY }, { x: targetExit.x, y: midY }, targetExit, target],
+  ];
+  if (sourceExit.x === targetExit.x || sourceExit.y === targetExit.y) {
+    variants.unshift([source, sourceExit, targetExit, target]);
+  }
+  return variants.map((points) => simplifyPoints(points)).filter((points) => points.length >= 2);
 }
 
 function x6NodeText(cell = {}) {
@@ -105,14 +379,72 @@ export function x6SnapshotToTree(value) {
   return buildTreeFromGraph(rootIdFromGraph(nodeMap, incoming), nodeMap, childIds);
 }
 
+export function computeMindmapRoute(sourceNode, targetNode, options = {}) {
+  const sourceBox = boxFromNode(sourceNode);
+  const targetBox = boxFromNode(targetNode);
+  const style = normalizeEdgeStyle(options.edgeStyle);
+  const preferredSourceSide = String(options.preferredSourceSide || "").trim();
+  const preferredTargetSide = String(options.preferredTargetSide || "").trim();
+  const nodeBoxes = (Array.isArray(options.nodeBoxes) ? options.nodeBoxes : [])
+    .map((box) => (box?.left != null && box?.right != null && box?.top != null && box?.bottom != null ? box : boxFromNode(box)))
+    .filter((box) => box?.id && box.id !== sourceBox.id && box.id !== targetBox.id);
+  const occupied = Array.isArray(options.occupiedSegments) ? options.occupiedSegments : [];
+  const candidates = sidePairs(sourceBox, targetBox, preferredSourceSide, preferredTargetSide);
+  let best = null;
+
+  for (const pair of candidates) {
+    for (const points of orthogonalCandidates(sourceBox, targetBox, pair.sourceSide, pair.targetSide)) {
+      const segments = pathSegments(points);
+      const bends = Math.max(0, points.length - 2);
+      const length = segments.reduce((total, segment) => total + Math.abs(segment.end - segment.start), 0);
+      const penalty =
+        bends * 24 +
+        segments.reduce(
+          (score, segment) =>
+            score +
+            nodeBoxes.filter((box) => segmentHitsBox(segment, box)).length * 1000 +
+            nodeBoxes.filter((box) => segmentNearBox(segment, box)).length * 80,
+          0
+        ) +
+        overlapPenalty(segments, occupied) * 40;
+      const candidate = {
+        ...pair,
+        points,
+        vertices: points.slice(1, -1),
+        segments,
+        score: length + penalty,
+      };
+      if (!best || candidate.score < best.score) best = candidate;
+    }
+  }
+
+  return (
+    best || {
+      sourceSide: preferredSourceSide || "right",
+      targetSide: preferredTargetSide || "left",
+      points: [],
+      vertices: [],
+      segments: [],
+      score: 0,
+    }
+  );
+}
+
 export function buildX6SeedSnapshot(text = "中心主题", options = {}) {
   const tree = { data: { text: extractText(text) || "中心主题" }, children: [] };
-  const { cells } = treeToX6Cells(tree, { colors: options.colors, direction: options.direction || "LR" });
+  const edgeStyle = normalizeEdgeStyle(options.edgeStyle);
+  const { cells } = treeToX6Cells(tree, {
+    colors: options.colors,
+    direction: options.direction || "LR",
+    edgeStyle,
+  });
   return {
     _fmt: X6_MINDMAP_FORMAT,
     cells,
     background: options.background || "",
     layout: options.layout || "free",
+    edgeRouting: options.edgeRouting || edgeRoutingForStyle(edgeStyle),
+    edgeStyle,
     view: options.view || null,
   };
 }
@@ -135,6 +467,7 @@ export function treeToX6Cells(treeRoot, options = {}) {
       y: 0,
       width: w,
       height: h,
+      ports: buildNodePorts(),
       attrs: buildNodeAttrs(level, text, {
         fontSize: node?.data?.fontSize,
         fontWeight: node?.data?.fontWeight,
@@ -153,7 +486,7 @@ export function treeToX6Cells(treeRoot, options = {}) {
     });
 
     if (parentId) {
-      cells.push(makeEdge(parentId, id, options.colors || {}));
+      cells.push(makeEdge(parentId, id, options.colors || {}, { edgeStyle: options.edgeStyle }));
     }
 
     (node?.children || []).forEach((child) => walk(child, id, level + 1));
@@ -220,13 +553,29 @@ export function buildNodeAttrs(level, text, overrides = {}, colors = {}) {
   };
 }
 
-export function makeEdge(sourceId, targetId, colors = {}) {
+export function edgeConnectorForStyle(style) {
+  const key = normalizeEdgeStyle(style);
+  if (key === "polyline") return { name: "normal" };
+  if (key === "smooth") return { name: "smooth" };
+  return { name: "rounded", args: { radius: 14 } };
+}
+
+export function makeEdge(sourceId, targetId, colors = {}, options = {}) {
+  const edgeStyle = normalizeEdgeStyle(options.edgeStyle);
+  const sourceSide = options.sourceSide || "right";
+  const targetSide = options.targetSide || "left";
   return {
     shape: "edge",
     id: `e-${sourceId}-${targetId}`,
-    source: { cell: sourceId },
-    target: { cell: targetId },
-    data: { _isMindEdge: true },
+    source: { cell: sourceId, port: sourceSide },
+    target: { cell: targetId, port: targetSide },
+    data: {
+      _isMindEdge: true,
+      preferredSourceSide: options.sourceSide || "",
+      preferredTargetSide: options.targetSide || "",
+      edgeStyle,
+      edgeRouting: edgeRoutingForStyle(edgeStyle),
+    },
     attrs: {
       line: {
         stroke: colors.line || "#d8d4cc",
@@ -234,8 +583,8 @@ export function makeEdge(sourceId, targetId, colors = {}) {
         targetMarker: null,
       },
     },
-    router: { name: "er", args: { direction: "H" } },
-    connector: { name: "smooth" },
+    router: { name: "normal" },
+    connector: edgeConnectorForStyle(edgeStyle),
     zIndex: -1,
   };
 }

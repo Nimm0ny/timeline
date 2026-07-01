@@ -49,6 +49,20 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  favoritesPanel: {
+    type: Object,
+    default: () => ({
+      overview: [],
+      sources: [],
+      types: [],
+      tags: [],
+      recent: [],
+      emptyAll: true,
+      emptyScope: false,
+      contextLabel: "全部收藏",
+      clearable: false,
+    }),
+  },
   columns: {
     type: Array,
     default: () => [],
@@ -94,6 +108,8 @@ const emit = defineEmits([
   "save-topic-columns",
   "focus-search",
   "open-global-favorites",
+  "update:favorite-scope",
+  "open-favorite-event",
   "open-settings",
   "select-ribbon",
 ]);
@@ -320,6 +336,12 @@ function editablePropertyTypesFor(type) {
   return editablePropertyTypeChoices(type);
 }
 
+function rowTypeChoices(type) {
+  const choices = editablePropertyTypeChoices(type);
+  if (!isOptionProperty(type)) return choices;
+  return choices.filter((choice) => choice.value === "select" || choice.value === "multiselect");
+}
+
 function propertyTone(type) {
   return PROPERTY_TYPE_TONES[type] || "var(--accent)";
 }
@@ -436,12 +458,18 @@ function isPropertyTopicOpen(topicId) {
 // with the row, overlaying it downward) so editing reads as in-place rather than
 // a box floating out over the timeline. Fixed overlay (the pane scroll-clips),
 // clamped to the viewport.
-function anchorFor(event) {
+function anchorFor(event, estimatedHeight = 220) {
   const rect = event.currentTarget.getBoundingClientRect();
-  const width = 280;
-  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-  const y = Math.max(8, Math.min(rect.top, window.innerHeight - 8 - 320));
-  return { x, y };
+  const w = rect.width;
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8));
+  const y = Math.min(rect.bottom, window.innerHeight - 8 - Math.max(64, estimatedHeight));
+  return { x, y, w };
+}
+
+function propertyPopoverHeight(property) {
+  if (!isOptionProperty(property?.type)) return 92;
+  const optionCount = Math.max(1, property?.options?.length || 0);
+  return Math.min(280, 96 + optionCount * 38);
 }
 
 function baseSignature(topic) {
@@ -509,7 +537,7 @@ function toggleRowTypeMenu(topic, property, event) {
     key: property.key,
     type: property.type,
     property,
-    anchor: anchorFor({ currentTarget: rowEl }),
+    anchor: anchorFor({ currentTarget: rowEl }, propertyPopoverHeight(property)),
   };
 }
 
@@ -549,7 +577,13 @@ function openPropertyPopover(topic, property, event) {
   if (!draft) return;
   const optionCounts = new Map((property.options || []).map((option) => [option.value, option.count]));
   lastSavedSignature = baseSignature(topic);
-  editing.value = { topicId: topic.id, column: draft, anchor: anchorFor(event), optionCounts, isNew: false };
+  editing.value = {
+    topicId: topic.id,
+    column: draft,
+    anchor: anchorFor(event, propertyPopoverHeight(property)),
+    optionCounts,
+    isNew: false,
+  };
 }
 
 // Add directly appends a default property row (no popover — the user names/types
@@ -794,7 +828,25 @@ const stats = computed(() => ({
   week: liveEvents.value.filter(isThisWeek).length,
   favorite: liveEvents.value.filter((event) => event.favorite).length,
 }));
-const globalFavoritesCopy = computed(() => (props.globalFavoriteCount ? `共 ${props.globalFavoriteCount} 条收藏。` : "暂无收藏。"));
+const favoritesPanelState = computed(() => props.favoritesPanel || {});
+const favoriteEmptyCopy = computed(() => {
+  if (favoritesPanelState.value.emptyAll) return "还没有任何收藏，先在中栏或右栏点亮星标。";
+  if (favoritesPanelState.value.emptyScope) return "当前筛选下没有收藏。";
+  return "";
+});
+
+function selectFavoriteScope(scope) {
+  emit("update:favorite-scope", scope);
+}
+
+function openFavoriteEvent(id) {
+  emit("open-favorite-event", id);
+}
+
+function favoriteEventTopicLabel(topicId) {
+  const topic = props.topics.find((item) => item.id === Number(topicId));
+  return topic?.title || topic?.name || "未知笔记本";
+}
 
 // Lightweight "new notes per week" trend (last 8 weeks) as CSS bars — no deps,
 // no chart library; oldest week left, current week right.
@@ -1023,8 +1075,119 @@ watch(typeMenu, (value) => {
 
       <div class="pane-scroll scroll" @scroll="onPaneScroll">
         <div v-if="panelHas('globalFavorites')" class="tg">
-          <div class="tg-body">
-            <p class="sidebar-copy">{{ globalFavoritesCopy }}</p>
+          <div class="fav-panel">
+            <div class="fav-banner">
+              <span class="fav-banner-label">{{ favoritesPanelState.contextLabel }}</span>
+              <button
+                v-if="favoritesPanelState.clearable"
+                type="button"
+                class="iconbtn sm"
+                title="清空收藏筛选"
+                @click="selectFavoriteScope({ kind: 'all' })"
+              >
+                <TimelineLucideIcon name="close" :stroke-width="1.8" />
+              </button>
+            </div>
+            <p v-if="favoriteEmptyCopy" class="sidebar-copy fav-copy">{{ favoriteEmptyCopy }}</p>
+
+            <section class="fav-section">
+              <div class="fav-head">收藏总览</div>
+              <div class="fav-body">
+                <button
+                  v-for="item in favoritesPanelState.overview"
+                  :key="item.id"
+                  type="button"
+                  class="ti leaf"
+                  :class="{ active: item.active }"
+                  @click="selectFavoriteScope(item.scope)"
+                >
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="star" :stroke-width="1.8" /></span>
+                  <span class="ti-name">{{ item.label }}</span>
+                  <span class="ti-cnt">{{ item.count }}</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="fav-section">
+              <div class="fav-head">来源笔记本</div>
+              <div class="fav-body">
+                <p v-if="!favoritesPanelState.sources?.length" class="sidebar-copy">当前结果集没有来源笔记本。</p>
+                <button
+                  v-for="item in favoritesPanelState.sources"
+                  :key="item.topicId"
+                  type="button"
+                  class="ti leaf"
+                  :class="{ active: item.active }"
+                  @click="selectFavoriteScope(item.scope)"
+                >
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.8" /></span>
+                  <span class="ti-name">{{ item.label }}</span>
+                  <span class="ti-cnt">{{ item.count }}</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="fav-section">
+              <div class="fav-head">属性聚合</div>
+              <div class="fav-body fav-attrs">
+                <div class="fav-subhead">类型</div>
+                <p v-if="!favoritesPanelState.types?.length" class="sidebar-copy">当前结果集没有类型。</p>
+                <button
+                  v-for="item in favoritesPanelState.types"
+                  :key="`type:${item.key || item.value}`"
+                  type="button"
+                  class="ti leaf fav-facet-row"
+                  :class="{ active: item.active }"
+                  @click="selectFavoriteScope(item.scope)"
+                >
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><span class="ti-dot" :style="{ '--dot': item.color }"></span></span>
+                  <span class="ti-name">{{ item.displayLabel || item.label }}</span>
+                  <span class="ti-cnt">{{ item.count }}</span>
+                </button>
+
+                <div class="fav-subhead">标签</div>
+                <p v-if="!favoritesPanelState.tags?.length" class="sidebar-copy">当前结果集没有标签。</p>
+                <button
+                  v-for="item in favoritesPanelState.tags"
+                  :key="`tag:${item.key || item.value}`"
+                  type="button"
+                  class="ti leaf fav-facet-row"
+                  :class="{ active: item.active }"
+                  @click="selectFavoriteScope(item.scope)"
+                >
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><span class="ti-dot" :style="{ '--dot': item.color }"></span></span>
+                  <span class="ti-name">{{ item.displayLabel || item.label }}</span>
+                  <span class="ti-cnt">{{ item.count }}</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="fav-section">
+              <div class="fav-head">最近收藏</div>
+              <div class="fav-body">
+                <p v-if="!favoritesPanelState.recent?.length" class="sidebar-copy">当前结果集没有最近收藏。</p>
+                <button
+                  v-for="item in favoritesPanelState.recent"
+                  :key="item.id"
+                  type="button"
+                  class="fav-recent-row"
+                  @click="openFavoriteEvent(item.id)"
+                >
+                  <span class="fav-recent-ic">
+                    <TimelineLucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : 'note'" :stroke-width="1.8" />
+                  </span>
+                  <span class="fav-recent-main">
+                    <span class="fav-recent-title">{{ item.headline || item.displayLabel || "未命名笔记" }}</span>
+                    <span class="fav-recent-meta">{{ favoriteEventTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : "") }}</span>
+                  </span>
+                  <TimelineLucideIcon name="arrowRight" :stroke-width="1.8" />
+                </button>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -1335,23 +1498,20 @@ watch(typeMenu, (value) => {
     <div
       v-if="editing"
       class="popover prop-pop"
-      :style="{ left: editing.anchor.x + 'px', top: editing.anchor.y + 'px' }"
+      :style="{ left: editing.anchor.x + 'px', top: editing.anchor.y + 'px', width: editing.anchor.w + 'px' }"
       @click.stop
     >
-      <div class="prop-pop-head">
-        <span class="prop-row-ic" :style="{ '--prop-tone': propertyTone(editing.column.type) }">
-          <TimelineLucideIcon :name="propertyIcon(editing.column.type)" :stroke-width="1.8" />
-        </span>
+      <label class="pop-field prop-pop-field">
+        <span>属性名称</span>
         <input
           ref="propNameRef"
           v-model="editing.column.label"
-          class="prop-pop-name"
+          class="prop-pop-name-input"
           type="text"
           maxlength="24"
           placeholder="属性名称"
         />
-        <span class="prop-pop-type-tag">{{ propTypeLabel(editing.column.type) }}</span>
-      </div>
+      </label>
 
       <div v-if="isOptionProperty(editing.column.type)" class="prop-pop-opts">
         <div class="prop-pop-seclbl">选项</div>
@@ -1390,7 +1550,7 @@ watch(typeMenu, (value) => {
       @click.stop
     >
       <button
-        v-for="type in editablePropertyTypesFor(typeMenu.type)"
+        v-for="type in rowTypeChoices(typeMenu.type)"
         :key="type.value"
         type="button"
         class="pop-item prop-type-item"

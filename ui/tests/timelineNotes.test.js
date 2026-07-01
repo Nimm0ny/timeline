@@ -6,9 +6,11 @@ import {
   buildOptionId,
   buildEditorDraft,
   buildEventPreview,
+  buildFavoriteFacetRows,
   buildGlobalFavoriteEvents,
   buildPropertyKey,
   buildPropertyRows,
+  buildRecentFavoriteEvents,
   canChangePropertyType,
   editablePropertyTypeChoices,
   buildReadableDetailGroups,
@@ -22,6 +24,7 @@ import {
   eventHasDate,
   formatEventDate,
   formatEventDisplayDate,
+  filterFavoriteEventsByScope,
   groupTimelineEvents,
   isCheckboxChecked,
   mindmapPlainText,
@@ -146,6 +149,98 @@ test("buildGlobalFavoriteEvents returns live favorites across topics in timeline
     [2, 1],
     [5, 2],
   ]);
+});
+
+test("buildRecentFavoriteEvents prefers favoriteAt and caps to five", () => {
+  const rows = buildRecentFavoriteEvents([
+    { id: 1, favoriteAt: "2026-06-20T00:00:00Z" },
+    { id: 2, favoriteAt: "2026-06-30T00:00:00Z" },
+    { id: 3, favoriteAt: "2026-06-25T00:00:00Z" },
+    { id: 4, favoriteAt: "2026-06-29T00:00:00Z" },
+    { id: 5, favoriteAt: "2026-06-28T00:00:00Z" },
+    { id: 6, favoriteAt: "2026-06-27T00:00:00Z" },
+  ]);
+
+  assert.deepEqual(rows.map((event) => event.id), [2, 4, 5, 6, 3]);
+});
+
+test("buildFavoriteFacetRows aggregates type and tag usage across notebooks", () => {
+  const topics = [
+    {
+      id: 1,
+      title: "党史",
+      columns: [
+        {
+          key: "type",
+          label: "类型",
+          type: "select",
+          options: [
+            { id: "war", label: "战争", color: "var(--t-war)" },
+            { id: "politics", label: "政治", color: "var(--t-politics)" },
+          ],
+        },
+        tagsColumn,
+      ],
+    },
+    {
+      id: 2,
+      title: "近代史",
+      columns: [
+        {
+          key: "type",
+          label: "类型",
+          type: "select",
+          options: [{ id: "reform", label: "改革", color: "var(--t-reform)" }],
+        },
+        tagsColumn,
+      ],
+    },
+  ];
+  const favorites = [
+    { id: 1, topicId: 1, extra: { type: "war", tags: ["war", "politics"] } },
+    { id: 2, topicId: 1, extra: { type: "politics", tags: ["politics"] } },
+    { id: 3, topicId: 2, extra: { type: "reform", tags: ["reform", "politics"] } },
+  ];
+
+  assert.deepEqual(
+    Object.fromEntries(
+      buildFavoriteFacetRows(favorites, topics, "type").map((row) => [row.key, { label: row.label, displayLabel: row.displayLabel, count: row.count }])
+    ),
+    {
+      "1:politics": { label: "政治", displayLabel: "政治", count: 1 },
+      "1:war": { label: "战争", displayLabel: "战争", count: 1 },
+      "2:reform": { label: "改革", displayLabel: "改革", count: 1 },
+    }
+  );
+  assert.deepEqual(
+    Object.fromEntries(
+      buildFavoriteFacetRows(favorites, topics, "tags").map((row) => [row.key, { label: row.label, displayLabel: row.displayLabel, count: row.count }])
+    ),
+    {
+      "1:politics": { label: "政治", displayLabel: "政治 · 党史", count: 2 },
+      "1:war": { label: "战争", displayLabel: "战争", count: 1 },
+      "2:politics": { label: "政治", displayLabel: "政治 · 近代史", count: 1 },
+      "2:reform": { label: "改革", displayLabel: "改革", count: 1 },
+    }
+  );
+});
+
+test("filterFavoriteEventsByScope supports current notebook, recent, topic, type, and tag scopes", () => {
+  const topics = [
+    { id: 1, title: "党史", columns: [{ key: "type", label: "类型", type: "select", options: [{ id: "war", label: "战争" }] }, tagsColumn] },
+    { id: 2, title: "近代史", columns: [{ key: "type", label: "类型", type: "select", options: [{ id: "reform", label: "改革" }] }, tagsColumn] },
+  ];
+  const favorites = [
+    { id: 1, topicId: 1, dateKey: 18400101, favoriteAt: "2026-06-10T00:00:00Z", extra: { type: "war", tags: ["war"] } },
+    { id: 2, topicId: 2, dateKey: 19110101, favoriteAt: "2026-06-30T00:00:00Z", extra: { type: "reform", tags: ["politics"] } },
+    { id: 3, topicId: 1, dateKey: 18400201, favoriteAt: "2026-06-29T00:00:00Z", extra: { type: "war", tags: ["politics"] } },
+  ];
+
+  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "current-topic" }, topics, 1).map((event) => event.id), [1, 3]);
+  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "topic", topicId: 2 }, topics, 1).map((event) => event.id), [2]);
+  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "type", value: "war", topicId: 1 }, topics, 1).map((event) => event.id), [1, 3]);
+  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "tag", value: "politics", topicId: 1 }, topics, 1).map((event) => event.id), [3]);
+  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "recent" }, topics, 1).map((event) => event.id), [2, 3, 1]);
 });
 
 test("search can use lightweight index full search text outside preview", () => {

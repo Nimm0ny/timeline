@@ -58,3 +58,8 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - 这是一次引擎替换，`bodyJson` 语义会从树模型转向“快照 + cells”；所有依赖 root/text 提取的地方都必须补兼容层。
 - 旧文档与 QA 记录把 `.xmind` 和 `simple-mind-map` 写成既有事实；如果不同步更新，会继续误导后续任务。
 - 该任务会触发 `AGENTS.md` review gate：依赖例外、前端行为改线、既有验证路径变化。
+
+## Follow-up
+
+- X6 Phase 2（`收藏` tab 内容、连线样式分层、节点四边 `+` 与 toolbar 新增子节点入口）见：
+  - `docs/favorites-tab-and-mindmap-phase-2-plan.md`

@@ -1,12 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import CommandPalette from "@/components/timeline-notes/CommandPalette.vue";
 import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
-import MindmapSurface from "@/components/timeline-notes/MindmapSurface.vue";
 import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
 import RelatedEventPreviewPopover from "@/components/timeline-notes/RelatedEventPreviewPopover.vue";
-import SettingsModal from "@/components/settings/SettingsModal.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
@@ -18,15 +15,22 @@ import {
   buildX6SeedSnapshot,
 } from "@/utils/mindmapX6.js";
 import {
+  buildFavoriteFacetRows,
   buildOptionId,
+  buildRecentFavoriteEvents,
   compareTimelineEvents,
   buildGlobalFavoriteEvents,
+  filterFavoriteEventsByScope,
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
   mindmapRootData,
   normalizeTopicColumns,
 } from "@/utils/timelineNotes";
+
+const CommandPalette = defineAsyncComponent(() => import("@/components/timeline-notes/CommandPalette.vue"));
+const MindmapSurface = defineAsyncComponent(() => import("@/components/timeline-notes/MindmapSurface.vue"));
+const SettingsModal = defineAsyncComponent(() => import("@/components/settings/SettingsModal.vue"));
 
 const route = useRoute();
 const router = useRouter();
@@ -40,9 +44,17 @@ const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
 const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
+const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeFavoriteScope(scope = {}) {
+  const kind = FAVORITE_SCOPE_KINDS.has(String(scope?.kind || "")) ? String(scope.kind) : "all";
+  if (kind === "topic") return { kind, topicId: Number(scope?.topicId) || null };
+  if (kind === "type" || kind === "tag") return { kind, value: String(scope?.value || "").trim(), topicId: Number(scope?.topicId) || null };
+  return { kind };
 }
 
 function readStorage(key, fallback) {
@@ -111,6 +123,7 @@ const state = reactive({
   detailMode: "view",
   sidebarFilter: "all",
   collectionMode: "",
+  favoriteScope: { kind: "all" },
   propertyFilter: { key: "", value: "" },
   activeEra: "",
   locateDate: "",
@@ -182,6 +195,86 @@ const activeTopicTitle = computed(
 
 const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
 const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineStore.state.eventsIndex));
+const favoriteScope = computed(() => normalizeFavoriteScope(state.favoriteScope));
+const favoritesScopedEvents = computed(() =>
+  filterFavoriteEventsByScope(globalFavoriteEvents.value, favoriteScope.value, state.topics, state.activeTopicId)
+);
+const favoritesRecentEvents = computed(() => buildRecentFavoriteEvents(favoritesScopedEvents.value, 5));
+const favoriteTypeRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "type"));
+const favoriteTagRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "tags"));
+const favoriteTopicRows = computed(() => {
+  const counts = new Map();
+  for (const event of favoritesScopedEvents.value) {
+    const topicId = Number(event?.topicId);
+    if (!topicId) continue;
+    const topic = timelineStore.topicById(topicId) || state.topics.find((item) => item.id === topicId);
+    if (!topic) continue;
+    const existing = counts.get(topicId) || {
+      topicId,
+      label: topic.title || topic.name || `笔记本 ${topicId}`,
+      count: 0,
+    };
+    existing.count += 1;
+    counts.set(topicId, existing);
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN"));
+});
+const favoriteScopeLabel = computed(() => {
+  const scope = favoriteScope.value;
+  if (scope.kind === "current-topic") return `当前笔记本收藏 · ${activeTopicTitle.value}`;
+  if (scope.kind === "recent") return "最近加星";
+  if (scope.kind === "topic") {
+    const topic = timelineStore.topicById(scope.topicId) || state.topics.find((item) => item.id === scope.topicId);
+    return `来源笔记本 · ${topic?.title || topic?.name || "未命名笔记本"}`;
+  }
+  if (scope.kind === "type") {
+    const match = favoriteTypeRows.value.find((item) => item.value === scope.value && Number(item.topicId) === Number(scope.topicId));
+    return `类型 · ${match?.displayLabel || scope.value || "未命名类型"}`;
+  }
+  if (scope.kind === "tag") {
+    const match = favoriteTagRows.value.find((item) => item.value === scope.value && Number(item.topicId) === Number(scope.topicId));
+    return `标签 · ${match?.displayLabel || scope.value || "未命名标签"}`;
+  }
+  return "全部收藏";
+});
+const favoritesPanel = computed(() => {
+  const recentAll = buildRecentFavoriteEvents(globalFavoriteEvents.value, 5);
+  const currentTopicCount = filterFavoriteEventsByScope(globalFavoriteEvents.value, { kind: "current-topic" }, state.topics, state.activeTopicId).length;
+  const scope = favoriteScope.value;
+  return {
+    overview: [
+      { id: "all", label: "全部收藏", count: globalFavoriteEvents.value.length, scope: { kind: "all" }, active: scope.kind === "all" },
+      {
+        id: "current-topic",
+        label: "当前笔记本收藏",
+        count: currentTopicCount,
+        scope: { kind: "current-topic" },
+        active: scope.kind === "current-topic",
+      },
+      { id: "recent", label: "最近加星", count: recentAll.length, scope: { kind: "recent" }, active: scope.kind === "recent" },
+    ],
+    sources: favoriteTopicRows.value.map((row) => ({
+      ...row,
+      active: scope.kind === "topic" && Number(scope.topicId) === Number(row.topicId),
+      scope: { kind: "topic", topicId: row.topicId },
+    })),
+    types: favoriteTypeRows.value.map((row) => ({
+      ...row,
+      active: scope.kind === "type" && scope.value === row.value && Number(scope.topicId) === Number(row.topicId),
+      scope: { kind: "type", value: row.value, topicId: row.topicId },
+    })),
+    tags: favoriteTagRows.value.map((row) => ({
+      ...row,
+      active: scope.kind === "tag" && scope.value === row.value && Number(scope.topicId) === Number(row.topicId),
+      scope: { kind: "tag", value: row.value, topicId: row.topicId },
+    })),
+    recent: favoritesRecentEvents.value,
+    emptyAll: globalFavoriteEvents.value.length === 0,
+    emptyScope: globalFavoriteEvents.value.length > 0 && favoritesScopedEvents.value.length === 0,
+    contextLabel: favoriteScopeLabel.value,
+    clearable: scope.kind !== "all",
+  };
+});
 const feedTitle = computed(() => (isGlobalFavoritesMode.value ? "收藏（跨本）" : activeTopicTitle.value));
 const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?.columns));
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
@@ -313,7 +406,7 @@ function withPreviewOverlay(events) {
 }
 
 function previewedEvents() {
-  return withPreviewOverlay(isGlobalFavoritesMode.value ? globalFavoriteEvents.value : state.events);
+  return withPreviewOverlay(isGlobalFavoritesMode.value ? favoritesScopedEvents.value : state.events);
 }
 
 function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
@@ -342,6 +435,7 @@ const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "e
 const feedEmptyReason = computed(() => {
   if (state.error) return "";
   if (isGlobalFavoritesMode.value && state.searchQuery.trim()) return "跨笔记本收藏中没有找到记录。";
+  if (isGlobalFavoritesMode.value && favoritesPanel.value.emptyScope) return "当前筛选下没有收藏。";
   if (isGlobalFavoritesMode.value) return "暂无跨笔记本收藏。";
   if (!state.activeTopicId) return "先创建或选择一个笔记本。";
   if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
@@ -574,6 +668,8 @@ function handleSidebarRibbon(ribbon) {
 function openGlobalFavorites() {
   runOrConfirm(async () => {
     state.collectionMode = "favorites";
+    closeMindmap();
+    state.favoriteScope = { kind: "all" };
     state.sidebarFilter = "all";
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
@@ -946,7 +1042,7 @@ function relatedPreviewPosition(anchor) {
     return { placement: "left", style: {} };
   }
   const width = 360;
-  const estimatedHeight = 230;
+  const estimatedHeight = 268;
   const gap = 14;
   const margin = 12;
   const viewportWidth = window.innerWidth || 1920;
@@ -1207,6 +1303,17 @@ function applyFilterState({ filter = state.sidebarFilter, propertyFilter = state
   }
 }
 
+function applyFavoriteScope(scope = state.favoriteScope) {
+  state.favoriteScope = normalizeFavoriteScope(scope);
+  setDefaultSelection();
+  if (!visibleEvents.value.length) {
+    state.rightOpen = false;
+    state.detailMode = "view";
+  } else if (state.rightOpen && !visibleEvents.value.some((event) => event.id === state.selectedEventId)) {
+    state.selectedEventId = visibleEvents.value[0].id;
+  }
+}
+
 function updateSidebarFilter(filter) {
   runOrConfirm(async () => {
     exitGlobalFavoritesMode();
@@ -1240,6 +1347,19 @@ function updateSearchQuery(value) {
   if (!visibleEvents.value.length) {
     state.rightOpen = false;
   }
+}
+
+function updateFavoriteScope(scope) {
+  runOrConfirm(() => {
+    if (!isGlobalFavoritesMode.value) state.collectionMode = "favorites";
+    applyFavoriteScope(scope);
+    closeMobileSidebar();
+  });
+}
+
+function clearFavoriteScope() {
+  if (favoriteScope.value.kind === "all") return;
+  updateFavoriteScope({ kind: "all" });
 }
 
 function locateDate(value) {
@@ -1807,6 +1927,7 @@ watch(
       :active-filter="state.sidebarFilter"
       :global-favorite-count="globalFavoriteEvents.length"
       :global-favorites-active="isGlobalFavoritesMode"
+      :favorites-panel="favoritesPanel"
       :columns="topicColumns"
       :property-filter="state.propertyFilter"
       :active-era="state.activeEra"
@@ -1825,6 +1946,8 @@ watch(
       @focus-search="focusFeedSearch"
       @open-settings="openSettings"
       @open-global-favorites="openGlobalFavorites"
+      @update:favorite-scope="updateFavoriteScope"
+      @open-favorite-event="selectEvent"
       @select-era="updateActiveEra"
       @select-ribbon="handleSidebarRibbon"
       @select-topic="selectTopic"
@@ -1851,6 +1974,8 @@ watch(
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"
       :topic-title="feedTitle"
+      :filter-context-label="isGlobalFavoritesMode ? favoritesPanel.contextLabel : ''"
+      :filter-context-clearable="isGlobalFavoritesMode && favoritesPanel.clearable"
       :topic-id="state.activeTopicId"
       :topics="state.topics"
       :event-count="visibleEvents.length"
@@ -1889,6 +2014,7 @@ watch(
       @batch-restore="batchRestoreEvents"
       @batch-permanent-delete="requestBatchPurge"
       @open-command-palette="openCommandPalette"
+      @clear-context-filter="clearFavoriteScope"
       @create-mindmap="createMindmapNote"
     />
 
@@ -1993,6 +2119,7 @@ watch(
     </div>
 
     <SettingsModal
+      v-if="state.settingsOpen"
       :open="state.settingsOpen"
       :brand-name="state.config.brandName"
       :media-config="state.config.media"
@@ -2004,6 +2131,7 @@ watch(
     />
 
     <CommandPalette
+      v-if="state.commandOpen"
       :open="state.commandOpen"
       :query="state.commandQuery"
       :events="state.commandResults"

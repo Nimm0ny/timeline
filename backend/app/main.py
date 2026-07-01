@@ -1,5 +1,6 @@
 import hashlib
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -51,19 +52,21 @@ def image_response(filename: str):
     )
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="历史长河 API")
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    init_database()
+    db = SessionLocal()
+    try:
+        migrate_legacy_files(db)
+        rebuild_search_index(db)
+        db.commit()
+        yield
+    finally:
+        db.close()
 
-    @app.on_event("startup")
-    def on_startup():
-        init_database()
-        db = SessionLocal()
-        try:
-            migrate_legacy_files(db)
-            rebuild_search_index(db)
-            db.commit()
-        finally:
-            db.close()
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="历史长河 API", lifespan=app_lifespan)
 
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     THEME_DIR.mkdir(parents=True, exist_ok=True)

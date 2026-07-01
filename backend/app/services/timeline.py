@@ -225,7 +225,12 @@ def parse_optional_datetime(value):
 
 def apply_event_state(event: TimelineEvent, payload: dict):
     if "favorite" in payload:
-        event.favorite = bool(payload.get("favorite"))
+        next_favorite = bool(payload.get("favorite"))
+        if next_favorite and not event.favorite:
+            event.favorite_at = datetime.now(timezone.utc)
+        if not next_favorite:
+            event.favorite_at = None
+        event.favorite = next_favorite
     if "deletedAt" in payload:
         event.deleted_at = parse_optional_datetime(payload.get("deletedAt"))
 
@@ -560,6 +565,7 @@ def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None =
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
         "favorite": bool(event.favorite),
+        "favoriteAt": serialize_datetime(event.favorite_at),
         "deletedAt": serialize_datetime(event.deleted_at),
         "items": items,
     }
@@ -873,6 +879,7 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
         ),
         "extra": deserialize_json_dict(event.extra_json),
         "favorite": bool(event.favorite),
+        "favoriteAt": serialize_datetime(event.favorite_at),
         "deletedAt": serialize_datetime(event.deleted_at),
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
@@ -1424,7 +1431,12 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
     event.related_event_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)
     event.image = image
-    event.favorite = bool(data.get("favorite", event.favorite))
+    next_favorite = bool(data.get("favorite", event.favorite))
+    if next_favorite and not event.favorite:
+        event.favorite_at = event.favorite_at or datetime.now(timezone.utc)
+    if not next_favorite:
+        event.favorite_at = None
+    event.favorite = next_favorite
     if "deletedAt" in data:
         event.deleted_at = data["deletedAt"]
 
