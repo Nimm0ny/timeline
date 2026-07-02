@@ -14,13 +14,17 @@ import {
   applyColorsToGraph,
   edgeConnectorForStyle,
   edgeRoutingForStyle,
+  extractText,
   isX6MindmapSnapshot,
   makeEdge,
   markdownToTree,
   NODE_SIZES,
   normalizeEdgeStyle,
+  normalizeNodeIcon,
+  normalizeTags,
   relayout,
   resolveReparentTarget,
+  sanitizeHyperlink,
   treeToX6Cells,
   X6_MINDMAP_FORMAT,
   x6CellsToMarkdown,
@@ -35,7 +39,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["update", "ready", "active", "search"]);
+const emit = defineEmits(["update", "ready", "active", "search", "edit-meta", "meta"]);
 
 const themeStore = useThemeStore();
 
@@ -72,6 +76,9 @@ let suppressSaves = false;
 const sideControls = ref([]);
 const collapseToggles = ref([]);
 const searchHighlights = ref([]);
+const nodeBadges = ref([]);
+
+const NOTE_TIP_LIMIT = 140;
 
 function seedTitle() {
   return props.title?.trim() || "中心主题";
@@ -188,6 +195,7 @@ function controlSides(node) {
 function updateSideControls() {
   updateCollapseToggles();
   updateSearchHighlights();
+  updateNodeBadges();
   const g = graph.value;
   const host = editorRef.value;
   if (!g || !host || props.readOnly || editingNodeId) {
@@ -274,6 +282,47 @@ function updateCollapseToggles() {
     toggles.push({ key: `c:${node.id}`, nodeId: node.id, x, y, collapsed: data.collapsed === true, count: childEdges.length });
   });
   collapseToggles.value = toggles;
+}
+
+// Per-node metadata badges (icon marker / hyperlink / note / tags) drawn as a DOM
+// row under each visible node, using the same localToPage + host-relative mapping as
+// the other overlays. The row container is pointer-transparent; only the link (opens
+// the URL) and note (selects + edits) chips capture clicks, so gaps never block the
+// canvas. Shown in read-only too, so a trashed map's links/notes stay reachable.
+function updateNodeBadges() {
+  const g = graph.value;
+  const host = editorRef.value;
+  if (!g || !host || editingNodeId) {
+    if (nodeBadges.value.length) nodeBadges.value = [];
+    return;
+  }
+  const hostRect = host.getBoundingClientRect();
+  const badges = [];
+  g.getNodes().forEach((node) => {
+    if (!node.isNode?.() || !node.isVisible?.()) return;
+    const data = node.getData() || {};
+    const link = sanitizeHyperlink(data.hyperlink);
+    const note = extractText(data.note || "");
+    const tags = (Array.isArray(data.tag) ? data.tag : []).map((tag) => String(tag || "")).filter(Boolean);
+    const icon = normalizeNodeIcon(data.icon);
+    if (!link && !note && !tags.length && !icon) return;
+    const position = node.getPosition();
+    const size = node.getSize();
+    const rect = g.localToPage({ x: position.x, y: position.y, width: size.width, height: size.height });
+    badges.push({
+      key: `b:${node.id}`,
+      nodeId: node.id,
+      x: rect.x - hostRect.left,
+      y: rect.y - hostRect.top + rect.height + 4,
+      icon,
+      link,
+      note: Boolean(note),
+      noteTip: note.length > NOTE_TIP_LIMIT ? `${note.slice(0, NOTE_TIP_LIMIT)}…` : note,
+      tags: tags.slice(0, 3),
+      moreTags: Math.max(0, tags.length - 3),
+    });
+  });
+  nodeBadges.value = badges;
 }
 
 function refreshEdgeGeometry() {
@@ -830,6 +879,67 @@ function setTextColor(color) {
   if (nodes.length) scheduleSave();
 }
 
+// ---- Node rich metadata (hyperlink / note / tags / icon) ----
+// These target a SINGLE selected node (the toolbar gates the panel on exactly one
+// selection). Values live in node.data and ride the snapshot on save; hyperlink/tag
+// also round-trip to markdown, note/icon are JSON-snapshot-only by design.
+function activeSingleNode() {
+  const nodes = selectedNodes();
+  return nodes.length === 1 && nodes[0]?.isNode?.() ? nodes[0] : null;
+}
+
+function getActiveNodeMeta() {
+  const node = activeSingleNode();
+  if (!node) return null;
+  const data = node.getData() || {};
+  return {
+    id: node.id,
+    text: extractText(data.text || ""),
+    hyperlink: String(data.hyperlink || ""),
+    note: String(data.note || ""),
+    tags: Array.isArray(data.tag) ? data.tag.map((tag) => String(tag || "")).filter(Boolean) : [],
+    icon: normalizeNodeIcon(data.icon),
+  };
+}
+
+function updateActiveNodeData(patch) {
+  const node = activeSingleNode();
+  if (!node || props.readOnly) return false;
+  node.setData({ ...(node.getData() || {}), ...patch });
+  updateSideControls();
+  scheduleSave();
+  return true;
+}
+
+function setNodeHyperlink(url) {
+  updateActiveNodeData({ hyperlink: sanitizeHyperlink(url) });
+}
+
+function setNodeNote(text) {
+  updateActiveNodeData({ note: String(text || "") });
+}
+
+function setNodeTags(tags) {
+  // Tags feed the search index (mindmapPlainText), so refresh an open find after a change.
+  if (updateActiveNodeData({ tag: normalizeTags(tags) })) refreshSearch();
+}
+
+function setNodeIcon(icon) {
+  updateActiveNodeData({ icon: normalizeNodeIcon(icon) });
+}
+
+// A node's note/link badge asks to edit: select that node, then let the surface open
+// its 节点信息 panel (which reads getActiveNodeMeta of the now-selected node).
+function requestEditMeta(nodeId) {
+  const g = graph.value;
+  const node = g?.getCellById(nodeId);
+  if (!node?.isNode?.()) return;
+  graphSelection.value?.clean();
+  graphSelection.value?.select(node);
+  if (props.readOnly) return;
+  emit("edit-meta");
+}
+
 function cancelPendingSave() {
   suppressSaves = true;
   if (saveTimer) {
@@ -1152,6 +1262,11 @@ defineExpose({
   nudgeFontSize,
   toggleBold,
   setTextColor,
+  getActiveNodeMeta,
+  setNodeHyperlink,
+  setNodeNote,
+  setNodeTags,
+  setNodeIcon,
   importMarkdown,
   importSnapshot,
   exportFile,
@@ -1242,6 +1357,9 @@ onMounted(() => {
   });
   g.on("selection:changed", ({ selected }) => {
     emit("active", (selected || []).filter((cell) => cell.isNode?.()).length);
+    // Report the single-node metadata target (or null) so the surface can keep its
+    // node info panel bound to the node it opened for.
+    emit("meta", getActiveNodeMeta());
     updateSideControls();
   });
   g.on("scale", () => {
@@ -1368,6 +1486,40 @@ onBeforeUnmount(() => {
       <span v-if="toggle.collapsed" class="mm-collapse-count">{{ toggle.count }}</span>
       <span v-else class="mm-collapse-glyph">−</span>
     </button>
+    <div
+      v-for="badge in nodeBadges"
+      :key="badge.key"
+      class="mm-node-badges"
+      :style="{ left: `${badge.x}px`, top: `${badge.y}px` }"
+    >
+      <span v-if="badge.icon" class="mm-badge is-icon">
+        <TimelineLucideIcon :name="badge.icon" :stroke-width="1.5" />
+      </span>
+      <a
+        v-if="badge.link"
+        class="mm-badge is-link"
+        :href="badge.link"
+        target="_blank"
+        rel="noopener noreferrer"
+        :title="badge.link"
+        @mousedown.stop
+        @click.stop
+      >
+        <TimelineLucideIcon name="link" :stroke-width="1.5" />
+      </a>
+      <button
+        v-if="badge.note"
+        type="button"
+        class="mm-badge is-note"
+        :title="badge.noteTip"
+        @mousedown.stop
+        @click.stop="requestEditMeta(badge.nodeId)"
+      >
+        <TimelineLucideIcon name="note" :stroke-width="1.5" />
+      </button>
+      <span v-for="(tag, index) in badge.tags" :key="`tag-${index}`" class="mm-badge-tag">#{{ tag }}</span>
+      <span v-if="badge.moreTags" class="mm-badge-more">+{{ badge.moreTags }}</span>
+    </div>
     <div v-if="loading" class="mm-loading">正在加载思维导图…</div>
   </div>
 </template>

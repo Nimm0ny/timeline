@@ -5,7 +5,11 @@ import {
   buildX6SeedSnapshot,
   computeMindmapRoute,
   markdownToTree,
+  normalizeNodeIcon,
+  normalizeTags,
+  parseTagInput,
   resolveReparentTarget,
+  sanitizeHyperlink,
   treeToX6Cells,
   x6CellsToMarkdown,
   x6SnapshotToTree,
@@ -18,6 +22,7 @@ test("treeToX6Cells preserves legacy note metadata through an X6 roundtrip", () 
       note: "<p>根备注</p>",
       hyperlink: "https://example.com/root",
       tag: ["核心", "入口"],
+      icon: "star",
     },
     children: [
       {
@@ -26,6 +31,7 @@ test("treeToX6Cells preserves legacy note metadata through an X6 roundtrip", () 
           note: "<p>分支备注</p>",
           hyperlink: "https://example.com/branch",
           tag: ["分支"],
+          icon: "flag",
         },
         children: [],
       },
@@ -39,9 +45,47 @@ test("treeToX6Cells preserves legacy note metadata through an X6 roundtrip", () 
   assert.equal(roundtrip.data.note, "<p>根备注</p>");
   assert.equal(roundtrip.data.hyperlink, "https://example.com/root");
   assert.deepEqual(roundtrip.data.tag, ["核心", "入口"]);
+  assert.equal(roundtrip.data.icon, "star");
   assert.equal(roundtrip.children[0].data.note, "<p>分支备注</p>");
   assert.equal(roundtrip.children[0].data.hyperlink, "https://example.com/branch");
   assert.deepEqual(roundtrip.children[0].data.tag, ["分支"]);
+  assert.equal(roundtrip.children[0].data.icon, "flag");
+});
+
+test("normalizeNodeIcon keeps known markers and drops anything else", () => {
+  assert.equal(normalizeNodeIcon("star"), "star");
+  assert.equal(normalizeNodeIcon("  flag  "), "flag");
+  assert.equal(normalizeNodeIcon("not-a-marker"), "");
+  assert.equal(normalizeNodeIcon(""), "");
+  assert.equal(normalizeNodeIcon(null), "");
+});
+
+test("sanitizeHyperlink keeps safe schemes and neutralises dangerous ones", () => {
+  assert.equal(sanitizeHyperlink("https://a.com/x"), "https://a.com/x");
+  assert.equal(sanitizeHyperlink("  http://a.com  "), "http://a.com");
+  assert.equal(sanitizeHyperlink("mailto:x@y.com"), "mailto:x@y.com");
+  assert.equal(sanitizeHyperlink("tel:+123"), "tel:+123");
+  // Bare domain / host:port default to https.
+  assert.equal(sanitizeHyperlink("example.com"), "https://example.com");
+  assert.equal(sanitizeHyperlink("example.com:8080/p"), "https://example.com:8080/p");
+  // Dangerous schemes never survive as a live scheme (https:// prefix makes them inert).
+  assert.equal(sanitizeHyperlink("javascript:alert(1)"), "https://javascript:alert(1)");
+  assert.equal(sanitizeHyperlink("  data:text/html,x"), "https://data:text/html,x");
+  assert.equal(sanitizeHyperlink(""), "");
+  assert.equal(sanitizeHyperlink("   "), "");
+});
+
+test("parseTagInput splits on commas/whitespace, strips leading # and blanks", () => {
+  assert.deepEqual(parseTagInput("重点, #待办 想法"), ["重点", "待办", "想法"]);
+  assert.deepEqual(parseTagInput("  ##多重井号  "), ["多重井号"]);
+  assert.deepEqual(parseTagInput(""), []);
+  assert.deepEqual(parseTagInput(",, ,"), []);
+});
+
+test("normalizeTags trims, strips #, drops blanks, de-dups first-seen", () => {
+  assert.deepEqual(normalizeTags([" 重点 ", "#重点", "待办", ""]), ["重点", "待办"]);
+  assert.deepEqual(normalizeTags(["a", "b", "a"]), ["a", "b"]);
+  assert.deepEqual(normalizeTags(null), []);
 });
 
 test("x6CellsToMarkdown emits siblings in visual top-to-bottom order", () => {

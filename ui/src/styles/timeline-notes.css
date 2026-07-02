@@ -5783,6 +5783,234 @@ button.prop-row-type.open .timeline-lucide-icon {
   z-index: 3;
 }
 
+/* Per-node metadata badges: a pointer-transparent row under each node holding an
+   optional marker glyph, a clickable hyperlink, a note (click to edit), and tag pills.
+   Only the link/note chips re-enable pointer events, so the row never blocks the
+   canvas. z 10 sits above the search highlight (z 8) but below the add/collapse
+   controls (z 12/13). */
+.mm-node-badges {
+  position: absolute;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  pointer-events: none;
+}
+
+.mm-node-badges .timeline-lucide-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.mm-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-pop);
+}
+
+.mm-badge.is-icon {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mm-badge.is-link,
+.mm-badge.is-note {
+  pointer-events: auto;
+  cursor: pointer;
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease),
+    border-color var(--motion-base) var(--ease);
+}
+
+.mm-badge.is-link:hover,
+.mm-badge.is-note:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mm-badge-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mm-badge-more {
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Node info panel: a wider dropdown (opens leftward so it never runs off the toolbar's
+   right edge) with hyperlink / note / tag / icon editors for the selected node. Reuses
+   the borderless soft-fill input look from .mm-find-input. */
+.mm-menu.mm-meta-panel {
+  left: auto;
+  right: 0;
+  width: 264px;
+  gap: 10px;
+  padding: 12px;
+}
+
+.mm-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mm-meta-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mm-meta-label .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.mm-meta-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--text);
+  font-family: var(--tn-font);
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.mm-meta-input:focus {
+  outline: none;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+
+.mm-meta-textarea {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+.mm-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+}
+
+.mm-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mm-meta-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-pill);
+  color: inherit;
+  cursor: pointer;
+}
+
+.mm-meta-chip-x:hover {
+  background: var(--accent-line);
+}
+
+.mm-meta-chip-x .timeline-lucide-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.mm-meta-taginput {
+  flex: 1;
+  min-width: 72px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--tn-font);
+  font-size: 12px;
+  padding: 3px 2px;
+}
+
+.mm-meta-taginput:focus {
+  outline: none;
+}
+
+.mm-meta-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mm-meta-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease),
+    border-color var(--motion-base) var(--ease);
+}
+
+.mm-meta-icon:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.mm-meta-icon.on {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.mm-meta-icon .timeline-lucide-icon {
+  width: 15px;
+  height: 15px;
+}
+
 /* Feed-row note-type badge: a mindmap note shows a small glyph after its title so
    a mixed notebook reads at a glance (matches .clip's faint inline treatment). */
 .ev-type {

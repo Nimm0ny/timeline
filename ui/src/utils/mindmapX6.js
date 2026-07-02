@@ -17,6 +17,28 @@ export const NODE_SIZES = [
   { w: 92, h: 28 },
 ];
 
+// Curated node markers surfaced in the "节点信息" picker. `key` is a name registered
+// in TimelineLucideIcon; a node stores at most one marker in data.icon. Markers are
+// presentation with no clean markdown form, so — like colour/font-size — they live
+// only in the JSON snapshot and are dropped by a .md export.
+export const MINDMAP_NODE_ICONS = [
+  { key: "star", label: "重点" },
+  { key: "flag", label: "标记" },
+  { key: "check", label: "完成" },
+  { key: "alert", label: "注意" },
+  { key: "help", label: "疑问" },
+  { key: "idea", label: "想法" },
+  { key: "heart", label: "喜欢" },
+  { key: "pin", label: "固定" },
+];
+
+const MINDMAP_NODE_ICON_KEYS = new Set(MINDMAP_NODE_ICONS.map((item) => item.key));
+
+export function normalizeNodeIcon(icon) {
+  const key = String(icon || "").trim();
+  return MINDMAP_NODE_ICON_KEYS.has(key) ? key : "";
+}
+
 const NODE_PORT_RADIUS = 6;
 const EDGE_STEP = 24;
 const EDGE_DOGLEG = 36;
@@ -363,6 +385,7 @@ function buildTreeFromGraph(rootId, nodeMap, childIds) {
         note: data.note || "",
         hyperlink: data.hyperlink || "",
         tag: Array.isArray(data.tag) ? [...data.tag] : [],
+        icon: normalizeNodeIcon(data.icon),
         level,
       },
       children,
@@ -482,6 +505,7 @@ export function treeToX6Cells(treeRoot, options = {}) {
         note: node?.data?.note || "",
         hyperlink: node?.data?.hyperlink || "",
         tag: Array.isArray(node?.data?.tag) ? [...node.data.tag] : [],
+        icon: normalizeNodeIcon(node?.data?.icon),
       },
     });
 
@@ -771,6 +795,45 @@ export function resolveReparentTarget(movedId, nodes) {
     if (cx >= node.x && cx <= node.x + node.w && cy >= node.y && cy <= node.y + node.h) return node.id;
   }
   return "";
+}
+
+// --- Node metadata helpers (hyperlink / tags) ---
+// A node hyperlink is rendered as a clickable <a>, so untrusted schemes must be
+// neutralised. Known-safe schemes pass through; a bare domain/path is defaulted to
+// https://; anything else (javascript:/data:/vbscript:/… ) also gets the https://
+// prefix, which turns a script/data URI into an inert, non-navigating URL — the same
+// approach the property system uses (see propertyHref).
+export function sanitizeHyperlink(url) {
+  const raw = String(url ?? "").trim();
+  if (!raw) return "";
+  if (/^(https?:\/\/|mailto:|tel:|ftp:\/\/)/i.test(raw)) return raw;
+  if (raw.startsWith("#")) return raw;
+  return `https://${raw.replace(/^\/+/, "")}`;
+}
+
+// Split a raw tag input into individual tags: break on commas/whitespace so tags are
+// single tokens (matching how the markdown bridge tokenises them), strip a leading #,
+// drop blanks. Order preserved; de-duplication is left to normalizeTags.
+export function parseTagInput(raw) {
+  return String(raw ?? "")
+    .split(/[,\s]+/)
+    .map((tag) => tag.trim().replace(/^#+/, ""))
+    .filter(Boolean);
+}
+
+// Canonical tag list for storage: trim, strip a leading #, drop blanks, de-dup while
+// keeping first-seen order.
+export function normalizeTags(list) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((item) => {
+    const tag = String(item ?? "").trim().replace(/^#+/, "");
+    if (tag && !seen.has(tag)) {
+      seen.add(tag);
+      out.push(tag);
+    }
+  });
+  return out;
 }
 
 // --- Markdown style bridge (clean route) ---

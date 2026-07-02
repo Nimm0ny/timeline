@@ -1,9 +1,15 @@
 <script setup>
-import { nextTick, ref } from "vue";
+import { nextTick, reactive, ref } from "vue";
 import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import { pushToast } from "@/composables/useToast";
-import { DEFAULT_EDGE_STYLE, MINDMAP_EDGE_STYLES } from "@/utils/mindmapX6.js";
+import {
+  DEFAULT_EDGE_STYLE,
+  MINDMAP_EDGE_STYLES,
+  MINDMAP_NODE_ICONS,
+  normalizeTags,
+  parseTagInput,
+} from "@/utils/mindmapX6.js";
 import { DEFAULT_MINDMAP_LAYOUT, MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
 
 // Center-column host for a mindmap note (D-2: 中栏内嵌 + 可全屏). Owns the frame
@@ -18,8 +24,13 @@ const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "r
 
 const editor = ref(null);
 const fullscreen = ref(false);
-const openMenu = ref(""); // "" | "layout" | "edge" | "bg" | "color" | "bridge"
+const openMenu = ref(""); // "" | "layout" | "edge" | "bg" | "color" | "bridge" | "meta"
 const activeCount = ref(0);
+// Node info panel form for the single selected node (populated on open from the
+// editor's getActiveNodeMeta; edits write straight back through the editor).
+const metaForm = reactive({ id: null, link: "", note: "", tags: [], icon: "" });
+const tagDraft = ref("");
+const metaLinkRef = ref(null);
 const currentLayout = ref(DEFAULT_MINDMAP_LAYOUT);
 const currentBackground = ref("");
 const currentEdgeStyle = ref(DEFAULT_EDGE_STYLE);
@@ -68,6 +79,69 @@ function pickBackground(value) {
 function pickTextColor(color) {
   editor.value?.setTextColor(color);
   openMenu.value = "";
+}
+
+// ---- Node info panel (hyperlink / note / tags / icon) ----
+function openMeta() {
+  const meta = editor.value?.getActiveNodeMeta?.();
+  if (!meta) return;
+  metaForm.id = meta.id;
+  metaForm.link = meta.hyperlink;
+  metaForm.note = meta.note;
+  metaForm.tags = [...meta.tags];
+  metaForm.icon = meta.icon;
+  tagDraft.value = "";
+  openMenu.value = "meta";
+  nextTick(() => metaLinkRef.value?.focus());
+}
+
+function toggleMeta() {
+  if (openMenu.value === "meta") openMenu.value = "";
+  else openMeta();
+}
+
+function applyMetaLink() {
+  editor.value?.setNodeHyperlink?.(metaForm.link);
+}
+
+function applyMetaNote() {
+  editor.value?.setNodeNote?.(metaForm.note);
+}
+
+function commitTagDraft() {
+  const parsed = parseTagInput(tagDraft.value);
+  tagDraft.value = "";
+  if (!parsed.length) return;
+  metaForm.tags = normalizeTags([...metaForm.tags, ...parsed]);
+  editor.value?.setNodeTags?.(metaForm.tags);
+}
+
+function removeTag(tag) {
+  metaForm.tags = metaForm.tags.filter((item) => item !== tag);
+  editor.value?.setNodeTags?.(metaForm.tags);
+}
+
+function onTagKeydown(event) {
+  if (event.key === "Enter" || event.key === ",") {
+    event.preventDefault();
+    commitTagDraft();
+  } else if (event.key === "Backspace" && !tagDraft.value && metaForm.tags.length) {
+    removeTag(metaForm.tags[metaForm.tags.length - 1]);
+  }
+}
+
+function pickIcon(key) {
+  metaForm.icon = metaForm.icon === key ? "" : key;
+  editor.value?.setNodeIcon?.(metaForm.icon);
+}
+
+// Keep the node info panel bound to the node it opened for: the editor reports the
+// single-node selection (or null) on every selection change, and we close the panel
+// the moment that target differs from the one we opened for. Combined with the setters
+// targeting the live single selection, an edit can never land on a different node.
+function onMeta(meta) {
+  if (openMenu.value !== "meta") return;
+  if (!meta || meta.id !== metaForm.id) openMenu.value = "";
 }
 function currentLayoutLabel() {
   return MINDMAP_LAYOUTS.find((item) => item.key === currentLayout.value)?.label || "布局";
@@ -367,8 +441,80 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
         </div>
       </div>
 
+      <div class="mm-ctl">
+        <button
+          type="button"
+          class="iconbtn sm"
+          :class="{ on: openMenu === 'meta' }"
+          :disabled="note.deletedAt || activeCount !== 1"
+          title="节点信息：超链接 / 备注 / 标签 / 图标（先选中单个节点）"
+          @click.stop="toggleMeta"
+        >
+          <TimelineLucideIcon name="info" :stroke-width="1.5" />
+        </button>
+        <div v-if="openMenu === 'meta'" class="mm-menu mm-meta-panel" @click.stop @keydown.esc.prevent="openMenu = ''">
+          <label class="mm-meta-field">
+            <span class="mm-meta-label"><TimelineLucideIcon name="link" :stroke-width="1.5" />超链接</span>
+            <input
+              ref="metaLinkRef"
+              v-model="metaForm.link"
+              class="mm-meta-input"
+              type="text"
+              placeholder="https://…"
+              @change="applyMetaLink"
+              @keydown.enter.prevent="applyMetaLink"
+            />
+          </label>
+          <label class="mm-meta-field">
+            <span class="mm-meta-label"><TimelineLucideIcon name="note" :stroke-width="1.5" />备注</span>
+            <textarea
+              v-model="metaForm.note"
+              class="mm-meta-input mm-meta-textarea"
+              rows="3"
+              placeholder="给这个节点写点备注…"
+              @input="applyMetaNote"
+            ></textarea>
+          </label>
+          <div class="mm-meta-field">
+            <span class="mm-meta-label"><TimelineLucideIcon name="tag" :stroke-width="1.5" />标签</span>
+            <div class="mm-meta-tags">
+              <span v-for="tag in metaForm.tags" :key="tag" class="mm-meta-chip">
+                #{{ tag }}
+                <button type="button" class="mm-meta-chip-x" title="移除标签" @click="removeTag(tag)">
+                  <TimelineLucideIcon name="close" :stroke-width="1.5" />
+                </button>
+              </span>
+              <input
+                v-model="tagDraft"
+                class="mm-meta-taginput"
+                type="text"
+                :placeholder="metaForm.tags.length ? '' : '回车或逗号添加'"
+                @keydown="onTagKeydown"
+                @blur="commitTagDraft"
+              />
+            </div>
+          </div>
+          <div class="mm-meta-field">
+            <span class="mm-meta-label"><TimelineLucideIcon name="star" :stroke-width="1.5" />图标</span>
+            <div class="mm-meta-icons">
+              <button
+                v-for="item in MINDMAP_NODE_ICONS"
+                :key="item.key"
+                type="button"
+                class="mm-meta-icon"
+                :class="{ on: metaForm.icon === item.key }"
+                :title="item.label"
+                @click="pickIcon(item.key)"
+              >
+                <TimelineLucideIcon :name="item.key" :stroke-width="1.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <span v-if="note.deletedAt" class="mm-hint">回收站中的导图为只读，可恢复或永久删除</span>
-      <span v-else-if="!activeCount" class="mm-hint">选中节点后可调字号与颜色</span>
+      <span v-else-if="!activeCount" class="mm-hint">选中节点后可编辑样式与信息</span>
 
       <div class="mm-ctl mm-find">
         <button
@@ -421,6 +567,8 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       @ready="onReady"
       @active="activeCount = $event"
       @search="searchInfo = $event"
+      @meta="onMeta"
+      @edit-meta="openMeta"
       @update="emit('save', $event)"
     />
   </section>
