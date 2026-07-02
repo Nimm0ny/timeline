@@ -160,7 +160,7 @@ watch(
   >
     <section class="command-palette" @keydown="onKeydown">
       <label class="command-search-field">
-        <TimelineLucideIcon name="search" :stroke-width="1.8" />
+        <TimelineLucideIcon name="search" :stroke-width="1.5" />
         <input
           ref="inputRef"
           :value="props.query"
@@ -209,7 +209,7 @@ watch(
 
             <template v-else>
               <span class="command-row-main command-command-main">
-                <TimelineLucideIcon :name="item.value.icon" :stroke-width="1.8" />
+                <TimelineLucideIcon :name="item.value.icon" :stroke-width="1.5" />
                 <span class="command-row-title">{{ item.value.label }}</span>
               </span>
               <span class="command-row-meta">

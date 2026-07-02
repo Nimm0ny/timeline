@@ -58,7 +58,7 @@ function onBackdropClick(event) {
         <div v-if="!props.hideHeader" class="modal-head">
           <h3>{{ props.title }}</h3>
           <button type="button" class="icon-btn" title="关闭" @click="close">
-            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+            <TimelineLucideIcon name="close" :stroke-width="1.5" />
           </button>
         </div>
         <div class="modal-body" :class="props.bodyClass">

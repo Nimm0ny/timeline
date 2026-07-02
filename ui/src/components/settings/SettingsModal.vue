@@ -55,7 +55,7 @@ onBeforeUnmount(() => {
       <div class="settings-nav-head">
         <span class="settings-nav-title">设置</span>
         <button type="button" class="iconbtn" title="关闭设置" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.8" />
+          <TimelineLucideIcon name="close" :stroke-width="1.5" />
         </button>
       </div>
       <button
@@ -66,7 +66,7 @@ onBeforeUnmount(() => {
         :class="{ active: section === item.id }"
         @click="section = item.id"
       >
-        <TimelineLucideIcon :name="item.icon" :stroke-width="1.8" />
+        <TimelineLucideIcon :name="item.icon" :stroke-width="1.5" />
         <span>{{ item.label }}</span>
       </button>
       </div>

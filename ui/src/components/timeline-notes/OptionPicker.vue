@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
         <span v-for="chip in selectedChips" :key="chip.id" class="ptag" :style="{ '--dot': chip.color }">
           <i></i>{{ chip.label }}
           <span class="ptag-x" title="移除" @click.stop="removeChip(chip.id)">
-            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+            <TimelineLucideIcon name="close" :stroke-width="1.5" />
           </span>
         </span>
       </template>
@@ -156,11 +156,11 @@ onBeforeUnmount(() => {
           <span class="opt-dot" :style="{ '--dot': option.color || 'var(--accent)' }"></span>
           <span class="opt-label">{{ option.label }}</span>
           <span v-if="isSelected(option.id)" class="opt-check">
-            <TimelineLucideIcon name="check" :stroke-width="1.8" />
+            <TimelineLucideIcon name="check" :stroke-width="1.5" />
           </span>
         </button>
         <button v-if="canCreate" type="button" class="optpick-create" @click="createOption">
-          <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+          <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
           <span>新建「{{ query.trim() }}」</span>
         </button>
         <p v-if="!filtered.length && !canCreate" class="optpick-empty">暂无选项</p>

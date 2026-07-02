@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
             title="清空当前筛选"
             @click.stop="emit('clear-context-filter')"
           >
-            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+            <TimelineLucideIcon name="close" :stroke-width="1.5" />
           </button>
         </span>
       </div>
@@ -632,7 +632,7 @@ onBeforeUnmount(() => {
             @blur="closeSearchIfEmpty"
           />
           <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">
-            <TimelineLucideIcon name="search" :stroke-width="1.8" />
+            <TimelineLucideIcon name="search" :stroke-width="1.5" />
           </button>
         </div>
 
@@ -644,7 +644,7 @@ onBeforeUnmount(() => {
           title="时间定位"
           @click.stop="togglePopover('locator')"
         >
-          <TimelineLucideIcon name="calendarSearch" :stroke-width="1.8" />
+          <TimelineLucideIcon name="calendarSearch" :stroke-width="1.5" />
         </button>
 
         <button
@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
           title="列设置"
           @click.stop="togglePopover('columns')"
         >
-          <TimelineLucideIcon name="columns" :stroke-width="1.8" />
+          <TimelineLucideIcon name="columns" :stroke-width="1.5" />
         </button>
 
         <button
@@ -669,7 +669,7 @@ onBeforeUnmount(() => {
           title="显示预览"
           @click="emit('toggle-preview')"
         >
-          <TimelineLucideIcon name="alignLeft" :stroke-width="1.8" />
+          <TimelineLucideIcon name="alignLeft" :stroke-width="1.5" />
         </button>
 
         <button
@@ -679,7 +679,7 @@ onBeforeUnmount(() => {
           :title="selectMode ? '退出多选' : '多选'"
           @click.stop="toggleSelectMode"
         >
-          <TimelineLucideIcon name="listChecks" :stroke-width="1.8" />
+          <TimelineLucideIcon name="listChecks" :stroke-width="1.5" />
         </button>
 
         <button
@@ -691,7 +691,7 @@ onBeforeUnmount(() => {
           title="切换视图"
           @click.stop="togglePopover('views')"
         >
-          <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.8" />
+          <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.5" />
         </button>
       </div>
 
@@ -705,7 +705,7 @@ onBeforeUnmount(() => {
         title="新建笔记"
         @click.stop="togglePopover('newtype')"
       >
-        <TimelineLucideIcon name="plusCircle" :stroke-width="1.8" />
+        <TimelineLucideIcon name="plusCircle" :stroke-width="1.5" />
       </button>
 
       <div v-if="activePopover" class="popover tl-pop" :class="`tl-pop-${activePopover}`">
@@ -717,7 +717,7 @@ onBeforeUnmount(() => {
           </label>
           <div class="pop-foot">
             <button type="submit" class="iconbtn sm primary" title="定位">
-              <TimelineLucideIcon name="check" :stroke-width="1.8" />
+              <TimelineLucideIcon name="check" :stroke-width="1.5" />
             </button>
           </div>
         </form>
@@ -744,7 +744,7 @@ onBeforeUnmount(() => {
             :title="view.enabled ? '' : view.requires"
             @click="pickView(view)"
           >
-            <TimelineLucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.8" />
+            <TimelineLucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.5" />
             <span class="pop-item-label">{{ view.label }}</span>
             <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
           </button>
@@ -753,11 +753,11 @@ onBeforeUnmount(() => {
         <template v-else-if="activePopover === 'newtype'">
           <div class="pop-title">新建</div>
           <button type="button" class="pop-item" @click="pickNoteType('entry')">
-            <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.8" />
+            <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
             <span class="pop-item-label">条目</span>
           </button>
           <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
-            <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.8" />
+            <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
             <span class="pop-item-label">思维导图</span>
           </button>
         </template>
@@ -768,22 +768,22 @@ onBeforeUnmount(() => {
       <span class="batch-cnt">已选 {{ selectedIds.length }} 条</span>
       <template v-if="props.trashView">
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量恢复" @click="submitBatch('batch-restore')">
-          <TimelineLucideIcon name="restore" :stroke-width="1.8" />
+          <TimelineLucideIcon name="restore" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量永久删除" @click="submitBatch('batch-permanent-delete')">
-          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+          <TimelineLucideIcon name="trash" :stroke-width="1.5" />
         </button>
       </template>
       <template v-else>
         <button v-if="!props.globalFavoritesMode" type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量收藏" @click="submitBatch('batch-favorite')">
-          <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          <TimelineLucideIcon name="star" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量移入回收站" @click="submitBatch('batch-trash')">
-          <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+          <TimelineLucideIcon name="trash" :stroke-width="1.5" />
         </button>
       </template>
       <button type="button" class="iconbtn sm" title="退出多选" @click="toggleSelectMode">
-        <TimelineLucideIcon name="close" :stroke-width="1.8" />
+        <TimelineLucideIcon name="close" :stroke-width="1.5" />
       </button>
     </div>
 
@@ -844,10 +844,10 @@ onBeforeUnmount(() => {
               <span v-else-if="column.key === 'title'" class="c-title">
                 <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
                 <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
-                  <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
                 </span>
                 <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
-                  <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
                 </span>
                 <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
                 <span class="ev-sum"><HighlightedText :text="buildEventPreview(event, 90)" :query="props.searchQuery" /></span>
@@ -891,14 +891,14 @@ onBeforeUnmount(() => {
               :title="props.trashView ? '永久删除' : '移入回收站'"
               @click.stop="deleteRow(event)"
             >
-              <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+              <TimelineLucideIcon name="trash" :stroke-width="1.5" />
             </span>
             <span
               class="c-star"
               :class="{ on: event.favorite }"
               @click.stop="emit('toggle-favorite', event)"
             >
-              <TimelineLucideIcon name="star" :stroke-width="1.8" />
+              <TimelineLucideIcon name="star" :stroke-width="1.5" />
             </span>
           </button>
         </section>
@@ -950,10 +950,10 @@ onBeforeUnmount(() => {
             <span v-else-if="column.key === 'title'" class="c-title">
               <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
               <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
-                <TimelineLucideIcon name="mindmap" :stroke-width="1.8" />
+                <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
               </span>
               <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
-                <TimelineLucideIcon name="paperclip" :stroke-width="1.8" />
+                <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
               </span>
             </span>
             <span v-else-if="isOptionColumn(column)" class="c-tags">
@@ -995,10 +995,10 @@ onBeforeUnmount(() => {
             :title="props.trashView ? '永久删除' : '移入回收站'"
             @click.stop="deleteRow(event)"
           >
-            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
           </span>
           <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+            <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
       </div>
@@ -1030,7 +1030,7 @@ onBeforeUnmount(() => {
               <span class="bd-card-foot">
                 <span class="bd-card-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
                 <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-                  <TimelineLucideIcon name="star" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="star" :stroke-width="1.5" />
                 </span>
               </span>
             </button>
@@ -1070,7 +1070,7 @@ onBeforeUnmount(() => {
             <span class="gl-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
           </span>
           <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+            <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
       </div>
@@ -1106,7 +1106,7 @@ onBeforeUnmount(() => {
               <b class="ol-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
               <span class="ol-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
               <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-                <TimelineLucideIcon name="star" :stroke-width="1.8" />
+                <TimelineLucideIcon name="star" :stroke-width="1.5" />
               </span>
             </button>
           </div>
@@ -1135,7 +1135,7 @@ onBeforeUnmount(() => {
           <span class="lv-sum"><HighlightedText :text="buildEventPreview(event, 80)" :query="props.searchQuery" /></span>
           <span class="lv-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
           <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.8" />
+            <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
       </div>

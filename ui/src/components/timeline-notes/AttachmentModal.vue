@@ -55,7 +55,7 @@ onBeforeUnmount(() => {
         <b>{{ title }}</b>
         <span class="meta-min">{{ meta }}</span>
         <button type="button" class="iconbtn sm" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.8" />
+          <TimelineLucideIcon name="close" :stroke-width="1.5" />
         </button>
       </header>
       <div class="modal-body">

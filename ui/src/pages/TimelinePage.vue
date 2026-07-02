@@ -440,7 +440,7 @@ const feedEmptyReason = computed(() => {
   if (!state.activeTopicId) return "先创建或选择一个笔记本。";
   if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
   if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
-  if (state.activeEra) return "当前分期下没有记录。";
+  if (state.activeEra) return "当前分组下没有记录。";
   if (state.propertyFilter?.key) return "当前属性筛选下没有记录。";
   return "当前筛选下没有记录。";
 });
@@ -2065,18 +2065,18 @@ watch(
       <div class="popover timeline-action-menu" @click.stop>
         <template v-if="state.menuEvent.deletedAt">
           <button type="button" class="pop-item" @click="restoreEvent(state.menuEvent)">
-            <TimelineLucideIcon name="restore" :stroke-width="1.8" class="pop-item-ic" />
+            <TimelineLucideIcon name="restore" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">恢复</span>
           </button>
           <span class="pop-divider"></span>
           <button type="button" class="pop-item danger" @click="permanentlyDeleteEvent(state.menuEvent)">
-            <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">永久删除</span>
           </button>
         </template>
         <template v-else>
           <button type="button" class="pop-item" @click="moveEventToTrash(state.menuEvent)">
-            <TimelineLucideIcon name="trash" :stroke-width="1.8" class="pop-item-ic" />
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">移入回收站</span>
           </button>
         </template>

@@ -424,7 +424,7 @@ function applyDraft(sourceEvent) {
   draft.dateMonth = next.dateMonth;
   draft.dateDay = next.dateDay;
   draft.headline = next.headline;
-  draft.era = next.era || props.topicTitle || "未分期";
+  draft.era = next.era || props.topicTitle || "未分组";
   draft.bodyMarkdown = next.bodyMarkdown;
   draft.image = next.image;
   draft.imageUrl = next.imageUrl;
@@ -625,7 +625,7 @@ function submit() {
   const extra = normalizeEventExtra(draft.extra, topicColumns.value);
 
   if (!Number.isInteger(dateYear) || !Number.isInteger(dateMonth) || !Number.isInteger(dateDay) || !headline || !era || !bodyMarkdown) {
-    pushToast("请补全日期、标题、分期和正文", "error");
+    pushToast("请补全日期、标题、分组和正文", "error");
     return false;
   }
 
@@ -753,7 +753,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="actionbar">
         <button v-if="props.mobile" type="button" class="iconbtn" title="返回列表" @click="emit('close')">
-          <TimelineLucideIcon name="arrowLeft" :stroke-width="1.8" />
+          <TimelineLucideIcon name="arrowLeft" :stroke-width="1.5" />
         </button>
         <span class="spacer"></span>
         <button
@@ -765,10 +765,10 @@ onBeforeUnmount(() => {
           title="收藏"
           @click="inEditMode ? (draft.favorite = !draft.favorite) : emit('toggle-favorite', props.event)"
         >
-          <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          <TimelineLucideIcon name="star" :stroke-width="1.5" />
         </button>
         <button v-if="inEditMode" type="button" class="iconbtn primary" :disabled="props.saving" title="保存" @click="submit">
-          <TimelineLucideIcon name="save" :stroke-width="1.8" />
+          <TimelineLucideIcon name="save" :stroke-width="1.5" />
         </button>
         <button
           id="modeBtn"
@@ -781,33 +781,33 @@ onBeforeUnmount(() => {
           @focus="warmEditorNow"
           @click="inEditMode ? emit('cancel') : emit('edit')"
         >
-          <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.8" />
+          <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.5" />
         </button>
         <span class="divider"></span>
         <div class="kebab-wrap">
           <button type="button" class="iconbtn" :class="{ on: kebabOpen }" title="更多操作" @click.stop="toggleKebab">
-            <TimelineLucideIcon name="moreVertical" :stroke-width="1.8" />
+            <TimelineLucideIcon name="moreVertical" :stroke-width="1.5" />
           </button>
           <div v-if="kebabOpen" class="popover detail-kebab" @click.stop>
             <template v-if="inEditMode">
               <label class="pop-item" :class="{ 'is-disabled': uploading }">
-                <TimelineLucideIcon class="pop-item-ic" name="paperclip" :stroke-width="1.8" />
+                <TimelineLucideIcon class="pop-item-ic" name="paperclip" :stroke-width="1.5" />
                 <span class="lbl">添加附件</span>
                 <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event); closeKebab()" />
               </label>
               <button type="button" class="pop-item" @click="revealRelatedEditor(); closeKebab()">
-                <TimelineLucideIcon class="pop-item-ic" name="link" :stroke-width="1.8" />
+                <TimelineLucideIcon class="pop-item-ic" name="link" :stroke-width="1.5" />
                 <span class="lbl">关联事件</span>
               </button>
             </template>
             <button type="button" class="pop-item trash-item" :class="{ danger: trashArmed }" @click.stop="onTrashClick">
-              <TimelineLucideIcon class="pop-item-ic" name="trash" :stroke-width="1.8" />
+              <TimelineLucideIcon class="pop-item-ic" name="trash" :stroke-width="1.5" />
               <span class="lbl">{{ !isDeleted && trashArmed ? "移入回收站" : "回收站" }}</span>
             </button>
           </div>
         </div>
         <button v-if="!props.mobile" id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.8" />
+          <TimelineLucideIcon name="close" :stroke-width="1.5" />
         </button>
       </div>
 
@@ -822,7 +822,7 @@ onBeforeUnmount(() => {
             <h3>属性</h3>
             <div v-if="inEditMode && addableProperties.length" class="detail-prop-add">
               <button type="button" class="pane-sec-add" :class="{ on: addPropOpen }" title="添加属性" @click.stop="toggleAddProp">
-                <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+                <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
               </button>
               <div v-if="addPropOpen" class="popover detail-addprop-pop" @click.stop>
                 <button
@@ -832,7 +832,7 @@ onBeforeUnmount(() => {
                   class="pop-item"
                   @click="revealProperty(column.key); closeAddProp()"
                 >
-                  <TimelineLucideIcon class="pop-item-ic" :name="propertyIcon(column)" :stroke-width="1.8" />
+                  <TimelineLucideIcon class="pop-item-ic" :name="propertyIcon(column)" :stroke-width="1.5" />
                   <span class="lbl">{{ column.label }}</span>
                 </button>
               </div>
@@ -843,7 +843,7 @@ onBeforeUnmount(() => {
               <!-- 日期：每条笔记必有，作为元数据首行；编辑态点开沿用现有日期弹层。 -->
               <div class="detail-prop-item">
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon name="calendar" :stroke-width="1.8" />日期
+                  <TimelineLucideIcon name="calendar" :stroke-width="1.5" />日期
                 </span>
                 <div class="detail-prop-value">
                   <strong v-if="!inEditMode">{{ formatEventDisplayDate(props.event) }}</strong>
@@ -867,16 +867,16 @@ onBeforeUnmount(() => {
               <!-- 分组：每条笔记必有（专题·时代）。 -->
               <div class="detail-prop-item">
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon name="leaf" :stroke-width="1.8" />分组
+                  <TimelineLucideIcon name="leaf" :stroke-width="1.5" />分组
                 </span>
                 <div class="detail-prop-value">
-                  <strong v-if="!inEditMode">{{ `${props.topicTitle} · ${props.event?.era || "未分期"}` }}</strong>
+                  <strong v-if="!inEditMode">{{ `${props.topicTitle} · ${props.event?.era || "未分组"}` }}</strong>
                   <span v-else class="meta-pop-wrap">
                     <button type="button" class="detail-meta-trigger" :class="{ on: eraEditorOpen }" @click.stop="toggleEraEditor">
-                      {{ `${props.topicTitle} · ${draft.era || "未分期"}` }}
+                      {{ `${props.topicTitle} · ${draft.era || "未分组"}` }}
                     </button>
                     <div v-if="eraEditorOpen" class="popover meta-pop" @click.stop>
-                      <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分期名称" aria-label="分期" />
+                      <input v-model="draft.era" class="meta-text-input" type="text" :maxlength="CONTENT_LIMITS.eraLabel" placeholder="分组名称" aria-label="分组" />
                     </div>
                   </span>
                 </div>
@@ -888,7 +888,7 @@ onBeforeUnmount(() => {
                 class="detail-prop-item"
               >
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.8" />{{ column.label }}
+                  <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />{{ column.label }}
                 </span>
                 <div class="detail-prop-value">
                   <template v-if="isOptionColumn(column)">
@@ -936,7 +936,7 @@ onBeforeUnmount(() => {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.8" />
+                      <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />
                       <span>{{ props.event.extra[column.key] }}</span>
                     </a>
                   </template>
@@ -992,7 +992,7 @@ onBeforeUnmount(() => {
           <div class="pane-sec-head">
             <h3>附件 · {{ (inEditMode ? draft.attachments : readableGroups.attachments).length }}</h3>
             <label v-if="inEditMode" class="pane-sec-add" :class="{ 'is-disabled': uploading }" title="添加附件">
-              <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
               <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
             </label>
           </div>
@@ -1012,7 +1012,7 @@ onBeforeUnmount(() => {
                   decoding="async"
                   fetchpriority="low"
                 />
-                <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.8" />
+                <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.5" />
               </span>
               <div class="lrow-main">
                 <b>{{ attachment.name || attachment.filename || "附件" }}</b>
@@ -1020,7 +1020,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="lrow-actions">
                 <button type="button" class="iconbtn sm" title="查看" @click="openAttachment(attachment)">
-                  <TimelineLucideIcon name="maximize" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="maximize" :stroke-width="1.5" />
                 </button>
                 <button
                   v-if="inEditMode"
@@ -1029,7 +1029,7 @@ onBeforeUnmount(() => {
                   title="插入正文"
                   @click="appendAttachmentMarkdown(attachment)"
                 >
-                  <TimelineLucideIcon name="link" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="link" :stroke-width="1.5" />
                 </button>
                 <button
                   v-if="inEditMode"
@@ -1038,7 +1038,7 @@ onBeforeUnmount(() => {
                   title="删除附件"
                   @click="removeAttachment(index)"
                 >
-                  <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+                  <TimelineLucideIcon name="trash" :stroke-width="1.5" />
                 </button>
               </div>
             </div>
@@ -1049,12 +1049,12 @@ onBeforeUnmount(() => {
           <div class="pane-sec-head">
             <h3>关联事件 · {{ (inEditMode ? selectedRelatedEvents : readableGroups.relatedEvents).length }}</h3>
             <button v-if="inEditMode" type="button" class="pane-sec-add" title="关联事件" @click="revealRelatedEditor">
-              <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
             </button>
           </div>
           <template v-if="inEditMode && showRelatedSearch">
             <label class="detail-inline-search">
-              <TimelineLucideIcon name="search" :stroke-width="1.8" />
+              <TimelineLucideIcon name="search" :stroke-width="1.5" />
               <input ref="relatedSearchInputRef" v-model="relatedSearchQuery" type="search" placeholder="搜索当前专题事件" />
             </label>
             <div v-if="candidateRelatedEvents.length" class="related-results">
@@ -1082,13 +1082,13 @@ onBeforeUnmount(() => {
               @blur="hideRelatedPreview(item)"
               @click="activateRelatedEvent(item, $event)"
             >
-              <span class="lrow-ic"><TimelineLucideIcon name="calendar" :stroke-width="1.8" /></span>
+              <span class="lrow-ic"><TimelineLucideIcon name="calendar" :stroke-width="1.5" /></span>
               <div class="lrow-main">
                 <b>{{ item.headline || item.displayLabel || "未命名事件" }}</b>
                 <span>{{ item.displayLabel || formatEventDate(item) }}</span>
               </div>
               <span v-if="inEditMode" class="lrow-act">
-                <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+                <TimelineLucideIcon name="trash" :stroke-width="1.5" />
               </span>
             </button>
           </div>

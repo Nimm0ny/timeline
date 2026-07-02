@@ -153,15 +153,15 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-for="item in BUILTIN_LOCKED" :key="item.key" class="pop-item col-row is-locked">
-      <TimelineLucideIcon :name="item.icon" :stroke-width="1.8" class="pop-item-ic" />
+      <TimelineLucideIcon :name="item.icon" :stroke-width="1.5" class="pop-item-ic" />
       <span class="lbl">{{ item.label }}</span>
       <button type="button" class="col-eye" disabled title="必选列，始终显示">
-        <TimelineLucideIcon name="eye" :stroke-width="1.8" />
+        <TimelineLucideIcon name="eye" :stroke-width="1.5" />
       </button>
     </div>
     <template v-for="(column, index) in draft.columns" :key="`${column.key || 'column'}-${index}`">
       <div class="pop-item col-row" :class="{ 'is-hidden': column.visible === false, editing: column.expanded }">
-        <TimelineLucideIcon :name="TYPE_ICON[column.type] || TYPE_ICON.text" :stroke-width="1.8" class="pop-item-ic" />
+        <TimelineLucideIcon :name="TYPE_ICON[column.type] || TYPE_ICON.text" :stroke-width="1.5" class="pop-item-ic" />
         <span class="lbl">{{ column.label || "未命名列" }}</span>
         <span class="col-row-act">
           <button
@@ -171,10 +171,10 @@ onBeforeUnmount(() => {
             title="编辑列"
             @click="column.expanded = !column.expanded"
           >
-            <TimelineLucideIcon name="edit" :stroke-width="1.8" />
+            <TimelineLucideIcon name="edit" :stroke-width="1.5" />
           </button>
           <button type="button" class="iconbtn sm" title="删除列" @click="removeColumn(index)">
-            <TimelineLucideIcon name="trash" :stroke-width="1.8" />
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
           </button>
         </span>
         <button
@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
           :title="column.visible !== false ? '隐藏此列' : '显示此列'"
           @click="toggleColumnVisibility(column)"
         >
-          <TimelineLucideIcon :name="column.visible !== false ? 'eye' : 'eyeOff'" :stroke-width="1.8" />
+          <TimelineLucideIcon :name="column.visible !== false ? 'eye' : 'eyeOff'" :stroke-width="1.5" />
         </button>
       </div>
       <div v-if="column.expanded" class="col-grid col-detail">
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
     </template>
 
     <button type="button" class="pop-item col-add" @click="addColumn">
-      <TimelineLucideIcon name="plusSign" :stroke-width="1.8" class="pop-item-ic" />
+      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" class="pop-item-ic" />
       <span class="lbl">新建列</span>
     </button>
   </div>

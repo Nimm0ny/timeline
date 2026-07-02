@@ -1005,7 +1005,7 @@ export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", c
 
   const buckets = new Map();
   for (const event of filtered) {
-    const key = String(event?.era || "未分期").trim() || "未分期";
+    const key = String(event?.era || "未分组").trim() || "未分组";
     if (!buckets.has(key)) {
       buckets.set(key, {
         key,

@@ -1315,7 +1315,7 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     era = str(payload.get("era", "")).strip()
     # Era is the timeline's grouping spine for entries; a mindmap is authored on its
     # own canvas and may be undated/un-grouped, so it may omit era (falls into the
-    # "未分期" bucket if it surfaces in an entry view).
+    # "未分组" bucket if it surfaces in an entry view).
     if not era and note_type == DEFAULT_NOTE_TYPE:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()

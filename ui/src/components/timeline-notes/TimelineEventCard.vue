@@ -59,7 +59,7 @@ function selectCard() {
           :aria-label="props.event.favorite ? '取消收藏' : '收藏'"
           @click.stop="emit('toggle-favorite', props.event)"
         >
-          <TimelineLucideIcon name="star" :stroke-width="1.8" />
+          <TimelineLucideIcon name="star" :stroke-width="1.5" />
         </button>
         <button
           type="button"
@@ -67,7 +67,7 @@ function selectCard() {
           aria-label="更多操作"
           @click.stop="emit('open-menu', props.event)"
         >
-          <TimelineLucideIcon name="more" :stroke-width="1.8" />
+          <TimelineLucideIcon name="more" :stroke-width="1.5" />
         </button>
       </div>
     </div>

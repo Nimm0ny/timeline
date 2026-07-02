@@ -144,21 +144,21 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="props.pinned" class="related-preview-actions">
           <button type="button" class="iconbtn sm" title="完整打开" aria-label="完整打开" :disabled="props.loading || Boolean(props.error)" @click="emit('open-full')">
-            <TimelineLucideIcon name="arrowRight" :stroke-width="1.8" />
+            <TimelineLucideIcon name="arrowRight" :stroke-width="1.5" />
           </button>
           <button type="button" class="iconbtn sm" title="关闭" aria-label="关闭" @click="close">
-            <TimelineLucideIcon name="close" :stroke-width="1.8" />
+            <TimelineLucideIcon name="close" :stroke-width="1.5" />
           </button>
         </div>
       </header>
 
       <div class="related-preview-meta">
         <span>
-          <TimelineLucideIcon name="calendar" :stroke-width="1.8" />
+          <TimelineLucideIcon name="calendar" :stroke-width="1.5" />
           {{ dateLabel }}
         </span>
         <span>
-          <TimelineLucideIcon name="leaf" :stroke-width="1.8" />
+          <TimelineLucideIcon name="leaf" :stroke-width="1.5" />
           {{ groupLabel }}
         </span>
       </div>

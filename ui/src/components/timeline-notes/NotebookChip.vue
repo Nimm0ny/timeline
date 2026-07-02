@@ -32,7 +32,7 @@ const dotColor = computed(() => NOTEBOOK_COLORS[Math.abs(Number(props.topicId) |
 <template>
   <span class="notebook-chip" :title="label">
     <span class="notebook-chip-dot" :style="{ '--notebook-dot': dotColor }"></span>
-    <TimelineLucideIcon name="notebook" :stroke-width="1.8" />
+    <TimelineLucideIcon name="notebook" :stroke-width="1.5" />
     <span class="notebook-chip-label">{{ label }}</span>
   </span>
 </template>
