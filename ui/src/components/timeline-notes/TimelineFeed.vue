@@ -5,6 +5,7 @@ import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
+  aggregateOptionChips,
   availableDisplayViews,
   buildBoardGroups,
   buildEventPreview,
@@ -305,6 +306,13 @@ function galleryEvents() {
 
 function eventThumb(event) {
   return event?.thumbUrl || event?.imageUrl || "";
+}
+
+// List/gallery cards surface the same option chips as the timeline, aggregated
+// across the visible (non-empty) option columns and capped by FEED_CHIP_LIMIT with
+// a +N overflow (see aggregateOptionChips) so a card never invents or hides tags.
+function rowChips(event) {
+  return aggregateOptionChips(event, props.columns, props.emptyColumnKeys);
 }
 
 // Outline view: collapsible era groups (reuses the era grouping the page already
@@ -1064,10 +1072,40 @@ onBeforeUnmount(() => {
               fetchpriority="low"
             />
             <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
+            <span v-if="selectMode" class="gl-check tcheck" :class="{ on: isRowSelected(event.id) }">
+              <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+            </span>
+            <span v-else-if="event.noteType === 'mindmap'" class="gl-badge" title="思维导图">
+              <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+            </span>
           </span>
           <span class="gl-meta">
             <b class="gl-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+            <span v-if="rowChips(event).length" class="gl-tags c-tags">
+              <span
+                v-for="chip in rowChips(event).slice(0, FEED_CHIP_LIMIT)"
+                :key="chip.value"
+                class="td"
+                :style="{ '--dot': chip.color }"
+              >
+                <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+              </span>
+              <span
+                v-if="rowChips(event).length > FEED_CHIP_LIMIT"
+                class="td-more"
+                :title="rowChips(event).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
+              >
+            </span>
             <span class="gl-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+          </span>
+          <span
+            v-if="!selectMode"
+            class="gl-del"
+            :title="props.trashView ? '永久删除' : '移入回收站'"
+            @click.stop="deleteRow(event)"
+          >
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
           </span>
           <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
             <TimelineLucideIcon name="star" :stroke-width="1.5" />
@@ -1131,9 +1169,42 @@ onBeforeUnmount(() => {
           <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
             <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
           </span>
-          <b class="lv-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+          <span class="lv-lead">
+            <b class="lv-name" :title="eventColumnValue(event, { key: 'title' })"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
+            <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
+              <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+            </span>
+            <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
+              <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
+            </span>
+            <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
+          </span>
           <span class="lv-sum"><HighlightedText :text="buildEventPreview(event, 80)" :query="props.searchQuery" /></span>
+          <span v-if="rowChips(event).length" class="lv-tags c-tags">
+            <span
+              v-for="chip in rowChips(event).slice(0, FEED_CHIP_LIMIT)"
+              :key="chip.value"
+              class="td"
+              :style="{ '--dot': chip.color }"
+            >
+              <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+            </span>
+            <span
+              v-if="rowChips(event).length > FEED_CHIP_LIMIT"
+              class="td-more"
+              :title="rowChips(event).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+              >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
+            >
+          </span>
           <span class="lv-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+          <span
+            v-if="!selectMode"
+            class="lv-del"
+            :title="props.trashView ? '永久删除' : '移入回收站'"
+            @click.stop="deleteRow(event)"
+          >
+            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+          </span>
           <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
             <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>

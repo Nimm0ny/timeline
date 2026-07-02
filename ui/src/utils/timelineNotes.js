@@ -728,6 +728,18 @@ export function resolvePropertyChips(event, column) {
     });
 }
 
+// Flat list/gallery cards show one combined chip set (the timeline shows chips
+// per column). Aggregate an event's chips across every visible option column, in
+// column order (empty columns simply contribute no chips) — same source as the
+// feed so a card never invents or hides tags. `hiddenKeys` drops the feed's
+// auto-hidden empty columns up front.
+export function aggregateOptionChips(event, columns, hiddenKeys = []) {
+  const hidden = new Set(Array.isArray(hiddenKeys) ? hiddenKeys : []);
+  return (Array.isArray(columns) ? columns : [])
+    .filter((column) => column.visible !== false && isOptionColumn(column) && !hidden.has(column.key))
+    .flatMap((column) => resolvePropertyChips(event, column));
+}
+
 // Tag chips for an event. With a column, labels/colors come from its options;
 // without one (e.g. export layout that lacks column context) the option id is
 // used as the label. Reads the unified `extra.tags` location.

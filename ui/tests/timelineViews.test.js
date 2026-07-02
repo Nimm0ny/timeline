@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  aggregateOptionChips,
   availableDisplayViews,
   BOARD_UNASSIGNED_ID,
   buildBoardGroups,
@@ -109,6 +110,35 @@ test("pickBoardColumn falls back to a multiselect, and is null without any optio
   assert.equal(pickBoardColumn([multi]).key, "tags");
   assert.equal(pickBoardColumn([{ key: "place", label: "地点", type: "text", visible: true, order: 0 }]), null);
   assert.equal(pickBoardColumn([]), null);
+});
+
+test("aggregateOptionChips flattens visible option columns in order, skipping text/hidden/invisible", () => {
+  const columns = [
+    SELECT_COL, // select: war/treaty
+    { key: "place", label: "地点", type: "text", visible: true, order: 1 }, // non-option → skipped
+    {
+      key: "tags",
+      label: "标签",
+      type: "multiselect",
+      visible: true,
+      order: 2,
+      options: [
+        { id: "cn", label: "中国", color: "#f00" },
+        { id: "uk", label: "英国", color: "#00f" },
+      ],
+    },
+    { key: "hiddenOpt", label: "隐藏", type: "select", visible: true, order: 3, options: [{ id: "x", label: "X" }] },
+    { key: "invis", label: "不可见", type: "select", visible: false, order: 4, options: [{ id: "y", label: "Y" }] },
+  ];
+  const event = { extra: { type: "war", place: "广州", tags: ["cn", "uk"], hiddenOpt: "x", invis: "y" } };
+
+  const chips = aggregateOptionChips(event, columns, ["hiddenOpt"]);
+  assert.deepEqual(chips.map((chip) => chip.label), ["战争", "中国", "英国"]);
+});
+
+test("aggregateOptionChips returns [] when no visible option column holds a value", () => {
+  assert.deepEqual(aggregateOptionChips({ extra: { place: "x" } }, [{ key: "place", type: "text", visible: true }]), []);
+  assert.deepEqual(aggregateOptionChips({ extra: {} }, [SELECT_COL]), []);
 });
 
 test("buildBoardGroups buckets by option order, chronological within a column", () => {

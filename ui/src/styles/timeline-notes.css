@@ -4878,11 +4878,11 @@ button.prop-row-type.open .timeline-lucide-icon {
 .lv-row {
   position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 33px;
-  padding: 6px;
+  min-height: 34px;
+  padding: 6px 8px;
   text-align: left;
   border-radius: 7px;
   cursor: pointer;
@@ -4902,9 +4902,18 @@ button.prop-row-type.open .timeline-lucide-icon {
   background: var(--accent-soft);
 }
 
-.lv-name {
+.lv-lead {
   flex: none;
-  max-width: 52%;
+  max-width: 44%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lv-name {
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4915,6 +4924,38 @@ button.prop-row-type.open .timeline-lucide-icon {
 
 .lv-row.active .lv-name {
   color: var(--accent);
+}
+
+.lv-tags {
+  flex: none;
+  max-width: 32%;
+}
+
+.lv-del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--motion-base) var(--ease), background var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
+}
+
+.lv-del .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+}
+
+.lv-row:hover .lv-del {
+  opacity: 1;
+}
+
+.lv-del:hover {
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 .lv-sum {
@@ -5122,6 +5163,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 .gl-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -5188,6 +5230,71 @@ button.prop-row-type.open .timeline-lucide-icon {
 .gl-card:hover .c-star,
 .gl-card.active .c-star {
   opacity: 1;
+}
+
+/* Thumb overlays: a follow-theme mindmap badge or (in select mode) a checkbox at
+   top-left; both sit on a surface chip so they read over any photo. */
+.gl-badge,
+.gl-check {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 1;
+}
+
+.gl-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-pop);
+}
+
+.gl-badge .timeline-lucide-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.gl-check {
+  background: var(--bg-surface);
+}
+
+.gl-tags {
+  gap: 8px;
+}
+
+.gl-del {
+  position: absolute;
+  bottom: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--motion-base) var(--ease), color var(--motion-base) var(--ease);
+}
+
+.gl-del .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+}
+
+.gl-card:hover .gl-del {
+  opacity: 1;
+}
+
+.gl-del:hover {
+  color: var(--text);
 }
 
 .view-outline {
