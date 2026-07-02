@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildX6SeedSnapshot,
   computeMindmapRoute,
+  markdownToTree,
   resolveReparentTarget,
   treeToX6Cells,
   x6CellsToMarkdown,
@@ -53,6 +54,69 @@ test("x6CellsToMarkdown emits siblings in visual top-to-bottom order", () => {
   ];
 
   assert.equal(x6CellsToMarkdown(cells), "# 中心主题\n- 较高分支\n- 较低分支\n");
+});
+
+test("x6CellsToMarkdown encodes bold, hyperlink, and tags (clean route)", () => {
+  const cells = [
+    { id: "root", x: 80, y: 80, width: 128, height: 38, data: { text: "中心主题", level: 0, fontWeight: "bold" } },
+    { id: "link", x: 260, y: 80, width: 108, height: 32, data: { text: "官网", level: 1, hyperlink: "https://ex.com" } },
+    { id: "tagged", x: 260, y: 160, width: 108, height: 32, data: { text: "要点", level: 1, tag: ["重点", "待办"] } },
+    { id: "e-root-link", source: { cell: "root" }, target: { cell: "link" } },
+    { id: "e-root-tagged", source: { cell: "root" }, target: { cell: "tagged" } },
+  ];
+
+  assert.equal(x6CellsToMarkdown(cells), "# **中心主题**\n- [官网](https://ex.com)\n- 要点 #重点 #待办\n");
+});
+
+test("markdownToTree decodes bold, hyperlink, and trailing tags into node data", () => {
+  const tree = markdownToTree("# **中心主题**\n- [官网](https://ex.com)\n- 要点 #重点 #待办\n");
+
+  assert.equal(tree.data.text, "中心主题");
+  assert.equal(tree.data.fontWeight, "bold");
+  assert.equal(tree.children[0].data.text, "官网");
+  assert.equal(tree.children[0].data.hyperlink, "https://ex.com");
+  assert.equal(tree.children[1].data.text, "要点");
+  assert.deepEqual(tree.children[1].data.tag, ["重点", "待办"]);
+});
+
+test("markdown node emphasis survives an export -> import -> export round trip", () => {
+  const md = "# **根**\n- [链接](https://a.b)\n- 带标签 #x #y\n";
+  const { cells } = treeToX6Cells(markdownToTree(md));
+
+  assert.equal(x6CellsToMarkdown(cells), md);
+});
+
+test("markdownToTree keeps partial inline markup as literal text (node bold is all-or-nothing)", () => {
+  const tree = markdownToTree("# 根\n- 一半 **粗** 字\n");
+
+  assert.equal(tree.children[0].data.text, "一半 **粗** 字");
+  assert.equal(tree.children[0].data.fontWeight, undefined);
+});
+
+test("a tag-only node keeps itself and its subtree through a markdown round trip", () => {
+  const md = "# 根\n- #孤儿\n  - 子节点\n";
+  const tree = markdownToTree(md);
+
+  assert.equal(tree.children[0].data.text, "");
+  assert.deepEqual(tree.children[0].data.tag, ["孤儿"]);
+  assert.equal(tree.children[0].children[0].data.text, "子节点");
+
+  const { cells } = treeToX6Cells(tree);
+  assert.equal(x6CellsToMarkdown(cells), md);
+});
+
+test("markdownToTree imports a document whose root heading is tag-only", () => {
+  const tree = markdownToTree("# #只有标签\n- 子\n");
+
+  assert.notEqual(tree, null);
+  assert.deepEqual(tree.data.tag, ["只有标签"]);
+  assert.equal(tree.children[0].data.text, "子");
+});
+
+test("x6CellsToMarkdown strips inner # from tags so they re-parse as tags", () => {
+  const cells = [{ id: "r", x: 0, y: 0, width: 128, height: 38, data: { text: "标题", level: 0, tag: ["a#b"] } }];
+
+  assert.equal(x6CellsToMarkdown(cells), "# 标题 #ab\n");
 });
 
 test("buildX6SeedSnapshot writes the phase-2 default edge routing and style", () => {

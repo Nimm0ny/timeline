@@ -773,6 +773,59 @@ export function resolveReparentTarget(movedId, nodes) {
   return "";
 }
 
+// --- Markdown style bridge (clean route) ---
+// Whole-node emphasis maps to native markdown so a mindmap survives an
+// export -> import round-trip: bold <-> **text**, hyperlink <-> [text](url),
+// tags <-> trailing #tag. Colour and font-size are presentation with no clean
+// markdown form, so they live only in the JSON snapshot — a .md export drops
+// them by design (JSON export is the lossless path).
+function isBoldWeight(weight) {
+  const value = String(weight ?? "").toLowerCase();
+  return value === "bold" || Number(value) >= 600;
+}
+
+export function nodeTextToMarkdown(data = {}) {
+  let label = extractText(data?.text || "");
+  const url = String(data?.hyperlink || "").trim();
+  if (label && url) label = `[${label}](${url})`;
+  if (label && isBoldWeight(data?.fontWeight)) label = `**${label}**`;
+  const tags = (Array.isArray(data?.tag) ? data.tag : [])
+    // Strip inner # so a tag survives the decode class /#([^\s#]+)/ on re-import.
+    .map((tag) => String(tag || "").trim().replace(/\s+/g, "-").replace(/#/g, ""))
+    .filter(Boolean);
+  // A tag-only node keeps a meaningful label (#tag) so neither it nor its subtree
+  // is dropped by the "empty label" guard in x6CellsToMarkdown.
+  if (tags.length) label = `${label ? `${label} ` : ""}${tags.map((tag) => `#${tag}`).join(" ")}`;
+  return label.trim();
+}
+
+export function markdownToNodeData(raw) {
+  let text = String(raw || "").trim();
+  const data = {};
+  const tags = [];
+  let match;
+  // Peel trailing #tags (Obsidian-style), right to left, so order is preserved.
+  while ((match = text.match(/(?:^|\s)#([^\s#]+)$/))) {
+    tags.unshift(match[1]);
+    text = text.slice(0, match.index).trimEnd();
+  }
+  if (tags.length) data.tag = tags;
+  // Whole-node bold (nodes carry one font-weight, so only a fully-wrapped label counts).
+  const bold = text.match(/^\*\*([\s\S]+)\*\*$/) || text.match(/^__([\s\S]+)__$/);
+  if (bold) {
+    data.fontWeight = "bold";
+    text = bold[1].trim();
+  }
+  // Whole-node hyperlink.
+  const link = text.match(/^\[([\s\S]+?)\]\(([^)]+)\)$/);
+  if (link) {
+    data.hyperlink = link[2].trim();
+    text = link[1].trim();
+  }
+  data.text = text;
+  return data;
+}
+
 export function markdownToTree(text) {
   const lines = String(text || "").split("\n");
   if (!lines.length) return null;
@@ -795,17 +848,20 @@ export function markdownToTree(text) {
     }
 
     if (!root.data.text && depth === 0) {
-      root.data.text = nodeText;
+      Object.assign(root.data, markdownToNodeData(nodeText));
       continue;
     }
 
-    const node = { data: { text: nodeText }, children: [] };
+    const node = { data: markdownToNodeData(nodeText), children: [] };
     while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop();
     stack[stack.length - 1].node.children.push(node);
     stack.push({ node, depth });
   }
 
-  return root.data.text ? root : null;
+  // Keep the tree when the root carries text, children, or (tag-only heading) tags —
+  // gating on root text alone would drop a whole document under a tag-only heading.
+  const hasContent = Boolean(root.data.text) || root.children.length > 0 || (Array.isArray(root.data.tag) && root.data.tag.length > 0);
+  return hasContent ? root : null;
 }
 
 export function x6CellsToMarkdown(cells) {
@@ -814,9 +870,9 @@ export function x6CellsToMarkdown(cells) {
 
   const lines = [];
   const walk = (node, depth) => {
-    const text = extractText(node?.data?.text || "");
-    if (!text) return;
-    lines.push(depth === 0 ? `# ${text}` : `${"  ".repeat(depth - 1)}- ${text}`);
+    const label = nodeTextToMarkdown(node?.data);
+    if (!label) return;
+    lines.push(depth === 0 ? `# ${label}` : `${"  ".repeat(depth - 1)}- ${label}`);
     (node.children || []).forEach((child) => walk(child, depth + 1));
   };
 
