@@ -5479,6 +5479,26 @@ button.prop-row-type.open .timeline-lucide-icon {
   transform: translateY(-1px);
 }
 
+/* All-hits search highlight: a translucent highlighter over each match (10% accent
+   keeps node text legible) plus an accent ring held off the node by a thin
+   --bg-surface moat, so it reads even on the solid-accent root or a picked canvas
+   colour. The focused match gets a stronger fill + an outer soft halo. Below the
+   add/collapse controls (z 8) and pointer-transparent so it never blocks the node. */
+.mm-search-hl {
+  position: absolute;
+  z-index: 8;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+  pointer-events: none;
+  transition: box-shadow var(--motion-base) var(--ease);
+}
+
+.mm-search-hl.current {
+  background: var(--accent-soft-2);
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent), 0 0 0 7px var(--accent-soft);
+}
+
 /* W5 mindmap toolbar: font/background/direction controls over the canvas. The row
    sits above the canvas (z 5) so its dropdowns clear the SVG; a full-bleed scrim
    (z 3) covers the canvas for click-away while leaving the toolbar interactive. */

@@ -71,6 +71,7 @@ let savedJson = null;
 let suppressSaves = false;
 const sideControls = ref([]);
 const collapseToggles = ref([]);
+const searchHighlights = ref([]);
 
 function seedTitle() {
   return props.title?.trim() || "中心主题";
@@ -186,6 +187,7 @@ function controlSides(node) {
 
 function updateSideControls() {
   updateCollapseToggles();
+  updateSearchHighlights();
   const g = graph.value;
   const host = editorRef.value;
   if (!g || !host || props.readOnly || editingNodeId) {
@@ -1002,6 +1004,39 @@ async function exportFile(type, name) {
 // { count, index } for its find bar.
 let searchState = { query: "", matchIds: [], index: 0 };
 
+// All-hits highlight overlay. Attr-based tinting would be clobbered by
+// applyColorsToGraph (theme sync), so every match is drawn as a DOM box over the
+// canvas using the same localToPage + host-relative mapping as the add/collapse
+// controls. Recomputed via updateSideControls on pan/zoom/selection/drag; matches
+// inside a still-collapsed branch are hidden (skipped), and the focused match gets
+// `.current`. Positioned below the controls (z 8) so it never blocks interaction.
+function updateSearchHighlights() {
+  const g = graph.value;
+  const host = editorRef.value;
+  if (!g || !host || !searchState.matchIds.length) {
+    if (searchHighlights.value.length) searchHighlights.value = [];
+    return;
+  }
+  const hostRect = host.getBoundingClientRect();
+  const boxes = [];
+  searchState.matchIds.forEach((id, order) => {
+    const node = g.getCellById(id);
+    if (!node?.isNode?.() || !node.isVisible?.()) return;
+    const position = node.getPosition();
+    const size = node.getSize();
+    const rect = g.localToPage({ x: position.x, y: position.y, width: size.width, height: size.height });
+    boxes.push({
+      key: `hl:${id}`,
+      x: rect.x - hostRect.left,
+      y: rect.y - hostRect.top,
+      w: rect.width,
+      h: rect.height,
+      current: order === searchState.index,
+    });
+  });
+  searchHighlights.value = boxes;
+}
+
 function expandAncestors(nodeId) {
   const g = graph.value;
   if (!g) return false;
@@ -1062,6 +1097,7 @@ function searchNodes(query) {
     });
   searchState.matchIds = matches.map((node) => node.id);
   if (searchState.matchIds.length) focusSearchMatch();
+  updateSearchHighlights();
   return { count: searchState.matchIds.length, index: searchState.matchIds.length ? 1 : 0 };
 }
 
@@ -1070,11 +1106,13 @@ function stepMatch(direction) {
   if (!count) return { count: 0, index: 0 };
   searchState.index = (searchState.index + (direction < 0 ? -1 : 1) + count) % count;
   focusSearchMatch();
+  updateSearchHighlights();
   return { count, index: searchState.index + 1 };
 }
 
 function clearSearch() {
   searchState = { query: "", matchIds: [], index: 0 };
+  searchHighlights.value = [];
 }
 
 defineExpose({
@@ -1261,6 +1299,14 @@ onBeforeUnmount(() => {
 <template>
   <div ref="editorRef" class="mm-editor">
     <div ref="containerRef" class="mm-canvas"></div>
+    <div
+      v-for="hl in searchHighlights"
+      :key="hl.key"
+      class="mm-search-hl"
+      :class="{ current: hl.current }"
+      :style="{ left: `${hl.x}px`, top: `${hl.y}px`, width: `${hl.w}px`, height: `${hl.h}px` }"
+      aria-hidden="true"
+    ></div>
     <textarea
       ref="editOverlayRef"
       class="mm-edit-overlay"
