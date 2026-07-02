@@ -420,6 +420,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       :read-only="Boolean(note.deletedAt)"
       @ready="onReady"
       @active="activeCount = $event"
+      @search="searchInfo = $event"
       @update="emit('save', $event)"
     />
   </section>

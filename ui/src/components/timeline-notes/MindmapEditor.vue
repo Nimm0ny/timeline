@@ -35,7 +35,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["update", "ready", "active"]);
+const emit = defineEmits(["update", "ready", "active", "search"]);
 
 const themeStore = useThemeStore();
 
@@ -470,6 +470,7 @@ function commitEdit() {
     scheduleSave();
   }
   cancelEdit();
+  refreshSearch();
 }
 
 function childPosition(parentNode, childSize, side = "right") {
@@ -629,6 +630,7 @@ function addChild(side = "", targetNodeId = "") {
   applyCollapseVisibility();
   refreshEdgeGeometry();
   scheduleSave();
+  refreshSearch();
   requestAnimationFrame(() => showEditOverlay(childNode));
 }
 
@@ -658,6 +660,7 @@ function removeSelected() {
   emit("active", 0);
   currentLayout = FREE_LAYOUT_KEY;
   scheduleSave();
+  refreshSearch();
 }
 
 // Normalised snapshot of the live graph for reparent hit-testing: each node with its
@@ -718,6 +721,7 @@ function reparentNode(movedId, targetId) {
   graphSelection.value?.clean();
   graphSelection.value?.select(moved);
   scheduleSave();
+  refreshSearch();
 }
 
 function undo() {
@@ -1082,23 +1086,43 @@ function focusSearchMatch() {
   }
 }
 
-function searchNodes(query) {
+function computeSearchMatchIds() {
   const g = graph.value;
-  const q = String(query || "").trim().toLowerCase();
-  searchState = { query: q, matchIds: [], index: 0 };
-  if (!g || !q) return { count: 0, index: 0 };
-  const matches = g
+  if (!g || !searchState.query) return [];
+  return g
     .getNodes()
-    .filter((node) => node.isNode?.() && String(node.getData()?.text || "").toLowerCase().includes(q))
+    .filter((node) => node.isNode?.() && String(node.getData()?.text || "").toLowerCase().includes(searchState.query))
     .sort((a, b) => {
       const pa = a.getPosition();
       const pb = b.getPosition();
       return pa.y - pb.y || pa.x - pb.x;
-    });
-  searchState.matchIds = matches.map((node) => node.id);
-  if (searchState.matchIds.length) focusSearchMatch();
+    })
+    .map((node) => node.id);
+}
+
+function searchNodes(query) {
+  const q = String(query || "").trim().toLowerCase();
+  searchState = { query: q, matchIds: [], index: 0 };
+  if (q) {
+    searchState.matchIds = computeSearchMatchIds();
+    if (searchState.matchIds.length) focusSearchMatch();
+  }
   updateSearchHighlights();
   return { count: searchState.matchIds.length, index: searchState.matchIds.length ? 1 : 0 };
+}
+
+// A text/structure edit can change what the active query matches. Recompute the
+// match set (clamping the current index) and refresh the overlay + report the new
+// count to the toolbar, WITHOUT re-centering — re-centering mid-edit would yank the
+// canvas. No-op when no search is active.
+function refreshSearch() {
+  if (!searchState.query) return;
+  searchState.matchIds = computeSearchMatchIds();
+  if (searchState.index >= searchState.matchIds.length) {
+    searchState.index = Math.max(0, searchState.matchIds.length - 1);
+  }
+  updateSearchHighlights();
+  emit("search", { count: searchState.matchIds.length, index: searchState.matchIds.length ? searchState.index + 1 : 0 });
 }
 
 function stepMatch(direction) {
