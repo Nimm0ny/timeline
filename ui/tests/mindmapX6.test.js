@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildX6SeedSnapshot,
   computeMindmapRoute,
+  resolveReparentTarget,
   treeToX6Cells,
   x6CellsToMarkdown,
   x6SnapshotToTree,
@@ -73,4 +74,46 @@ test("computeMindmapRoute avoids a blocking node on the direct horizontal path",
 
   assert.equal(route.vertices.length >= 2, true);
   assert.equal(route.vertices.some((point) => point.y !== 100), true);
+});
+
+test("resolveReparentTarget attaches a dragged node to the box it was dropped on", () => {
+  const nodes = [
+    { id: "root", x: 0, y: 0, w: 100, h: 40, parentId: "" },
+    { id: "A", x: 210, y: 105, w: 80, h: 30, parentId: "root" }, // centre (250,120) sits inside B
+    { id: "B", x: 200, y: 100, w: 100, h: 40, parentId: "root" },
+  ];
+  assert.equal(resolveReparentTarget("A", nodes), "B");
+});
+
+test("resolveReparentTarget never reparents the root node", () => {
+  const nodes = [
+    { id: "root", x: 200, y: 100, w: 100, h: 40, parentId: "" },
+    { id: "A", x: 190, y: 95, w: 120, h: 60, parentId: "root" },
+  ];
+  assert.equal(resolveReparentTarget("root", nodes), "");
+});
+
+test("resolveReparentTarget refuses a drop onto the moved node's own descendant (no cycle)", () => {
+  const nodes = [
+    { id: "root", x: 0, y: 0, w: 100, h: 40, parentId: "" },
+    { id: "B", x: 205, y: 105, w: 80, h: 30, parentId: "root" }, // centre (245,120) sits inside its child C
+    { id: "C", x: 200, y: 100, w: 100, h: 40, parentId: "B" },
+  ];
+  assert.equal(resolveReparentTarget("B", nodes), "");
+});
+
+test("resolveReparentTarget treats a drop on the current parent as a no-op", () => {
+  const nodes = [
+    { id: "root", x: 200, y: 100, w: 120, h: 60, parentId: "" },
+    { id: "A", x: 240, y: 120, w: 40, h: 20, parentId: "root" }, // centre inside root, already its parent
+  ];
+  assert.equal(resolveReparentTarget("A", nodes), "");
+});
+
+test("resolveReparentTarget returns empty when dropped on empty space", () => {
+  const nodes = [
+    { id: "root", x: 0, y: 0, w: 100, h: 40, parentId: "" },
+    { id: "A", x: 500, y: 500, w: 80, h: 30, parentId: "root" },
+  ];
+  assert.equal(resolveReparentTarget("A", nodes), "");
 });

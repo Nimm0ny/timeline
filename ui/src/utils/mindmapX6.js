@@ -630,10 +630,12 @@ export function applyColorsToGraph(graph, colors) {
 function horizontalLayout(rootId, cells, options = {}) {
   const { hGap = 72, vGap = 12 } = options;
   const { nodeMap, childIds } = x6CellGraph(cells);
+  // A collapsed node is laid out as a leaf so its hidden subtree takes no space.
+  const kidsOf = (id) => (nodeMap.get(id)?.data?.collapsed ? [] : childIds.get(id) || []);
   const span = (id) => {
     const node = nodeMap.get(id);
     if (!node) return 0;
-    const kids = childIds.get(id) || [];
+    const kids = kidsOf(id);
     const selfSpan = (node.height || 30) + vGap;
     if (!kids.length) return selfSpan;
     return Math.max(selfSpan, kids.reduce((total, childId) => total + span(childId), 0));
@@ -646,7 +648,7 @@ function horizontalLayout(rootId, cells, options = {}) {
     const width = node.width || 100;
     const height = node.height || 30;
     positions[id] = { x, y: centerY - height / 2 };
-    const kids = childIds.get(id) || [];
+    const kids = kidsOf(id);
     if (!kids.length) return;
     const totalSpan = kids.reduce((total, childId) => total + span(childId), 0);
     let cursorY = centerY - totalSpan / 2;
@@ -677,10 +679,12 @@ function mirrorLayout(positions, nodeMap) {
 function verticalLayout(rootId, cells, options = {}) {
   const { hGap = 20, vGap = 46 } = options;
   const { nodeMap, childIds } = x6CellGraph(cells);
+  // A collapsed node is laid out as a leaf so its hidden subtree takes no space.
+  const kidsOf = (id) => (nodeMap.get(id)?.data?.collapsed ? [] : childIds.get(id) || []);
   const span = (id) => {
     const node = nodeMap.get(id);
     if (!node) return 0;
-    const kids = childIds.get(id) || [];
+    const kids = kidsOf(id);
     const selfSpan = (node.width || 100) + hGap;
     if (!kids.length) return selfSpan;
     return Math.max(selfSpan, kids.reduce((total, childId) => total + span(childId), 0));
@@ -693,7 +697,7 @@ function verticalLayout(rootId, cells, options = {}) {
     const width = node.width || 100;
     const height = node.height || 30;
     positions[id] = { x: centerX - width / 2, y };
-    const kids = childIds.get(id) || [];
+    const kids = kidsOf(id);
     if (!kids.length) return;
     const totalSpan = kids.reduce((total, childId) => total + span(childId), 0);
     let cursorX = centerX - totalSpan / 2;
@@ -731,6 +735,42 @@ export function relayout(graph, direction = "LR") {
     if (pos) node.setPosition(pos.x, pos.y);
   });
   graph.stopBatch("layout");
+}
+
+// Decide whether a just-dropped node should become a child of another node. `nodes`
+// is a normalised list [{ id, x, y, w, h, parentId }] built from the live graph.
+// Returns the new parent's id, or "" for a plain move. Guards: the root (no parentId)
+// never reparents; a drop on the current parent is a no-op; the moved node's own
+// subtree (itself + descendants) is off-limits so a node can't be parented into its
+// own branch (cycle); and the moved node's CENTRE must fall inside the target's box.
+export function resolveReparentTarget(movedId, nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const moved = list.find((node) => node.id === movedId);
+  if (!moved || !moved.parentId) return "";
+  const childrenOf = new Map();
+  list.forEach((node) => {
+    if (!node.parentId) return;
+    if (!childrenOf.has(node.parentId)) childrenOf.set(node.parentId, []);
+    childrenOf.get(node.parentId).push(node.id);
+  });
+  const forbidden = new Set([movedId]);
+  const stack = [movedId];
+  while (stack.length) {
+    const id = stack.pop();
+    (childrenOf.get(id) || []).forEach((child) => {
+      if (!forbidden.has(child)) {
+        forbidden.add(child);
+        stack.push(child);
+      }
+    });
+  }
+  const cx = moved.x + moved.w / 2;
+  const cy = moved.y + moved.h / 2;
+  for (const node of list) {
+    if (forbidden.has(node.id) || node.id === moved.parentId) continue;
+    if (cx >= node.x && cx <= node.x + node.w && cy >= node.y && cy <= node.y + node.h) return node.id;
+  }
+  return "";
 }
 
 export function markdownToTree(text) {

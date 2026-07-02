@@ -20,11 +20,13 @@ import {
   NODE_SIZES,
   normalizeEdgeStyle,
   relayout,
+  resolveReparentTarget,
   treeToX6Cells,
   X6_MINDMAP_FORMAT,
   x6CellsToMarkdown,
 } from "@/utils/mindmapX6.js";
 import { mindmapRootData } from "@/utils/timelineNotes.js";
+import { useThemeStore } from "@/composables/useTheme.js";
 
 const props = defineProps({
   noteId: { type: [Number, String], default: null },
@@ -34,6 +36,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["update", "ready", "active"]);
+
+const themeStore = useThemeStore();
 
 const FREE_LAYOUT_KEY = "free";
 const INTERACTING_OPTIONS = {
@@ -66,6 +70,7 @@ let saveTimer = null;
 let savedJson = null;
 let suppressSaves = false;
 const sideControls = ref([]);
+const collapseToggles = ref([]);
 
 function seedTitle() {
   return props.title?.trim() || "中心主题";
@@ -180,6 +185,7 @@ function controlSides(node) {
 }
 
 function updateSideControls() {
+  updateCollapseToggles();
   const g = graph.value;
   const host = editorRef.value;
   if (!g || !host || props.readOnly || editingNodeId) {
@@ -198,13 +204,74 @@ function updateSideControls() {
   const hostRect = host.getBoundingClientRect();
   const cx = rect.x - hostRect.left + rect.width / 2;
   const cy = rect.y - hostRect.top + rect.height / 2;
-  const inset = 12;
+  // On a side that already branches to children, push the add-child control clear
+  // of the collapse toggle that straddles that border.
+  const childSides = new Set(
+    (g.getOutgoingEdges(node) || [])
+      .filter((edge) => edge.getData()?._isMindEdge)
+      .map((edge) => edge.getData()?.sourceSide || edge.getData()?.preferredSourceSide)
+      .filter(Boolean)
+  );
+  const insetFor = (side) => (childSides.has(side) ? 34 : 12);
   sideControls.value = controlSides(node).map((side) => {
+    const inset = insetFor(side);
     if (side === "top") return { key: `${node.id}:top`, nodeId: node.id, side, x: cx, y: rect.y - hostRect.top - inset };
     if (side === "bottom") return { key: `${node.id}:bottom`, nodeId: node.id, side, x: cx, y: rect.y - hostRect.top + rect.height + inset };
     if (side === "left") return { key: `${node.id}:left`, nodeId: node.id, side, x: rect.x - hostRect.left - inset, y: cy };
     return { key: `${node.id}:right`, nodeId: node.id, side, x: rect.x - hostRect.left + rect.width + inset, y: cy };
   });
+}
+
+// Persistent collapse/expand knob at each parent node's branch origin (the dominant
+// child side). Shows a "−" when expanded; the hidden-child count when collapsed, so
+// a folded branch is never invisible. Independent of hover (unlike the add controls).
+function dominantChildSide(childEdges) {
+  const tally = {};
+  childEdges.forEach((edge) => {
+    const side = edge.getData()?.sourceSide || edge.getData()?.preferredSourceSide;
+    if (side) tally[side] = (tally[side] || 0) + 1;
+  });
+  let best = "";
+  let bestCount = 0;
+  for (const [side, count] of Object.entries(tally)) {
+    if (count > bestCount) {
+      best = side;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function updateCollapseToggles() {
+  const g = graph.value;
+  const host = editorRef.value;
+  if (!g || !host || props.readOnly || editingNodeId) {
+    collapseToggles.value = [];
+    return;
+  }
+  const hostRect = host.getBoundingClientRect();
+  const out = 11;
+  const toggles = [];
+  g.getNodes().forEach((node) => {
+    if (!node.isNode?.() || !node.isVisible?.()) return;
+    const childEdges = (g.getOutgoingEdges(node) || []).filter((edge) => edge.getData()?._isMindEdge);
+    if (!childEdges.length) return;
+    const data = node.getData() || {};
+    const side = dominantChildSide(childEdges) || defaultChildSide(node);
+    const position = node.getPosition();
+    const size = node.getSize();
+    const rect = g.localToPage({ x: position.x, y: position.y, width: size.width, height: size.height });
+    const left = rect.x - hostRect.left;
+    const top = rect.y - hostRect.top;
+    let x = left + rect.width / 2;
+    let y = top + rect.height / 2;
+    if (side === "left") x = left - out;
+    else if (side === "top") y = top - out;
+    else if (side === "bottom") y = top + rect.height + out;
+    else x = left + rect.width + out;
+    toggles.push({ key: `c:${node.id}`, nodeId: node.id, x, y, collapsed: data.collapsed === true, count: childEdges.length });
+  });
+  collapseToggles.value = toggles;
 }
 
 function refreshEdgeGeometry() {
@@ -230,6 +297,7 @@ function refreshEdgeGeometry() {
     g.startBatch("mindmap-edges");
     try {
       edges.forEach((edge) => {
+        if (!edge.isVisible()) return;
         const sourceNode = edge.getSourceCell();
         const targetNode = edge.getTargetCell();
         if (!sourceNode?.isNode?.() || !targetNode?.isNode?.()) return;
@@ -454,6 +522,67 @@ function collectSubtreeNodes(rootNode) {
   return ordered;
 }
 
+// Recompute node/edge visibility from the persisted `data.collapsed` flags: a node
+// is hidden when ANY ancestor is collapsed (so nested folds compose correctly), and
+// an edge is hidden when its child endpoint is hidden. History is suppressed so the
+// visibility churn never lands on the undo stack. Idempotent — safe to call after any
+// structural change or on load.
+function applyCollapseVisibility() {
+  const g = graph.value;
+  if (!g) return;
+  const nodes = g.getNodes().filter((node) => node.isNode?.());
+  const edges = g.getEdges().filter((edge) => edge.getData()?._isMindEdge);
+  const childrenOf = new Map();
+  const hasParent = new Set();
+  edges.forEach((edge) => {
+    const source = edge.getSourceCell?.()?.id;
+    const target = edge.getTargetCell?.()?.id;
+    if (!source || !target) return;
+    if (!childrenOf.has(source)) childrenOf.set(source, []);
+    childrenOf.get(source).push(target);
+    hasParent.add(target);
+  });
+  const hidden = new Set();
+  const seen = new Set();
+  const visit = (id, underCollapsed) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    if (underCollapsed) hidden.add(id);
+    const collapsed = g.getCellById(id)?.getData?.()?.collapsed === true;
+    (childrenOf.get(id) || []).forEach((childId) => visit(childId, underCollapsed || collapsed));
+  };
+  nodes.filter((node) => !hasParent.has(node.id)).forEach((root) => visit(root.id, false));
+
+  withHistorySuppressed(() => {
+    g.startBatch("collapse-visibility");
+    try {
+      nodes.forEach((node) => {
+        const hide = hidden.has(node.id);
+        if (node.isVisible() === hide) node.setVisible(!hide);
+      });
+      edges.forEach((edge) => {
+        const target = edge.getTargetCell?.()?.id;
+        const hide = target ? hidden.has(target) : false;
+        if (edge.isVisible() === hide) edge.setVisible(!hide);
+      });
+    } finally {
+      g.stopBatch("collapse-visibility");
+    }
+  });
+}
+
+function toggleCollapse(nodeId) {
+  const g = graph.value;
+  if (!g || props.readOnly) return;
+  const node = g.getCellById(nodeId);
+  if (!node?.isNode?.()) return;
+  const data = node.getData() || {};
+  withHistorySuppressed(() => node.setData({ ...data, collapsed: !(data.collapsed === true) }));
+  applyCollapseVisibility();
+  refreshEdgeGeometry();
+  scheduleSave();
+}
+
 function defaultChildSide(parent) {
   if (currentLayout === "logicalStructureLeft") return "left";
   if (currentLayout === "organizationStructure") return "bottom";
@@ -465,6 +594,9 @@ function addChild(side = "", targetNodeId = "") {
   const explicit = targetNodeId ? g?.getCellById(targetNodeId) : null;
   const parent = explicit?.isNode?.() ? explicit : selectedNodes()[0];
   if (!g || !parent?.isNode?.() || props.readOnly) return;
+  // Adding under a folded node auto-expands it so the new child is actually visible.
+  const parentState = parent.getData() || {};
+  if (parentState.collapsed) withHistorySuppressed(() => parent.setData({ ...parentState, collapsed: false }));
   const sourceSide = side || defaultChildSide(parent);
   const parentData = parent.getData() || {};
   const childLevel = (parentData.level ?? 0) + 1;
@@ -492,6 +624,7 @@ function addChild(side = "", targetNodeId = "") {
   graphSelection.value?.select(childNode);
   currentLayout = FREE_LAYOUT_KEY;
   currentEdgeRouting = edgeRoutingForStyle(currentEdgeStyle);
+  applyCollapseVisibility();
   refreshEdgeGeometry();
   scheduleSave();
   requestAnimationFrame(() => showEditOverlay(childNode));
@@ -522,6 +655,66 @@ function removeSelected() {
   cancelEdit();
   emit("active", 0);
   currentLayout = FREE_LAYOUT_KEY;
+  scheduleSave();
+}
+
+// Normalised snapshot of the live graph for reparent hit-testing: each node with its
+// on-canvas box and its current parent (from the incoming mind edge).
+function reparentNodeList() {
+  const g = graph.value;
+  if (!g) return [];
+  const parentOf = new Map();
+  g.getEdges().forEach((edge) => {
+    if (!edge.getData()?._isMindEdge) return;
+    const source = edge.getSourceCell?.()?.id;
+    const target = edge.getTargetCell?.()?.id;
+    if (source && target) parentOf.set(target, source);
+  });
+  return g
+    .getNodes()
+    .filter((node) => node.isNode?.())
+    .map((node) => {
+      const position = node.getPosition();
+      const size = node.getSize();
+      return { id: node.id, x: position.x, y: position.y, w: size.width, h: size.height, parentId: parentOf.get(node.id) || "" };
+    });
+}
+
+// Rewire a dropped node under a new parent: drop its old incoming edge, add one from
+// the target, re-level + re-size + recolor its whole subtree to the new depth, and
+// reflow. The node keeps the position it was dropped at (free layout).
+function reparentNode(movedId, targetId) {
+  const g = graph.value;
+  if (!g) return;
+  const moved = g.getCellById(movedId);
+  const target = g.getCellById(targetId);
+  if (!moved?.isNode?.() || !target?.isNode?.()) return;
+  const subtree = collectSubtreeNodes(moved);
+  const newLevel = (target.getData()?.level ?? 0) + 1;
+  const delta = newLevel - (moved.getData()?.level ?? newLevel);
+  const sourceSide = defaultChildSide(target);
+  const targetSide = sourceSide === "left" ? "right" : sourceSide === "right" ? "left" : sourceSide === "top" ? "bottom" : "top";
+
+  g.startBatch("reparent");
+  (g.getIncomingEdges(moved) || []).forEach((edge) => {
+    if (edge.getData()?._isMindEdge) g.removeEdge(edge);
+  });
+  g.addEdge(makeEdge(targetId, movedId, readColors(currentBackground), { edgeStyle: currentEdgeStyle, sourceSide, targetSide }));
+  subtree.forEach((node) => {
+    const data = node.getData() || {};
+    const level = Math.max(0, (data.level ?? 0) + delta);
+    node.setData({ ...data, level });
+    const size = sizeFor(level);
+    node.resize(size.w, size.h);
+  });
+  g.stopBatch("reparent");
+
+  applyColorsToGraph(g, readColors(currentBackground));
+  currentLayout = FREE_LAYOUT_KEY;
+  applyCollapseVisibility();
+  refreshEdgeGeometry();
+  graphSelection.value?.clean();
+  graphSelection.value?.select(moved);
   scheduleSave();
 }
 
@@ -673,6 +866,7 @@ function applyGraphState(payload, persist) {
   else g.clearBackground();
   applyColorsToGraph(g, readColors(currentBackground));
   g.getNodes().forEach(ensureNodePorts);
+  applyCollapseVisibility();
   refreshEdgeGeometry();
   resizeGraph();
 
@@ -801,7 +995,92 @@ async function exportFile(type, name) {
   return null;
 }
 
+// ---- Node search ----
+// Text find across nodes: cycle matches top-to-bottom, centering + selecting each,
+// auto-expanding any collapsed ancestors so a buried match becomes visible (reuses
+// the collapse machinery). State is internal; the toolbar drives it and reads back
+// { count, index } for its find bar.
+let searchState = { query: "", matchIds: [], index: 0 };
+
+function expandAncestors(nodeId) {
+  const g = graph.value;
+  if (!g) return false;
+  const parentOf = new Map();
+  g.getEdges().forEach((edge) => {
+    if (!edge.getData()?._isMindEdge) return;
+    const source = edge.getSourceCell?.()?.id;
+    const target = edge.getTargetCell?.()?.id;
+    if (source && target) parentOf.set(target, source);
+  });
+  let changed = false;
+  const seen = new Set();
+  let cursor = parentOf.get(nodeId);
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const node = g.getCellById(cursor);
+    const data = node?.getData?.() || {};
+    if (data.collapsed) {
+      withHistorySuppressed(() => node.setData({ ...data, collapsed: false }));
+      changed = true;
+    }
+    cursor = parentOf.get(cursor);
+  }
+  return changed;
+}
+
+function focusSearchMatch() {
+  const g = graph.value;
+  if (!g || !searchState.matchIds.length) return;
+  const node = g.getCellById(searchState.matchIds[searchState.index]);
+  if (!node?.isNode?.()) return;
+  if (expandAncestors(node.id)) {
+    applyCollapseVisibility();
+    refreshEdgeGeometry();
+    scheduleSave();
+  }
+  graphSelection.value?.clean();
+  graphSelection.value?.select(node);
+  try {
+    g.centerCell(node);
+  } catch {
+    // Ignore centering failures (e.g. empty transform state).
+  }
+}
+
+function searchNodes(query) {
+  const g = graph.value;
+  const q = String(query || "").trim().toLowerCase();
+  searchState = { query: q, matchIds: [], index: 0 };
+  if (!g || !q) return { count: 0, index: 0 };
+  const matches = g
+    .getNodes()
+    .filter((node) => node.isNode?.() && String(node.getData()?.text || "").toLowerCase().includes(q))
+    .sort((a, b) => {
+      const pa = a.getPosition();
+      const pb = b.getPosition();
+      return pa.y - pb.y || pa.x - pb.x;
+    });
+  searchState.matchIds = matches.map((node) => node.id);
+  if (searchState.matchIds.length) focusSearchMatch();
+  return { count: searchState.matchIds.length, index: searchState.matchIds.length ? 1 : 0 };
+}
+
+function stepMatch(direction) {
+  const count = searchState.matchIds.length;
+  if (!count) return { count: 0, index: 0 };
+  searchState.index = (searchState.index + (direction < 0 ? -1 : 1) + count) % count;
+  focusSearchMatch();
+  return { count, index: searchState.index + 1 };
+}
+
+function clearSearch() {
+  searchState = { query: "", matchIds: [], index: 0 };
+}
+
 defineExpose({
+  searchNodes,
+  stepMatch,
+  clearSearch,
   addChild,
   undo,
   redo,
@@ -879,8 +1158,17 @@ onMounted(() => {
   applyGraphState(payloadFromStoredTree(props.tree), false);
   resizeGraph();
 
-  g.on("node:moved", () => {
+  g.on("node:moved", ({ node }) => {
     if (!applyingLayout) currentLayout = FREE_LAYOUT_KEY;
+    // Dropped a node onto another? Rewire it as that node's child (guards in
+    // resolveReparentTarget block root/self/descendant/current-parent).
+    if (!applyingLayout && !props.readOnly && node?.isNode?.()) {
+      const targetId = resolveReparentTarget(node.id, reparentNodeList());
+      if (targetId) {
+        reparentNode(node.id, targetId);
+        return;
+      }
+    }
     refreshEdgeGeometry();
     scheduleSave();
   });
@@ -941,6 +1229,20 @@ watch(
   }
 );
 
+// Live theme sync: the app re-derives its token set (light/dark, accent, contrast)
+// by reassigning the theme config; mirror that onto the canvas so node/edge colors
+// follow a runtime theme switch instead of staying stale until the next reload.
+// readColors() re-reads the fresh CSS vars; applyColorsToGraph preserves per-node
+// custom colors (data.color) and only re-derives the theme-driven defaults.
+watch(
+  () => themeStore.config,
+  () => {
+    const g = graph.value;
+    if (!g) return;
+    applyColorsToGraph(g, readColors(currentBackground));
+  }
+);
+
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
   if (resizeTimer) clearTimeout(resizeTimer);
@@ -980,7 +1282,21 @@ onBeforeUnmount(() => {
       @mousedown.prevent
       @click.stop="addChild(control.side, control.nodeId)"
     >
-      <TimelineLucideIcon name="plusSign" :stroke-width="1.8" />
+      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+    </button>
+    <button
+      v-for="toggle in collapseToggles"
+      :key="toggle.key"
+      type="button"
+      class="mm-node-collapse"
+      :class="{ collapsed: toggle.collapsed }"
+      :style="{ left: `${toggle.x}px`, top: `${toggle.y}px` }"
+      :title="toggle.collapsed ? `展开分支（${toggle.count}）` : '折叠分支'"
+      @mousedown.prevent
+      @click.stop="toggleCollapse(toggle.nodeId)"
+    >
+      <span v-if="toggle.collapsed" class="mm-collapse-count">{{ toggle.count }}</span>
+      <span v-else class="mm-collapse-glyph">−</span>
     </button>
     <div v-if="loading" class="mm-loading">正在加载思维导图…</div>
   </div>

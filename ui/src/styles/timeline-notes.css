@@ -5430,6 +5430,55 @@ button.prop-row-type.open .timeline-lucide-icon {
   color: var(--accent);
 }
 
+/* Collapse/expand knob at a parent node's branch origin. Persistent (unlike the
+   hover add-child control): a quiet "−" while expanded, an accent pill showing the
+   hidden-child count while collapsed, so a folded branch always advertises itself. */
+.mm-node-collapse {
+  position: absolute;
+  z-index: 13;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-family: var(--tn-font-num);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: var(--shadow-pop);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease),
+    border-color var(--motion-base) var(--ease);
+}
+
+.mm-node-collapse:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.mm-node-collapse.collapsed {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.mm-node-collapse.collapsed:hover {
+  background: var(--accent-hover);
+}
+
+.mm-collapse-glyph {
+  font-size: 15px;
+  transform: translateY(-1px);
+}
+
 /* W5 mindmap toolbar: font/background/direction controls over the canvas. The row
    sits above the canvas (z 5) so its dropdowns clear the SVG; a full-bleed scrim
    (z 3) covers the canvas for click-away while leaving the toolbar interactive. */
@@ -5450,6 +5499,48 @@ button.prop-row-type.open .timeline-lucide-icon {
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+/* Node find bar: a search icon that expands an inline input + n/m counter + prev/next
+   at the right edge of the toolbar. Reuses the app's borderless soft-fill input look. */
+.mm-find {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mm-find-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+}
+
+.mm-find-input {
+  width: 132px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--text);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.mm-find-input:focus {
+  outline: none;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+
+.mm-find-count {
+  min-width: 34px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .mm-tools .iconbtn:disabled {
