@@ -20,6 +20,7 @@ import {
   isDefaultSort,
   isOptionColumn,
   pickBoardColumn,
+  reorderSortLevels,
   resolveDisplayStyle,
   resolvePropertyChips,
   SORT_FIELD_META,
@@ -361,6 +362,73 @@ function removeSortLevel(index) {
 function addSortLevel(field) {
   emit("change-sort", [...props.sort, { field, dir: 1 }]);
 }
+
+// Drag-to-reorder the sort levels (order = priority; dragging a level up promotes
+// it toward the primary key). The grip is a sibling of the flip button — never a
+// child — so a drag never fires the row's flip click: a click only fires when
+// mousedown and mouseup share the flip button as their common ancestor. We track
+// a from/over index and only emit once on drop (avoids a PUT per pointer step
+// once sort persists to the backend).
+const sortDragFrom = ref(-1);
+const sortDragOver = ref(-1);
+let sortDragStartY = 0;
+let sortDragRowH = 32;
+
+function sortDragging() {
+  return sortDragFrom.value >= 0;
+}
+
+// Rows to render: a live preview of the pending reorder while dragging.
+function displaySortLevels() {
+  return sortDragging()
+    ? reorderSortLevels(props.sort, sortDragFrom.value, sortDragOver.value)
+    : props.sort;
+}
+
+function startSortLevelDrag(index, event) {
+  if (props.sort.length < 2) return;
+  sortDragFrom.value = index;
+  sortDragOver.value = index;
+  sortDragStartY = event.clientY;
+  sortDragRowH = event.currentTarget?.closest(".pop-sort-level")?.offsetHeight || 32;
+  window.addEventListener("mousemove", onSortLevelDragMove);
+  window.addEventListener("mouseup", endSortLevelDrag);
+  // Same fallbacks as the column-resize drag: a button-released check inside the
+  // move handler and a blur listener, so releasing the mouse OUTSIDE the viewport
+  // (or Alt-Tabbing away mid-drag) ends the drag instead of leaving a stuck
+  // ghost-drag whose stale mouseup would silently commit on the next click.
+  window.addEventListener("blur", endSortLevelDrag);
+}
+
+function onSortLevelDragMove(event) {
+  if (event.buttons !== 1) {
+    endSortLevelDrag();
+    return;
+  }
+  const steps = Math.round((event.clientY - sortDragStartY) / sortDragRowH);
+  const next = Math.max(0, Math.min(props.sort.length - 1, sortDragFrom.value + steps));
+  if (next !== sortDragOver.value) sortDragOver.value = next;
+}
+
+function endSortLevelDrag() {
+  window.removeEventListener("mousemove", onSortLevelDragMove);
+  window.removeEventListener("mouseup", endSortLevelDrag);
+  window.removeEventListener("blur", endSortLevelDrag);
+  const from = sortDragFrom.value;
+  const to = sortDragOver.value;
+  if (from < 0) return;
+  sortDragFrom.value = -1;
+  sortDragOver.value = -1;
+  if (to >= 0 && from !== to) {
+    emit("change-sort", reorderSortLevels(props.sort, from, to));
+  }
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener("mousemove", onSortLevelDragMove);
+  window.removeEventListener("mouseup", endSortLevelDrag);
+  window.removeEventListener("blur", endSortLevelDrag);
+});
 
 function pickGroupBy(key) {
   emit("change-group-by", key);
@@ -875,21 +943,35 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <div class="pop-title">排序</div>
-            <button
-              v-for="(level, i) in props.sort"
-              :key="`${level.field}:${i}`"
-              type="button"
+            <div
+              v-for="(level, i) in displaySortLevels()"
+              :key="level.field"
               class="pop-item pop-sort-level"
-              :title="`点按切换「${sortLabel(level.field)}」升/降序`"
-              @click="flipSortLevel(i)"
+              :class="{ 'is-dragging': sortDragging() && i === sortDragOver }"
             >
-              <TimelineLucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
-              <span class="pop-item-label">{{ sortLabel(level.field) }}</span>
-              <TimelineLucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+              <span
+                v-if="props.sort.length > 1"
+                class="pop-sort-grip"
+                title="拖拽调整排序优先级"
+                @mousedown.prevent.stop="startSortLevelDrag(i, $event)"
+                @click.stop
+              >
+                <TimelineLucideIcon name="grip" :stroke-width="1.5" />
+              </span>
+              <button
+                type="button"
+                class="pop-sort-flip"
+                :title="`点按切换「${sortLabel(level.field)}」升/降序`"
+                @click="flipSortLevel(i)"
+              >
+                <TimelineLucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
+                <span class="pop-item-label">{{ sortLabel(level.field) }}</span>
+                <TimelineLucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+              </button>
               <span v-if="props.sort.length > 1" class="pop-sort-del" title="移除该排序层" @click.stop="removeSortLevel(i)">
                 <TimelineLucideIcon name="close" :stroke-width="1.6" />
               </span>
-            </button>
+            </div>
             <template v-if="addableSortFields().length">
               <div class="pop-subtitle">添加排序层</div>
               <button

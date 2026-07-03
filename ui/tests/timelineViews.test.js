@@ -15,6 +15,7 @@ import {
   mindmapRootData,
   normalizeSortLevels,
   pickBoardColumn,
+  reorderSortLevels,
   resolveDisplayStyle,
   sortFieldsForView,
 } from "../src/utils/timelineNotes.js";
@@ -395,4 +396,37 @@ test("isDefaultSort recognizes only a single time-ascending level", () => {
   assert.equal(isDefaultSort({ field: "time", dir: -1 }), false);
   assert.equal(isDefaultSort([{ field: "time", dir: 1 }, { field: "title", dir: 1 }]), false);
   assert.equal(isDefaultSort({ field: "title", dir: 1 }), false);
+});
+
+test("reorderSortLevels moves a level and preserves each level's direction", () => {
+  const sort = [
+    { field: "time", dir: 1 },
+    { field: "title", dir: -1 },
+    { field: "created", dir: 1 },
+  ];
+  // Drag the primary (time) down to last → title is promoted to primary.
+  assert.deepEqual(reorderSortLevels(sort, 0, 2), [
+    { field: "title", dir: -1 },
+    { field: "created", dir: 1 },
+    { field: "time", dir: 1 },
+  ]);
+  // Drag the last (created) up to primary.
+  assert.deepEqual(reorderSortLevels(sort, 2, 0), [
+    { field: "created", dir: 1 },
+    { field: "time", dir: 1 },
+    { field: "title", dir: -1 },
+  ]);
+});
+
+test("reorderSortLevels no-ops on equal/non-finite indices and clamps out-of-range", () => {
+  const sort = [{ field: "time", dir: 1 }, { field: "title", dir: 1 }];
+  assert.deepEqual(reorderSortLevels(sort, 1, 1), sort); // equal → unchanged
+  assert.deepEqual(reorderSortLevels(sort, 0, Number.NaN), sort); // non-finite → unchanged
+  assert.deepEqual(reorderSortLevels(sort, 0, 9), [{ field: "title", dir: 1 }, { field: "time", dir: 1 }]); // clamp to last
+  assert.deepEqual(reorderSortLevels(sort, -3, 1), [{ field: "title", dir: 1 }, { field: "time", dir: 1 }]); // clamp negative source
+  assert.deepEqual(reorderSortLevels([{ field: "time", dir: 1 }], 0, 3), [{ field: "time", dir: 1 }]); // single level
+});
+
+test("reorderSortLevels upgrades a legacy single-object sort before moving", () => {
+  assert.deepEqual(reorderSortLevels({ field: "title", dir: -1 }, 0, 5), [{ field: "title", dir: -1 }]);
 });

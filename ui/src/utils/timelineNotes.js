@@ -606,6 +606,26 @@ export function isDefaultSort(sort) {
   return levels.length === 1 && levels[0].field === "time" && levels[0].dir === 1;
 }
 
+// Move the sort level at index `from` to index `to`, returning a new normalized
+// level list (the moved field keeps its direction). Order is priority, so
+// promoting a level toward index 0 makes it the primary key. Non-finite or equal
+// indices are a no-op; out-of-range indices clamp into range. Drives the
+// drag-to-reorder handle in the multi-sort editor.
+export function reorderSortLevels(sort, from, to) {
+  const levels = normalizeSortLevels(sort);
+  const src = Number(from);
+  const dst = Number(to);
+  if (!Number.isFinite(src) || !Number.isFinite(dst)) return levels;
+  const max = levels.length - 1;
+  const a = Math.max(0, Math.min(max, Math.trunc(src)));
+  const b = Math.max(0, Math.min(max, Math.trunc(dst)));
+  if (a === b) return levels;
+  const next = levels.slice();
+  const [moved] = next.splice(a, 1);
+  next.splice(b, 0, moved);
+  return next;
+}
+
 function sortTimestamp(event, field) {
   const raw = event?.[TIMESTAMP_SORT_KEYS[field]];
   const time = raw ? Date.parse(raw) : Number.NaN;

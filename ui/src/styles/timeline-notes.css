@@ -1514,6 +1514,52 @@ button {
   background: var(--border);
 }
 
+/* Drag handle for reordering multi-sort levels (order = priority). It sits
+   beside the flip button so a drag never triggers the row's flip click. The
+   flip button carries the icon/label/caret and stays the clickable direction
+   toggle. */
+.pop-sort-level {
+  gap: 6px;
+}
+
+.pop-sort-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-menu);
+  margin-left: -2px;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.pop-sort-grip:hover {
+  color: var(--text-muted);
+}
+
+.pop-sort-grip:active {
+  cursor: grabbing;
+}
+
+.pop-sort-grip .timeline-lucide-icon {
+  width: var(--icon-menu);
+  height: var(--icon-menu);
+}
+
+.pop-sort-flip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.pop-sort-level.is-dragging {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
 .pop-sort-add .pop-item-add-ic {
   flex: none;
   color: var(--text-faint);
