@@ -48,12 +48,6 @@ const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
 const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
-// Center-column sort + timeline grouping dimension persist per notebook
-// (docs/center-sort-design.md), keyed like the built-in column widths' `tl-colw:`
-// — no data-contract change. The sort sentinel "favorites" owns the cross-notebook
-// favorites view (no single owning notebook).
-const SORT_STORAGE_PREFIX = "tl-sort:";
-const GROUPBY_STORAGE_PREFIX = "tl-groupby:";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
@@ -76,47 +70,6 @@ function readStorage(key, fallback) {
 function writeStorage(key, value) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(key, String(value));
-}
-
-// Favorites (cross-notebook) defaults to most-recently-favorited first; a real
-// notebook to today's single time-ascending level.
-function defaultSortFor(key) {
-  return key === "favorites" ? [{ field: "favorited", dir: -1 }] : normalizeSortLevels(DEFAULT_SORT);
-}
-
-function loadSort(key) {
-  if (!key) return normalizeSortLevels(DEFAULT_SORT);
-  const raw = readStorage(SORT_STORAGE_PREFIX + key, "");
-  if (!raw) return defaultSortFor(key);
-  try {
-    // normalizeSortLevels also upgrades a legacy single-object sort into a level list.
-    return normalizeSortLevels(JSON.parse(raw));
-  } catch {
-    return defaultSortFor(key);
-  }
-}
-
-function persistSort(key, sort) {
-  if (!key) return;
-  try {
-    writeStorage(SORT_STORAGE_PREFIX + key, JSON.stringify(normalizeSortLevels(sort)));
-  } catch {
-    /* storage disabled/full — the sort still applies for the session */
-  }
-}
-
-function loadGroupBy(topicId) {
-  const raw = topicId ? readStorage(GROUPBY_STORAGE_PREFIX + topicId, "") : "";
-  return ["era", "year", "month"].includes(raw) ? raw : "era";
-}
-
-function persistGroupBy(topicId, groupBy) {
-  if (!topicId) return;
-  try {
-    writeStorage(GROUPBY_STORAGE_PREFIX + topicId, groupBy);
-  } catch {
-    /* storage disabled/full — grouping still applies for the session */
-  }
 }
 
 function parseRouteNumber(name) {
@@ -214,7 +167,8 @@ const state = reactive({
   topicCreateRequestKey: 0,
   editPreview: null,
   // Center-column sort (ordered { field, dir } levels) + timeline grouping
-  // dimension; both reloaded per notebook from localStorage.
+  // dimension; reloaded from the backend per notebook (Topic meta) or, for the
+  // cross-notebook favorites view, from app config (docs/center-sort-design.md §12).
   sort: normalizeSortLevels(DEFAULT_SORT),
   groupBy: "era",
 });
@@ -227,6 +181,9 @@ let relatedPreviewRequestSeq = 0;
 let columnSaveChain = Promise.resolve();
 const latestColumnSaveRevisionByTopic = new Map();
 let columnSaveInFlight = 0;
+// Serializes PUT /api/config for the cross-notebook favorites sort so rapid
+// reorders can't land out of order (docs/center-sort-design.md §12).
+let configSaveChain = Promise.resolve();
 
 function normalizeMediaConfig(media = {}) {
   const source = media && typeof media === "object" ? media : {};
@@ -371,16 +328,30 @@ const activeSort = computed(() =>
 );
 const activeComparator = computed(() => compareEventsBySort(activeSort.value, feedColumns.value));
 
-// The sort owner is the notebook, or the "favorites" sentinel for the cross-notebook
-// favorites view. Reload sort (owner-scoped) and grouping (per notebook) whenever
-// either changes (and on mount).
-function sortOwnerKey() {
-  return isGlobalFavoritesMode.value ? "favorites" : state.activeTopicId;
+// Sort/grouping persist to the backend for cross-device sync: per-notebook
+// sort + groupBy ride the Topic meta (loaded with the index), the cross-notebook
+// favorites sort rides app config (it has no owning notebook). Reload from those
+// sources whenever the owner changes (and on mount).
+function topicSortLevels(topicId) {
+  return normalizeSortLevels(timelineStore.topicById(topicId)?.sort);
 }
+
+function favoritesSortLevels() {
+  const stored = state.config?.favoritesSort;
+  return Array.isArray(stored) && stored.length
+    ? normalizeSortLevels(stored)
+    : [{ field: "favorited", dir: -1 }];
+}
+
+function loadGroupBy(topicId) {
+  const raw = timelineStore.topicById(topicId)?.groupBy;
+  return ["era", "year", "month"].includes(raw) ? raw : "era";
+}
+
 watch(
   () => [isGlobalFavoritesMode.value, state.activeTopicId],
   () => {
-    state.sort = loadSort(sortOwnerKey());
+    state.sort = isGlobalFavoritesMode.value ? favoritesSortLevels() : topicSortLevels(state.activeTopicId);
     state.groupBy = loadGroupBy(state.activeTopicId);
   },
   { immediate: true }
@@ -389,13 +360,70 @@ watch(
 function changeSort(sort) {
   const next = normalizeSortLevels(sort);
   state.sort = next;
-  persistSort(sortOwnerKey(), next);
+  if (isGlobalFavoritesMode.value) {
+    persistFavoritesSort(next);
+  } else if (state.activeTopicId) {
+    persistTopicMetaField(state.activeTopicId, { sort: next });
+  }
 }
 
 function changeGroupBy(groupBy) {
   const next = ["era", "year", "month"].includes(groupBy) ? groupBy : "era";
   state.groupBy = next;
-  persistGroupBy(state.activeTopicId, next);
+  if (state.activeTopicId) {
+    persistTopicMetaField(state.activeTopicId, { groupBy: next });
+  }
+}
+
+// Persist a per-notebook sort/groupBy change through the shared meta-save chain
+// (like changeDisplayStyle) so a concurrent column-save PUT can't land out of
+// order and revert it. `patch` carries the camelCase field(s) to store + PUT.
+function persistTopicMetaField(topicId, patch) {
+  const topicMeta = timelineStore.topicById(topicId) || state.activeTopicMeta;
+  if (!topicMeta) return;
+  timelineStore.upsertTopic({ ...topicMeta, ...patch });
+  if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+  const task = async () => {
+    try {
+      const meta = await api.updateTopicMeta(topicId, patch);
+      timelineStore.upsertTopic({ ...meta, ...patch });
+      if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+    } catch (error) {
+      try {
+        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+      } catch {
+        // Best-effort rollback to server truth; keep the error toast.
+      }
+      pushToast(`排序保存失败：${error.message}`, "error");
+    }
+  };
+  columnSaveChain = columnSaveChain.then(task, task);
+  return columnSaveChain;
+}
+
+// The cross-notebook favorites sort has no owning notebook, so it lives in app
+// config (cross-device). Optimistic local update + a serialized PUT /api/config
+// so rapid reorders can't land out of order; on failure, roll back to server
+// truth (parity with persistTopicMetaField).
+function persistFavoritesSort(sort) {
+  state.config.favoritesSort = sort;
+  const task = async () => {
+    try {
+      await api.updateConfig({ favoritesSort: sort });
+    } catch (error) {
+      try {
+        const config = await api.getConfig();
+        state.config.favoritesSort = config?.favoritesSort ?? [{ field: "favorited", dir: -1 }];
+        if (isGlobalFavoritesMode.value) state.sort = favoritesSortLevels();
+      } catch {
+        // Best-effort rollback to server truth; keep the error toast.
+      }
+      pushToast(`收藏排序保存失败：${error.message}`, "error");
+    }
+  };
+  configSaveChain = configSaveChain.then(task, task);
+  return configSaveChain;
 }
 // Visible now means visible: once a user turns a property column on, the center
 // feed renders it even if every current row would show "—". This keeps the eye
@@ -1772,10 +1800,15 @@ async function persistTopicColumns(topicId, columns, { silentSuccess = false } =
         columns: normalized,
       });
       if (revision !== latestColumnSaveRevisionByTopic.get(topicId)) return meta;
-      // A column-save snapshot may carry a stale displayStyle if a view switch is
-      // in flight — keep the store's current view rather than reverting it.
-      const currentStyle = timelineStore.topicById(topicId)?.displayStyle;
-      timelineStore.upsertTopic(currentStyle ? { ...meta, displayStyle: currentStyle } : meta);
+      // A column-save snapshot may carry a stale displayStyle / sort / groupBy if a
+      // view switch or sort change is in flight — keep the store's current values
+      // rather than reverting them.
+      const current = timelineStore.topicById(topicId);
+      const preserved = {};
+      if (current?.displayStyle) preserved.displayStyle = current.displayStyle;
+      if (current?.sort) preserved.sort = current.sort;
+      if (current?.groupBy) preserved.groupBy = current.groupBy;
+      timelineStore.upsertTopic({ ...meta, ...preserved });
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       if (!silentSuccess) pushToast("列定义已保存");
       return meta;

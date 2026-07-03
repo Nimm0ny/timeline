@@ -60,6 +60,8 @@ class TopicMetaUpdateIn(BaseModel):
     title: str | None = None
     subtitle: str | None = None
     displayStyle: str | None = None
+    sort: list[dict] | None = None
+    groupBy: str | None = None
     columns: list[ColumnDef] | None = None
 
 
@@ -70,6 +72,10 @@ class TopicOut(BaseModel):
     subtitle: str
     columns: list[dict] = Field(default_factory=list)
     displayStyle: str = "timeline"
+    # Center-column sort levels + timeline grouping dimension, persisted per
+    # notebook (docs/center-sort-design.md §12).
+    sort: list[dict] = Field(default_factory=lambda: [{"field": "time", "dir": 1}])
+    groupBy: str = "era"
     # Enabled display styles for this notebook's entries, derived from data
     # capability (see services.timeline.topic_capabilities). FE/BE SSOT.
     capabilities: list[str] = Field(default_factory=list)

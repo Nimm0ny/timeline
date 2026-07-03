@@ -21,6 +21,11 @@ class Topic(Base):
     # Default display style for the notebook's "entry" notes; one of
     # timeline/table/board/gallery/list/outline (see note-types-and-views-design.md).
     display_style: Mapped[str] = mapped_column(String(32), default="timeline", nullable=False)
+    # Center-column sort levels ([{field,dir},…]) and the timeline grouping
+    # dimension (era/year/month), persisted per notebook for cross-device sync
+    # (see docs/center-sort-design.md §12).
+    sort_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    group_by: Mapped[str] = mapped_column(String(32), default="era", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

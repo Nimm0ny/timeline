@@ -48,6 +48,10 @@ MAX_BODY_JSON_BYTES = 5_000_000
 # Display styles for "entry" notes (axis 1); unlocked per data capability.
 DISPLAY_STYLES = {"timeline", "table", "board", "gallery", "list", "outline"}
 DEFAULT_DISPLAY_STYLE = "timeline"
+# Center-column sort/grouping persisted per notebook (docs/center-sort-design.md §12).
+GROUP_BY_DIMENSIONS = {"era", "year", "month"}
+DEFAULT_GROUP_BY = "era"
+DEFAULT_SORT_LEVELS = [{"field": "time", "dir": 1}]
 
 # Seeded into every new notebook; both are deletable like any other property.
 DEFAULT_TOPIC_COLUMNS = [
@@ -70,6 +74,47 @@ def default_topic_columns_json() -> str:
 def normalize_display_style(value: str | None) -> str:
     candidate = str(value or "").strip()
     return candidate if candidate in DISPLAY_STYLES else DEFAULT_DISPLAY_STYLE
+
+
+def normalize_group_by(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate in GROUP_BY_DIMENSIONS else DEFAULT_GROUP_BY
+
+
+def normalize_sort_levels(value) -> list[dict]:
+    """Coerce a persisted/incoming sort into a clean ordered level list, mirroring
+    the front-end normalizeSortLevels: each field appears once, dir is +1/-1, and
+    there is always at least one level. Field names are NOT whitelisted here —
+    custom column keys are dynamic; the front end clamps fields per view.
+
+    One intentional divergence from the FE normalizer: an empty field is dropped
+    here (stricter) rather than coerced to "time". It's inert in practice — the FE
+    editor never emits empty fields and pre-normalizes before PUT — so a value with
+    an empty field never round-trips."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            value = None
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return [dict(level) for level in DEFAULT_SORT_LEVELS]
+    seen: set[str] = set()
+    levels: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "").strip()
+        if not field or field in seen:
+            continue
+        seen.add(field)
+        try:
+            direction = -1 if float(item.get("dir")) < 0 else 1
+        except (TypeError, ValueError):
+            direction = 1
+        levels.append({"field": field, "dir": direction})
+    return levels or [dict(level) for level in DEFAULT_SORT_LEVELS]
 
 
 def normalize_note_type(value: str | None) -> str:
@@ -183,6 +228,8 @@ def topic_to_dict(topic: Topic) -> dict:
         "subtitle": topic.subtitle or "",
         "columns": deserialize_json_list(topic.columns_json),
         "displayStyle": normalize_display_style(topic.display_style),
+        "sort": normalize_sort_levels(topic.sort_json),
+        "groupBy": normalize_group_by(topic.group_by),
         "updatedAt": topic.updated_at.isoformat() if topic.updated_at else None,
     }
 
@@ -1067,6 +1114,10 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.subtitle = str(payload["subtitle"] or "").strip()
     if "displayStyle" in payload:
         topic.display_style = normalize_display_style(payload.get("displayStyle"))
+    if "sort" in payload:
+        topic.sort_json = json.dumps(normalize_sort_levels(payload.get("sort")), ensure_ascii=False)
+    if "groupBy" in payload:
+        topic.group_by = normalize_group_by(payload.get("groupBy"))
     if "columns" in payload:
         topic.columns_json = json.dumps(normalize_topic_columns(payload.get("columns")), ensure_ascii=False)
     db.commit()

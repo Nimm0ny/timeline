@@ -28,6 +28,10 @@ DEFAULT_CONFIG = {
     "subtitleFontSize": "",
     "subtitleColor": "",
     "layout": "horizontal",
+    # The cross-notebook favorites view has no owning notebook, so its sort levels
+    # live in app config (cross-device synced) rather than a Topic column. Default =
+    # most-recently-favorited first (docs/center-sort-design.md §12).
+    "favoritesSort": [{"field": "favorited", "dir": -1}],
     "media": dict(MEDIA_DEFAULT_CONFIG),
 }
 

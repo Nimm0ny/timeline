@@ -14,7 +14,9 @@ from backend.app.services.timeline import (
     build_timeline_index,
     get_event_detail,
     normalize_display_style,
+    normalize_group_by,
     normalize_note_type,
+    normalize_sort_levels,
     topic_capabilities,
     topic_capability_signals,
 )
@@ -52,6 +54,25 @@ def test_normalizers_guard_unknown_values():
     assert normalize_note_type("") == "entry"
 
 
+def test_sort_and_group_by_normalizers():
+    # group_by dimension guarded to era/year/month.
+    assert normalize_group_by("year") == "year"
+    assert normalize_group_by("decade") == "era"
+    assert normalize_group_by(None) == "era"
+    # Sort levels mirror the front-end normalizer: legacy single object wraps,
+    # a JSON string (as stored in sort_json) parses, garbage → default, dirs
+    # coerce to ±1, duplicate fields dedupe (first wins), empty fields drop.
+    assert normalize_sort_levels({"field": "time", "dir": -1}) == [{"field": "time", "dir": -1}]
+    assert normalize_sort_levels('[{"field":"title","dir":-1}]') == [{"field": "title", "dir": -1}]
+    assert normalize_sort_levels([]) == [{"field": "time", "dir": 1}]
+    assert normalize_sort_levels("not json") == [{"field": "time", "dir": 1}]
+    assert normalize_sort_levels(None) == [{"field": "time", "dir": 1}]
+    assert normalize_sort_levels([{"field": "title", "dir": 1}, {"field": "title", "dir": -1}]) == [
+        {"field": "title", "dir": 1}
+    ]
+    assert normalize_sort_levels([{"field": "", "dir": 1}, {"field": "pri", "dir": 0}]) == [{"field": "pri", "dir": 1}]
+
+
 def test_meta_exposes_display_style_and_capabilities(client, seeded_topic):
     body = client.get(f"/api/topics/{seeded_topic.id}/meta").json()
     assert body["displayStyle"] == "timeline"
@@ -85,6 +106,33 @@ def test_update_display_style_persists_and_normalizes(client, seeded_topic):
     # Unknown values fall back to the default rather than corrupting state.
     reset = client.put(f"/api/topics/{seeded_topic.id}/meta", json={"displayStyle": "kanban"}).json()
     assert reset["displayStyle"] == "timeline"
+
+
+def test_update_sort_and_group_by_persist_and_normalize(client, seeded_topic):
+    # A fresh notebook defaults to time-ascending / era grouping (today's behavior).
+    meta = client.get(f"/api/topics/{seeded_topic.id}/meta").json()
+    assert meta["sort"] == [{"field": "time", "dir": 1}]
+    assert meta["groupBy"] == "era"
+
+    # A multi-level sort + a grouping dimension persist across a fresh read.
+    updated = client.put(
+        f"/api/topics/{seeded_topic.id}/meta",
+        json={"sort": [{"field": "title", "dir": -1}, {"field": "time", "dir": 1}], "groupBy": "year"},
+    ).json()
+    assert updated["sort"] == [{"field": "title", "dir": -1}, {"field": "time", "dir": 1}]
+    assert updated["groupBy"] == "year"
+    reread = client.get(f"/api/topics/{seeded_topic.id}/meta").json()
+    assert reread["sort"] == [{"field": "title", "dir": -1}, {"field": "time", "dir": 1}]
+    assert reread["groupBy"] == "year"
+
+    # Unknown dimension → era; a malformed sort (dir out of ±1, duplicate field)
+    # normalizes rather than corrupting state.
+    reset = client.put(
+        f"/api/topics/{seeded_topic.id}/meta",
+        json={"groupBy": "decade", "sort": [{"field": "time", "dir": 5}, {"field": "time", "dir": -1}]},
+    ).json()
+    assert reset["groupBy"] == "era"
+    assert reset["sort"] == [{"field": "time", "dir": 1}]
 
 
 def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
@@ -272,15 +320,19 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
     legacy_migration_module.ensure_timeline_event_schema()  # second run is a no-op
 
     inspector = inspect(test_engine)
-    assert "display_style" in {column["name"] for column in inspector.get_columns("topics")}
+    topic_cols = {column["name"] for column in inspector.get_columns("topics")}
+    assert {"display_style", "sort_json", "group_by"}.issubset(topic_cols)
     assert {"note_type", "body_json"}.issubset({column["name"] for column in inspector.get_columns("timeline_events")})
 
     # Existing rows backfill to defaults (zero-break migration).
     with test_engine.begin() as conn:
-        assert conn.execute(text("SELECT display_style FROM topics WHERE id=1")).scalar() == "timeline"
+        display_style, sort_json, group_by = conn.execute(
+            text("SELECT display_style, sort_json, group_by FROM topics WHERE id=1")
+        ).one()
         note_type, body_json = conn.execute(
             text("SELECT note_type, body_json FROM timeline_events WHERE id=1")
         ).one()
+    assert (display_style, sort_json, group_by) == ("timeline", "[]", "era")
     assert note_type == "entry"
     assert body_json is None
     test_engine.dispose()

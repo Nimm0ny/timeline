@@ -191,5 +191,29 @@ groupBy: 'era' | 'year' | 'month'          // 时间线/大纲的分组维度（
 
 **仍未做**：
 
-- **后端持久化 / 跨设备同步**：如日后要让 sort/groupBy 像 `display_style` 那样进 `Topic` 列，再走幂等 ALTER；当前 localStorage 足够且可逆。
-- **拖拽重排 level / shift-click 追加**：多级顺序目前靠「移除+重加」，无拖拽；列头 shift-click 追加次级也未做（fork A 明确取舍为不做）。
+- **后端持久化 / 跨设备同步**：**落地中（见 §12）**——sort/groupBy 从 localStorage 迁到 `Topic` 列，收藏哨兵迁到 `app_config`。
+- **shift-click 追加次级**：列头 shift-click 追加次级未做（fork A 明确取舍为不做）。
+
+**已落地（后续 wave）**：
+
+- **拖拽重排 level** ✅（`b552433`，2026-07-03）：多级编辑器每层带 `grip` 抓手、指针式拖拽重排（order=优先级），抓手是 flip 按钮的兄弟元素故 drag 不误触翻向；纯函数 `reorderSortLevels` 带单测；仍纯前端 localStorage。QA 归档 `docs/visual-qa/20260703-sort-drag-reorder/`。
+
+## 12. Wave-sort-4 · 后端持久化 / 跨设备同步（Define-First，落地中）
+
+**Goal**：把 sort/groupBy 的持久化从 localStorage 迁到后端（跨设备同步），照搬 `display_style` 的既有链路（乐观更新 + `columnSaveChain` 串行 PUT topic meta）。
+
+**数据边界（决策）**：
+
+- **按笔记本的 sort/groupBy → `Topic` 列**：新增 `Topic.sort_json`(TEXT, 默认 `'[]'`) + `Topic.group_by`(VARCHAR(32), 默认 `'era'`)；本项目无 alembic，走 `legacy_migration.py` 启动期幂等 `ALTER TABLE ADD COLUMN`（同 `display_style` 当年套路，全 nullable/带默认零破坏）。表/字段命名与 `display_style` 并列。
+- **收藏哨兵 sort（无归属笔记本）→ `app_config`**：新增 `DEFAULT_CONFIG["favoritesSort"]`（list，默认 `[{"field":"favorited","dir":-1}]`），经既有 `GET/PUT /api/config` 读写、`decode_config_value` 按 list 默认 JSON 解析。groupBy 仅时间线/大纲用（收藏恒扁平 list 无 groupBy），故 groupBy 只进 `Topic`，不进 config。
+- **契约**：`topic_to_dict` 补 `sort`(有序 level 数组) + `groupBy`；`TopicMetaUpdateIn`/`TopicOut` 补两字段；`update_topic_meta` 按 payload 存在性更新（`if "sort" in payload` / `if "groupBy" in payload`）。后端 `normalize_sort_levels`/`normalize_group_by` 做防御性规整（镜像前端 `normalizeSortLevels`：list of `{field:str, dir:±1}`、去重、空→`[{time,1}]`；groupBy 非 era/year/month→era）。**后端不校验 field 白名单**（自定义列 key 动态，前端 `clampSortForView` 已按视图夹取）。
+
+**前端切换（决策：干净切换，不做 localStorage 搬运）**：
+
+- 读：`state.sort`/`state.groupBy` 在 `watch([isGlobalFavoritesMode, activeTopicId])` 里从 `topicById(activeTopicId)?.sort/groupBy`（每本，随 `/api/index` 上载）或 `state.config.favoritesSort`（收藏）载入，经 `normalizeSortLevels`/`normalizeGroupBy` 规整；删除 `tl-sort:`/`tl-groupby:` 的 `loadSort/persistSort/loadGroupBy/persistGroupBy`。
+- 写：`changeSort`/`changeGroupBy` 乐观改 store，经 `columnSaveChain` 串行 `updateTopicMeta({sort}/{groupBy})`（每本）或 `updateConfig({favoritesSort})`（收藏）；**修 `persistTopicColumns` 的既有并发守卫**：把「保留当前 displayStyle 免被列保存旧快照冲掉」扩到同样保留 `sort`/`groupBy`（同一竞态类）。
+- 迁移取舍：功能今日才建、localStorage 里几乎只有自测数据 → **干净切换**（后端为 SSOT，不做一次性 hoist）；一次性重置成本极低、可逆。
+
+**Non-goals**：不改 sort/groupBy 的语义与视图行为（§3/§4 不变）；不引入迁移框架；不动移动端。
+
+**验收**：`pytest`（新增 sort/groupBy 读写 + 迁移幂等测）；`test:ui`；`agent:check`/`build`；Playwright 实测切本子/改排序/reload/跨"设备"（清 localStorage 后仍在）持久。**Review gate**：触发（数据契约 + 持久化语义）→ 独立 subagent review。
