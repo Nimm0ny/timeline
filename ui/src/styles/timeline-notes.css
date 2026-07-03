@@ -275,6 +275,21 @@ button {
   border-right: 1px solid var(--border-soft);
 }
 
+/* nav-right: mirror the sidebar interior too (docs/layout-swap-design.md). The
+   icon rail (ribbon) moves to the outer (right) edge and the pane sits toward the
+   feed; both dividers flip from the right to the left (feed-facing) side. */
+.timeline-workspace.app.nav-right .sidebar {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.timeline-workspace.app.nav-right .ribbon {
+  order: 1;
+  border-right: 0;
+  border-left: 1px solid var(--border-soft);
+}
+
 .ribbon .sp {
   flex: 1;
 }

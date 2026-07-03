@@ -37,7 +37,8 @@ navPosition=right:
   - `.nav-right .col.detail{order:0} .col.timeline,.col.mm-surface{order:1} .col.sidebar{order:2}`
   - 动画：复用既有 `transition: grid-template-columns var(--motion-slow)`，详情列 0↔412 过渡即「从外缘滑入/滑出」，两侧同曲线镜像。
 - **resizer 翻转**：`.resizer` 是绝对定位（`left`）。`.nav-right #rzLeft{left:calc(100% - var(--left-w))}`（功能栏边界移到右）、`.nav-right #rzRight{left:var(--right-w)}`（详情边界移到左）。`startResize` 的拖拽数学按 `navPosition` 分支：功能栏 `left = navRight ? innerWidth-clientX : clientX`；详情 `right = navRight ? clientX : innerWidth-clientX`（clamp 不变）。rzRight 仍 `v-if rightOpen`。
-- **详情内壳**：QA 核对左置时关闭钮/留白是否需镜像；如需，`.nav-right .col.detail` 局部对齐调整（不动读↔编辑零位移）。
+- **功能栏内壳（QA 补丁）**：功能栏自身是 `44px(ribbon 图标栏) | 1fr(pane)` 内网格。整栏靠右时图标栏还贴在内侧（朝 feed），观感不对——须一并镜像：`.nav-right .sidebar{grid-template-columns:minmax(0,1fr) 44px}` + `.nav-right .ribbon{order:1}`（ribbon 落到外缘 44px 列，pane 朝 feed），且两条分隔线 `border-right→border-left`（`.sidebar` 对 feed 的边、`.ribbon` 对 pane 的边都翻到左侧）。仅 `.nav-right` 作用域，靠左零触碰。
+- **详情内壳**：QA 核对左置时关闭钮/留白是否需镜像；实测无需镜像（工具栏右对齐 + 内容左对齐在两侧都成立，读↔编辑零位移不动）。
 
 ## 3. 持久化（跨设备 app_config = 真相 + localStorage = 首帧缓存）
 
