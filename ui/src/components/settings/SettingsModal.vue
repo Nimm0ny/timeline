@@ -7,11 +7,12 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   brandName: { type: String, default: "编年" },
   mediaConfig: { type: Object, default: () => ({}) },
+  navPosition: { type: String, default: "left" },
   activeTopicTitle: { type: String, default: "" },
   hasTopic: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "export-data", "update-media"]);
+const emit = defineEmits(["close", "export-data", "update-media", "update-nav-position"]);
 
 const section = ref("appearance");
 
@@ -87,6 +88,33 @@ onBeforeUnmount(() => {
 
       <section v-else-if="section === 'appearance'" class="settings-pane">
         <h3 class="settings-title">外观</h3>
+        <div class="settings-section">
+          <h4 class="settings-h">布局</h4>
+          <div class="settings-row">
+            <span class="settings-row-label">功能栏位置</span>
+            <span class="settings-row-control">
+              <span class="settings-seg" role="group" aria-label="功能栏位置">
+                <button
+                  type="button"
+                  class="settings-seg-btn"
+                  :class="{ active: props.navPosition !== 'right' }"
+                  @click="emit('update-nav-position', 'left')"
+                >
+                  靠左
+                </button>
+                <button
+                  type="button"
+                  class="settings-seg-btn"
+                  :class="{ active: props.navPosition === 'right' }"
+                  @click="emit('update-nav-position', 'right')"
+                >
+                  靠右
+                </button>
+              </span>
+            </span>
+          </div>
+          <p class="settings-note">功能栏贴左或贴右外缘；列表居中，详情在对侧弹出。仅桌面端。</p>
+        </div>
         <AppearanceSettings />
       </section>
 

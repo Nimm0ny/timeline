@@ -48,6 +48,7 @@ const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
 const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
+const NAV_POSITION_KEY = "chronicle-nav-position";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
@@ -70,6 +71,13 @@ function readStorage(key, fallback) {
 function writeStorage(key, value) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(key, String(value));
+}
+
+// Sidebar edge is a two-value enum; coerce any legacy/invalid stored or server
+// value to the default so a bad localStorage or app_config value cannot break the
+// layout (the backend does not validate it).
+function normalizeNavPosition(value) {
+  return value === "right" ? "right" : "left";
 }
 
 function parseRouteNumber(name) {
@@ -107,6 +115,9 @@ const state = reactive({
   detailError: "",
   config: {
     brandName: "编年",
+    // Seeded from localStorage so the correct sidebar edge paints on frame 1;
+    // loadWorkspace() reconciles with the cross-device app_config truth on load.
+    navPosition: normalizeNavPosition(readStorage(NAV_POSITION_KEY, "left")),
     media: {
       compress: true,
       keepOriginal: false,
@@ -757,8 +768,12 @@ async function loadWorkspace(options = {}) {
       ...state.config,
       ...config,
       brandName: "编年",
+      navPosition: normalizeNavPosition(config?.navPosition),
       media: normalizeMediaConfig(config?.media),
     };
+    // Mirror the cross-device truth into localStorage so the next load paints the
+    // correct sidebar edge on frame 1 instead of flashing the default and swapping.
+    writeStorage(NAV_POSITION_KEY, state.config.navPosition);
     applyWorkspaceSelection(options);
     await applyRouteSelectionFromQuery();
   } catch (error) {
@@ -1897,13 +1912,38 @@ async function updateMediaConfig(media) {
   }
 }
 
+// Which outer edge the function sidebar sits on (desktop only). Global app-config
+// preference (cross-device), same optimistic + rollback path as media config; also
+// mirrored to localStorage so the next load paints the right side on frame 1.
+async function updateNavPosition(position) {
+  const next = normalizeNavPosition(position);
+  const previous = normalizeNavPosition(state.config.navPosition);
+  if (next === previous) return;
+  state.config.navPosition = next;
+  writeStorage(NAV_POSITION_KEY, next);
+  try {
+    const updated = await api.updateConfig({ navPosition: next });
+    state.config.navPosition = normalizeNavPosition(updated?.navPosition);
+    writeStorage(NAV_POSITION_KEY, state.config.navPosition);
+  } catch (error) {
+    state.config.navPosition = previous;
+    writeStorage(NAV_POSITION_KEY, previous);
+    pushToast(`布局设置保存失败：${error.message}`, "error");
+  }
+}
+
 function startResize(side, event) {
+  // When the sidebar is on the right, both handles mirror: the sidebar boundary is
+  // measured from the right edge and the detail boundary from the left.
+  const navRight = state.config.navPosition === "right";
   const onMove = (moveEvent) => {
     if (side === "left") {
-      state.leftWidth = clamp(moveEvent.clientX, 220, 360);
+      const width = navRight ? window.innerWidth - moveEvent.clientX : moveEvent.clientX;
+      state.leftWidth = clamp(width, 220, 360);
       writeStorage(LEFT_WIDTH_KEY, state.leftWidth);
     } else {
-      state.rightWidth = clamp(window.innerWidth - moveEvent.clientX, 360, 560);
+      const width = navRight ? moveEvent.clientX : window.innerWidth - moveEvent.clientX;
+      state.rightWidth = clamp(width, 360, 560);
       writeStorage(RIGHT_WIDTH_KEY, state.rightWidth);
     }
   };
@@ -2031,6 +2071,7 @@ watch(
     class="app timeline-workspace"
     :class="{
       'right-closed': !state.rightOpen,
+      'nav-right': !isMobile && state.config.navPosition === 'right',
       'is-mobile': isMobile,
       'mobile-drawer-open': state.mobileSidebarOpen,
       'mobile-detail-open': isMobile && state.rightOpen,
@@ -2261,11 +2302,13 @@ watch(
       :open="state.settingsOpen"
       :brand-name="state.config.brandName"
       :media-config="state.config.media"
+      :nav-position="state.config.navPosition"
       :active-topic-title="activeTopicTitle"
       :has-topic="Boolean(state.activeTopicId)"
       @close="state.settingsOpen = false"
       @export-data="exportCurrentTopic"
       @update-media="updateMediaConfig"
+      @update-nav-position="updateNavPosition"
     />
 
     <CommandPalette

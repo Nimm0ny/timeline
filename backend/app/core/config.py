@@ -28,6 +28,10 @@ DEFAULT_CONFIG = {
     "subtitleFontSize": "",
     "subtitleColor": "",
     "layout": "horizontal",
+    # Desktop three-column layout: which outer edge the function sidebar sits on
+    # ("left" | "right"). feed stays centered; the detail pane takes the opposite
+    # outer edge (docs/layout-swap-design.md). Global (not per-notebook), cross-device.
+    "navPosition": "left",
     # The cross-notebook favorites view has no owning notebook, so its sort levels
     # live in app config (cross-device synced) rather than a Topic column. Default =
     # most-recently-favorited first (docs/center-sort-design.md §12).

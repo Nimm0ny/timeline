@@ -105,6 +105,32 @@ button {
   grid-template-columns: var(--left-w) minmax(0, 1fr) 0;
 }
 
+/* Sidebar on the right outer edge (docs/layout-swap-design.md): the detail pane
+   takes the left outer edge, the feed stays centered. Columns reorder via `order`
+   (no DOM move → components keep their state); grid tracks and both resizers
+   mirror. The detail-closed variant collapses the LEFT track so the pane still
+   slides in/out from its own (now left) outer edge. */
+.timeline-workspace.app.nav-right {
+  grid-template-columns: var(--right-w) minmax(0, 1fr) var(--left-w);
+}
+
+.timeline-workspace.app.nav-right.right-closed {
+  grid-template-columns: 0 minmax(0, 1fr) var(--left-w);
+}
+
+.timeline-workspace.app.nav-right .col.detail {
+  order: 0;
+}
+
+.timeline-workspace.app.nav-right .col.timeline,
+.timeline-workspace.app.nav-right .col.mm-surface {
+  order: 1;
+}
+
+.timeline-workspace.app.nav-right .col.sidebar {
+  order: 2;
+}
+
 .col {
   min-width: 0;
   min-height: 0;
@@ -220,6 +246,16 @@ button {
 
 #rzRight {
   left: calc(100% - var(--right-w));
+}
+
+/* nav-right mirrors both boundaries: the sidebar handle moves to the right edge,
+   the detail handle to the left (startResize flips its drag math to match). */
+.nav-right #rzLeft {
+  left: calc(100% - var(--left-w));
+}
+
+.nav-right #rzRight {
+  left: var(--right-w);
 }
 
 .sidebar {
@@ -4314,6 +4350,38 @@ button.prop-row-type.open .timeline-lucide-icon {
 .settings-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Two-way segmented control (e.g. 功能栏位置 靠左/靠右). Active segment mirrors
+   .settings-btn.primary; inactive is a muted track button. */
+.settings-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+}
+
+.settings-seg-btn {
+  min-height: 26px;
+  padding: 0 14px;
+  border-radius: calc(var(--radius-sm) - 1px);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--motion-base) var(--ease),
+    color var(--motion-base) var(--ease);
+}
+
+.settings-seg-btn:hover {
+  color: var(--text);
+}
+
+.settings-seg-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
 }
 
 .settings-note {
