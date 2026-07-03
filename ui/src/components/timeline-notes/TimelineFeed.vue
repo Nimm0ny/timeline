@@ -22,6 +22,7 @@ import {
   pickBoardColumn,
   resolveDisplayStyle,
   resolvePropertyChips,
+  SORT_FIELD_META,
   sortFieldsForView,
   timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
@@ -125,11 +126,16 @@ const props = defineProps({
     type: String,
     default: "timeline",
   },
-  // Active sort { field, dir } for the center column, already clamped by the page
-  // to what the effective view can sort (docs/center-sort-design.md).
+  // Ordered sort levels [{ field, dir }, …] for the center column, already clamped
+  // by the page to what the effective view can sort (docs/center-sort-design.md).
   sort: {
-    type: Object,
-    default: () => ({ field: "time", dir: 1 }),
+    type: Array,
+    default: () => [{ field: "time", dir: 1 }],
+  },
+  // Timeline/outline grouping dimension: era | year | month.
+  groupBy: {
+    type: String,
+    default: "era",
   },
   capabilities: {
     type: Array,
@@ -172,6 +178,7 @@ const emit = defineEmits([
   "save-columns",
   "resize-column",
   "change-sort",
+  "change-group-by",
   "batch-favorite",
   "batch-trash",
   "batch-restore",
@@ -257,6 +264,9 @@ function togglePopover(name) {
 // table instead of rendering blank.
 function effectiveView() {
   if (props.mobile) return "timeline";
+  // Cross-notebook favorites always renders as a flat list (docs §4) so it can sort
+  // by 收藏时间 without an era grouping to fight.
+  if (props.globalFavoritesMode) return "list";
   return resolveDisplayStyle(props.displayStyle, props.capabilities);
 }
 
@@ -285,28 +295,75 @@ function flatEvents() {
   return props.groups.flatMap((group) => group.items);
 }
 
-// Sort control (docs/center-sort-design.md). The page owns { field, dir } and
-// clamps it per view; here we only surface options and emit changes. Flat views
+// Sort control (docs/center-sort-design.md). The page owns the ordered sort levels
+// and clamps them per view; here we surface options and emit changes. Flat views
 // (table/list/gallery) re-sort the flattened set directly, bypassing the era
 // grouping; grouped views read props.groups (already ordered by the page).
+const GROUP_BY_OPTIONS = [
+  { key: "era", label: "时期", icon: "outline" },
+  { key: "year", label: "年", icon: "calendar" },
+  { key: "month", label: "月", icon: "calendar" },
+];
+
 function sortedFlatEvents() {
   return [...flatEvents()].sort(compareEventsBySort(props.sort, props.columns));
 }
 
+// Fields the active view offers (favorites is flat and adds 收藏时间).
 function sortOptions() {
-  return sortFieldsForView(effectiveView(), props.columns);
+  return sortFieldsForView(effectiveView(), props.columns, props.globalFavoritesMode);
 }
 
-// Pick a field (table header or the flat-view menu): re-selecting the active field
-// flips direction, a new field starts ascending.
-function applySortField(field) {
-  const dir = props.sort.field === field ? props.sort.dir * -1 : 1;
-  emit("change-sort", { field, dir });
+function primaryLevel() {
+  return props.sort[0] || { field: "time", dir: 1 };
 }
 
-// Grouped views (timeline/outline) only choose a time direction.
+// The sort level (if any) for a field — drives the table header caret.
+function levelForField(field) {
+  return props.sort.find((level) => level.field === field) || null;
+}
+
+function sortLabel(field) {
+  return sortOptions().find((option) => option.field === field)?.label || SORT_FIELD_META[field]?.label || field;
+}
+
+function sortIcon(field) {
+  return sortOptions().find((option) => option.field === field)?.icon || SORT_FIELD_META[field]?.icon || "alignLeft";
+}
+
+// Fields not yet used by a level = the "添加排序层" candidates.
+function addableSortFields() {
+  const used = new Set(props.sort.map((level) => level.field));
+  return sortOptions().filter((option) => !used.has(option.field));
+}
+
+// Table header / grouped-view direction click = set a single primary level (replace
+// the whole sort); re-clicking the current sole sort flips its direction (fork A).
+function applyHeaderSort(field) {
+  const dir = props.sort.length === 1 && props.sort[0].field === field ? props.sort[0].dir * -1 : 1;
+  emit("change-sort", [{ field, dir }]);
+}
+
 function applySortDir(dir) {
-  emit("change-sort", { field: "time", dir });
+  emit("change-sort", [{ field: "time", dir }]);
+}
+
+// Multi-sort editor (flat views): flip one level, drop one, or append a new one.
+function flipSortLevel(index) {
+  emit("change-sort", props.sort.map((level, i) => (i === index ? { ...level, dir: level.dir * -1 } : level)));
+}
+
+function removeSortLevel(index) {
+  const next = props.sort.filter((_, i) => i !== index);
+  emit("change-sort", next.length ? next : [{ field: "time", dir: 1 }]);
+}
+
+function addSortLevel(field) {
+  emit("change-sort", [...props.sort, { field, dir: 1 }]);
+}
+
+function pickGroupBy(key) {
+  emit("change-group-by", key);
 }
 
 // Board view: the option property to group by (SSOT-gated `board` capability
@@ -790,47 +847,63 @@ onBeforeUnmount(() => {
         </template>
 
         <template v-else-if="activePopover === 'sort'">
-          <div class="pop-title">排序</div>
           <template v-if="effectiveView() === 'timeline' || effectiveView() === 'outline'">
+            <div class="pop-title">分组</div>
             <button
+              v-for="opt in GROUP_BY_OPTIONS"
+              :key="opt.key"
               type="button"
               class="pop-item"
-              :class="{ 'is-active': props.sort.dir >= 0 }"
-              @click="applySortDir(1)"
+              :class="{ 'is-active': props.groupBy === opt.key }"
+              @click="pickGroupBy(opt.key)"
             >
+              <TimelineLucideIcon class="pop-item-ic" :name="opt.icon" :stroke-width="1.5" />
+              <span class="pop-item-label">{{ opt.label }}</span>
+              <TimelineLucideIcon v-if="props.groupBy === opt.key" class="pop-item-check" name="check" :stroke-width="2" />
+            </button>
+            <div class="pop-subtitle">方向</div>
+            <button type="button" class="pop-item" :class="{ 'is-active': primaryLevel().dir >= 0 }" @click="applySortDir(1)">
               <TimelineLucideIcon class="pop-item-ic" name="chevronUp" :stroke-width="1.5" />
               <span class="pop-item-label">时间正序</span>
-              <TimelineLucideIcon v-if="props.sort.dir >= 0" class="pop-item-check" name="check" :stroke-width="2" />
+              <TimelineLucideIcon v-if="primaryLevel().dir >= 0" class="pop-item-check" name="check" :stroke-width="2" />
             </button>
-            <button
-              type="button"
-              class="pop-item"
-              :class="{ 'is-active': props.sort.dir < 0 }"
-              @click="applySortDir(-1)"
-            >
+            <button type="button" class="pop-item" :class="{ 'is-active': primaryLevel().dir < 0 }" @click="applySortDir(-1)">
               <TimelineLucideIcon class="pop-item-ic" name="chevronDown" :stroke-width="1.5" />
               <span class="pop-item-label">时间倒序</span>
-              <TimelineLucideIcon v-if="props.sort.dir < 0" class="pop-item-check" name="check" :stroke-width="2" />
+              <TimelineLucideIcon v-if="primaryLevel().dir < 0" class="pop-item-check" name="check" :stroke-width="2" />
             </button>
           </template>
           <template v-else>
+            <div class="pop-title">排序</div>
             <button
-              v-for="field in sortOptions()"
-              :key="field.field"
+              v-for="(level, i) in props.sort"
+              :key="`${level.field}:${i}`"
               type="button"
-              class="pop-item"
-              :class="{ 'is-active': props.sort.field === field.field }"
-              @click="applySortField(field.field)"
+              class="pop-item pop-sort-level"
+              :title="`点按切换「${sortLabel(level.field)}」升/降序`"
+              @click="flipSortLevel(i)"
             >
-              <TimelineLucideIcon class="pop-item-ic" :name="field.icon" :stroke-width="1.5" />
-              <span class="pop-item-label">{{ field.label }}</span>
-              <TimelineLucideIcon
-                v-if="props.sort.field === field.field"
-                class="pop-item-check"
-                :name="props.sort.dir < 0 ? 'chevronDown' : 'chevronUp'"
-                :stroke-width="2"
-              />
+              <TimelineLucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
+              <span class="pop-item-label">{{ sortLabel(level.field) }}</span>
+              <TimelineLucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+              <span v-if="props.sort.length > 1" class="pop-sort-del" title="移除该排序层" @click.stop="removeSortLevel(i)">
+                <TimelineLucideIcon name="close" :stroke-width="1.6" />
+              </span>
             </button>
+            <template v-if="addableSortFields().length">
+              <div class="pop-subtitle">添加排序层</div>
+              <button
+                v-for="field in addableSortFields()"
+                :key="field.field"
+                type="button"
+                class="pop-item pop-sort-add"
+                @click="addSortLevel(field.field)"
+              >
+                <TimelineLucideIcon class="pop-item-ic" :name="field.icon" :stroke-width="1.5" />
+                <span class="pop-item-label">{{ field.label }}</span>
+                <TimelineLucideIcon class="pop-item-add-ic" name="plusSign" :stroke-width="1.8" />
+              </button>
+            </template>
           </template>
         </template>
 
@@ -998,14 +1071,14 @@ onBeforeUnmount(() => {
             :key="column.key"
             type="button"
             class="tl-col-head th-sort"
-            :class="{ 'is-sorted': props.sort.field === column.key }"
-            @click.stop="applySortField(column.key)"
+            :class="{ 'is-sorted': levelForField(column.key) }"
+            @click.stop="applyHeaderSort(column.key)"
           >
             <span>{{ column.label }}</span>
             <TimelineLucideIcon
-              v-if="props.sort.field === column.key"
+              v-if="levelForField(column.key)"
               class="th-caret"
-              :name="props.sort.dir < 0 ? 'chevronDown' : 'chevronUp'"
+              :name="levelForField(column.key).dir < 0 ? 'chevronDown' : 'chevronUp'"
               :stroke-width="2"
             />
           </button>

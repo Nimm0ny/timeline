@@ -690,3 +690,16 @@ test("groupTimelineEvents reverses era group order for a descending time sort", 
   assert.deepEqual(desc.map((group) => group.title), ["民国", "清代"]);
   assert.deepEqual(desc[0].items.map((event) => event.id), [2]);
 });
+
+test("groupTimelineEvents by year buckets undated notes into 未定时间, not a null-year group", () => {
+  const events = [
+    { id: 1, dateKey: 19000101, dateParts: { year: 1900, month: 1, day: 1 } },
+    { id: 2, hasDate: false },
+    { id: 3, dateKey: 18000101, dateParts: { year: 1800, month: 1, day: 1 } },
+  ];
+  const groups = groupTimelineEvents(events, "year", "", [], { field: "time", dir: 1 });
+  const titles = groups.map((group) => group.title);
+  assert.ok(titles.includes("1800") && titles.includes("1900") && titles.includes("未定时间"));
+  assert.ok(!titles.some((title) => title.includes("null") || title === "")); // no fabricated null-year bucket
+  assert.equal(groups[groups.length - 1].title, "未定时间"); // undated sinks last
+});

@@ -27,6 +27,7 @@ import {
   matchesEventSearch,
   matchesPropertyFilter,
   mindmapRootData,
+  normalizeSortLevels,
   normalizeTopicColumns,
   resolveDisplayStyle,
 } from "@/utils/timelineNotes";
@@ -47,9 +48,12 @@ const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
 const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
-// Center-column sort persists per notebook (docs/center-sort-design.md), keyed
-// like the built-in column widths' `tl-colw:` — no data-contract change.
+// Center-column sort + timeline grouping dimension persist per notebook
+// (docs/center-sort-design.md), keyed like the built-in column widths' `tl-colw:`
+// — no data-contract change. The sort sentinel "favorites" owns the cross-notebook
+// favorites view (no single owning notebook).
 const SORT_STORAGE_PREFIX = "tl-sort:";
+const GROUPBY_STORAGE_PREFIX = "tl-groupby:";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
@@ -74,27 +78,44 @@ function writeStorage(key, value) {
   window.localStorage.setItem(key, String(value));
 }
 
-function normalizeSort(sort) {
-  return { field: String(sort?.field || "time"), dir: Number(sort?.dir) < 0 ? -1 : 1 };
+// Favorites (cross-notebook) defaults to most-recently-favorited first; a real
+// notebook to today's single time-ascending level.
+function defaultSortFor(key) {
+  return key === "favorites" ? [{ field: "favorited", dir: -1 }] : normalizeSortLevels(DEFAULT_SORT);
 }
 
-function loadSort(topicId) {
-  if (!topicId) return { ...DEFAULT_SORT };
-  const raw = readStorage(SORT_STORAGE_PREFIX + topicId, "");
-  if (!raw) return { ...DEFAULT_SORT };
+function loadSort(key) {
+  if (!key) return normalizeSortLevels(DEFAULT_SORT);
+  const raw = readStorage(SORT_STORAGE_PREFIX + key, "");
+  if (!raw) return defaultSortFor(key);
   try {
-    return normalizeSort(JSON.parse(raw));
+    // normalizeSortLevels also upgrades a legacy single-object sort into a level list.
+    return normalizeSortLevels(JSON.parse(raw));
   } catch {
-    return { ...DEFAULT_SORT };
+    return defaultSortFor(key);
   }
 }
 
-function persistSort(topicId, sort) {
-  if (!topicId) return;
+function persistSort(key, sort) {
+  if (!key) return;
   try {
-    writeStorage(SORT_STORAGE_PREFIX + topicId, JSON.stringify(normalizeSort(sort)));
+    writeStorage(SORT_STORAGE_PREFIX + key, JSON.stringify(normalizeSortLevels(sort)));
   } catch {
     /* storage disabled/full — the sort still applies for the session */
+  }
+}
+
+function loadGroupBy(topicId) {
+  const raw = topicId ? readStorage(GROUPBY_STORAGE_PREFIX + topicId, "") : "";
+  return ["era", "year", "month"].includes(raw) ? raw : "era";
+}
+
+function persistGroupBy(topicId, groupBy) {
+  if (!topicId) return;
+  try {
+    writeStorage(GROUPBY_STORAGE_PREFIX + topicId, groupBy);
+  } catch {
+    /* storage disabled/full — grouping still applies for the session */
   }
 }
 
@@ -192,8 +213,10 @@ const state = reactive({
   relatedPreviewStyle: {},
   topicCreateRequestKey: 0,
   editPreview: null,
-  // Center-column sort { field, dir }; reloaded per notebook from localStorage.
-  sort: { ...DEFAULT_SORT },
+  // Center-column sort (ordered { field, dir } levels) + timeline grouping
+  // dimension; both reloaded per notebook from localStorage.
+  sort: normalizeSortLevels(DEFAULT_SORT),
+  groupBy: "era",
 });
 
 let resizeCleanup = null;
@@ -328,33 +351,51 @@ const feedCapabilities = computed(() => {
 const showViewSwitcher = computed(
   () => !isMobile.value && !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
 );
-// Sort (docs/center-sort-design.md): direction is universal, field is clamped to
-// what the effective view can sort — so a table sorted by 类型 degrades to the same
-// direction on time when switching to a grouped view. Mirrors the feed's own
+// Sort (docs/center-sort-design.md): direction is universal, fields are clamped to
+// what the effective view can sort. Cross-notebook favorites renders as a flat list
+// (own owner key + 收藏时间 field); otherwise the effective view mirrors the feed's
 // effectiveView() (resolveDisplayStyle + mobile→timeline) so both agree on the clamp.
-const effectiveDisplayStyle = computed(() =>
-  isMobile.value ? "timeline" : resolveDisplayStyle(feedDisplayStyle.value, feedCapabilities.value)
-);
+const effectiveDisplayStyle = computed(() => {
+  if (isMobile.value) return "timeline";
+  if (isGlobalFavoritesMode.value) return "list";
+  return resolveDisplayStyle(feedDisplayStyle.value, feedCapabilities.value);
+});
 // Clamp/compare against the SAME columns the feed renders (feedColumns is [] in
-// cross-notebook favorites) so the page and the feed never disagree on which custom
-// fields are sortable — outside favorites this is identical to topicColumns.
-const activeSort = computed(() => clampSortForView(state.sort, effectiveDisplayStyle.value, feedColumns.value));
+// favorites) so the page and feed never disagree on which fields are sortable. The
+// favorites-sort context only applies when favorites actually renders flat — on
+// mobile it stays the era-grouped timeline (§9), so it keeps time-only sorting
+// rather than ordering a grouped list by 收藏时间.
+const favoritesSortContext = computed(() => isGlobalFavoritesMode.value && !isMobile.value);
+const activeSort = computed(() =>
+  clampSortForView(state.sort, effectiveDisplayStyle.value, feedColumns.value, favoritesSortContext.value)
+);
 const activeComparator = computed(() => compareEventsBySort(activeSort.value, feedColumns.value));
 
-// Reload the per-notebook sort whenever the active notebook changes (and on mount).
+// The sort owner is the notebook, or the "favorites" sentinel for the cross-notebook
+// favorites view. Reload sort (owner-scoped) and grouping (per notebook) whenever
+// either changes (and on mount).
+function sortOwnerKey() {
+  return isGlobalFavoritesMode.value ? "favorites" : state.activeTopicId;
+}
 watch(
-  () => state.activeTopicId,
-  (topicId) => {
-    state.sort = loadSort(topicId);
+  () => [isGlobalFavoritesMode.value, state.activeTopicId],
+  () => {
+    state.sort = loadSort(sortOwnerKey());
+    state.groupBy = loadGroupBy(state.activeTopicId);
   },
   { immediate: true }
 );
 
 function changeSort(sort) {
-  const next = normalizeSort(sort);
+  const next = normalizeSortLevels(sort);
   state.sort = next;
-  // Cross-notebook favorites has no single owner notebook — keep it session-only.
-  if (!isGlobalFavoritesMode.value) persistSort(state.activeTopicId, next);
+  persistSort(sortOwnerKey(), next);
+}
+
+function changeGroupBy(groupBy) {
+  const next = ["era", "year", "month"].includes(groupBy) ? groupBy : "era";
+  state.groupBy = next;
+  persistGroupBy(state.activeTopicId, next);
 }
 // Visible now means visible: once a user turns a property column on, the center
 // feed renders it even if every current row would show "—". This keeps the eye
@@ -490,7 +531,7 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
 }
 
 const visibleEvents = computed(() => filterEvents());
-const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "era", "", feedColumns.value, activeSort.value));
+const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, state.groupBy, "", feedColumns.value, activeSort.value));
 
 const feedEmptyReason = computed(() => {
   if (state.error) return "";
@@ -2055,6 +2096,7 @@ watch(
       :display-style="feedDisplayStyle"
       :capabilities="feedCapabilities"
       :sort="activeSort"
+      :group-by="state.groupBy"
       :show-view-switcher="showViewSwitcher"
       :search-placeholder="isGlobalFavoritesMode ? '搜索跨本收藏' : '搜索当前时间线'"
       :search-request-key="state.searchRequestKey"
@@ -2066,6 +2108,7 @@ watch(
       @save-columns="saveTopicColumns"
       @change-view="changeDisplayStyle"
       @change-sort="changeSort"
+      @change-group-by="changeGroupBy"
       @resize-column="resizeTopicColumn"
       @select-event="selectEvent"
       @toggle-favorite="toggleFavorite"

@@ -1486,6 +1486,44 @@ button {
   flex: none;
 }
 
+/* Sort popover: section subheading (divides 分组/方向 and the multi-sort levels
+   from the "添加排序层" list) plus the per-level remove / add affordances. */
+.pop-subtitle {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 8px 8px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.pop-sort-del {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  border-radius: var(--radius-sm);
+}
+
+.pop-sort-del:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.pop-sort-add .pop-item-add-ic {
+  flex: none;
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.pop-sort-add:hover .pop-item-add-ic {
+  opacity: 1;
+}
+
 /* Right-pane actionbar ⋮ menu: anchors a .popover under the kebab button. */
 .kebab-wrap {
   position: relative;

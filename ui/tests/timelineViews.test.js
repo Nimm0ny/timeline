@@ -7,13 +7,13 @@ import {
   BOARD_UNASSIGNED_ID,
   buildBoardGroups,
   clampSortForView,
-  compareEventsByColumn,
   compareEventsBySort,
   countMindmapNodes,
   IMPLEMENTED_DISPLAY_STYLES,
   isDefaultSort,
   MINDMAP_LAYOUTS,
   mindmapRootData,
+  normalizeSortLevels,
   pickBoardColumn,
   resolveDisplayStyle,
   sortFieldsForView,
@@ -71,27 +71,6 @@ test("resolveDisplayStyle respects the persisted style when capabilities are unk
   assert.equal(resolveDisplayStyle("timeline", []), "timeline");
 });
 
-test("compareEventsByColumn sorts by time via dateKey, direction-aware", () => {
-  const a = { id: 1, dateKey: 18400101 };
-  const b = { id: 2, dateKey: 18420101 };
-  assert.deepEqual([b, a].sort(compareEventsByColumn({ key: "time" }, 1)).map((e) => e.id), [1, 2]);
-  assert.deepEqual([a, b].sort(compareEventsByColumn({ key: "time" }, -1)).map((e) => e.id), [2, 1]);
-});
-
-test("compareEventsByColumn sorts a free-text column by its rendered value", () => {
-  const column = { key: "place", type: "text" };
-  const a = { id: 1, dateKey: 1, extra: { place: "Berlin" } };
-  const b = { id: 2, dateKey: 2, extra: { place: "Athens" } };
-  // Athens < Berlin → id 2 first.
-  assert.deepEqual([a, b].sort(compareEventsByColumn(column, 1)).map((e) => e.id), [2, 1]);
-});
-
-test("compareEventsByColumn sorts a checkbox column checked-first", () => {
-  const column = { key: "done", type: "checkbox" };
-  const a = { id: 1, dateKey: 1, extra: { done: "false" } };
-  const b = { id: 2, dateKey: 2, extra: { done: "true" } };
-  assert.deepEqual([a, b].sort(compareEventsByColumn(column, 1)).map((e) => e.id), [2, 1]);
-});
 
 const SELECT_COL = {
   key: "type",
@@ -349,27 +328,71 @@ test("compareEventsBySort delegates custom columns to the column engine", () => 
   assert.deepEqual(sortIds(textEvents, { field: "note", dir: 1 }, text), [2, 1]);
 });
 
-test("clampSortForView keeps direction but drops fields a view can't sort", () => {
-  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "timeline"), { field: "time", dir: -1 });
-  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "list"), { field: "title", dir: -1 });
-  assert.deepEqual(clampSortForView({ field: "ghost", dir: 1 }, "table", []), { field: "time", dir: 1 });
+test("clampSortForView keeps direction but drops fields a view can't sort (array shape)", () => {
+  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "timeline"), [{ field: "time", dir: -1 }]);
+  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "list"), [{ field: "title", dir: -1 }]);
+  assert.deepEqual(clampSortForView({ field: "ghost", dir: 1 }, "table", []), [{ field: "time", dir: 1 }]);
   // table has no created/updated column, so it can't sort by them (doc §4).
-  assert.deepEqual(clampSortForView({ field: "created", dir: -1 }, "table", []), { field: "time", dir: -1 });
+  assert.deepEqual(clampSortForView({ field: "created", dir: -1 }, "table", []), [{ field: "time", dir: -1 }]);
 });
 
-test("sortFieldsForView exposes the right fields per view", () => {
+test("clampSortForView clamps every level and dedupes fields that collapse onto time", () => {
+  const cols = [{ key: "pri", label: "优先级", type: "text", visible: true }];
+  // table multi-sort stays intact.
+  assert.deepEqual(clampSortForView([{ field: "pri", dir: 1 }, { field: "time", dir: -1 }], "table", cols), [
+    { field: "pri", dir: 1 },
+    { field: "time", dir: -1 },
+  ]);
+  // grouped view: pri→time (primary dir wins), the real time level dedupes away.
+  assert.deepEqual(clampSortForView([{ field: "pri", dir: 1 }, { field: "time", dir: -1 }], "timeline", cols), [
+    { field: "time", dir: 1 },
+  ]);
+});
+
+test("multi-level sort chains levels: primary orders, secondary breaks ties", () => {
+  const cols = [{ key: "kind", label: "类型", type: "text", visible: true }];
+  const events = [
+    { id: 1, dateKey: 19000101, extra: { kind: "b" } },
+    { id: 2, dateKey: 18000101, extra: { kind: "a" } },
+    { id: 3, dateKey: 18500101, extra: { kind: "a" } },
+  ];
+  // primary kind asc (a before b); secondary time desc within the a-group (1850 before 1800).
+  assert.deepEqual(sortIds(events, [{ field: "kind", dir: 1 }, { field: "time", dir: -1 }], cols), [3, 2, 1]);
+});
+
+test("favorited sort ranks by favoriteAt, unfavorited notes sink both ways", () => {
+  const events = [
+    { id: 1, favoriteAt: "2026-02-01T00:00:00Z" },
+    { id: 2 }, // never favorited → sinks
+    { id: 3, favoriteAt: "2026-03-01T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIds(events, { field: "favorited", dir: -1 }), [3, 1, 2]);
+  assert.deepEqual(sortIds(events, { field: "favorited", dir: 1 }), [1, 3, 2]);
+});
+
+test("sortFieldsForView exposes the right fields per view; favorites gets 收藏时间", () => {
   assert.deepEqual(sortFieldsForView("timeline").map((entry) => entry.field), ["time"]);
-  // list/gallery/board: four universal fields, never custom columns.
   assert.deepEqual(sortFieldsForView("list").map((entry) => entry.field), ["time", "title", "created", "updated"]);
   const columns = [{ key: "pri", label: "优先级", type: "text", visible: true }];
   assert.ok(!sortFieldsForView("list", columns).some((entry) => entry.field === "pri"));
-  // table: time/title + visible custom columns, and NOT created/updated (no such column).
   assert.deepEqual(sortFieldsForView("table", columns).map((entry) => entry.field), ["time", "title", "pri"]);
   assert.ok(sortFieldsForView("table", columns).some((entry) => entry.field === "pri" && entry.custom));
+  // cross-notebook favorites (flat) → time / title / 收藏时间, regardless of view or columns.
+  assert.deepEqual(sortFieldsForView("list", columns, true).map((entry) => entry.field), ["time", "title", "favorited"]);
 });
 
-test("isDefaultSort recognizes only time-ascending", () => {
+test("normalizeSortLevels coerces shapes, dedupes fields, guarantees ≥1 level", () => {
+  assert.deepEqual(normalizeSortLevels({ field: "time", dir: -1 }), [{ field: "time", dir: -1 }]); // legacy single object
+  assert.deepEqual(normalizeSortLevels([]), [{ field: "time", dir: 1 }]); // empty → default
+  assert.deepEqual(normalizeSortLevels([{ field: "title", dir: 1 }, { field: "title", dir: -1 }]), [
+    { field: "title", dir: 1 }, // duplicate field dropped, first wins
+  ]);
+});
+
+test("isDefaultSort recognizes only a single time-ascending level", () => {
   assert.equal(isDefaultSort({ field: "time", dir: 1 }), true);
+  assert.equal(isDefaultSort([{ field: "time", dir: 1 }]), true);
   assert.equal(isDefaultSort({ field: "time", dir: -1 }), false);
+  assert.equal(isDefaultSort([{ field: "time", dir: 1 }, { field: "title", dir: 1 }]), false);
   assert.equal(isDefaultSort({ field: "title", dir: 1 }), false);
 });

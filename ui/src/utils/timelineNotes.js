@@ -565,45 +565,45 @@ export function resolveDisplayStyle(style, capabilities) {
   return IMPLEMENTED_DISPLAY_STYLES.find(usable) || DEFAULT_DISPLAY_STYLE;
 }
 
-// Per-column comparator (dir 1 asc / -1 desc), reused as the custom-column engine
-// of compareEventsBySort. time → dateKey numeric; checkbox → checked first;
-// otherwise the localized rendered value. A stable id tiebreaker keeps equal rows
-// from jittering between sorts.
-export function compareEventsByColumn(column, dir = 1) {
-  const sign = dir < 0 ? -1 : 1;
-  return (a, b) => {
-    let primary;
-    if (!column || column.key === "time") {
-      primary = (a?.dateKey || 0) - (b?.dateKey || 0);
-    } else if (column.type === "checkbox") {
-      primary = (isCheckboxChecked(b?.extra?.[column.key]) ? 1 : 0) - (isCheckboxChecked(a?.extra?.[column.key]) ? 1 : 0);
-    } else {
-      primary = String(eventColumnValue(a, column)).localeCompare(String(eventColumnValue(b, column)), "zh");
-    }
-    return primary * sign || (a?.id || 0) - (b?.id || 0);
-  };
-}
-
 // --- Center-column sort (docs/center-sort-design.md) -----------------------
-// One `{ field, dir }` state drives every view: direction is universal, field is
-// clamped per view. Default = time asc, i.e. today's behavior (zero change).
-export const DEFAULT_SORT = { field: "time", dir: 1 };
+// Sort is an ORDERED LIST of { field, dir } levels: the first is primary, the rest
+// are tiebreakers (multi-level sort). Direction is universal, fields are clamped
+// per view. Default = a single time-asc level = today's behavior (zero change).
+export const DEFAULT_SORT = [{ field: "time", dir: 1 }];
 export const SORT_FIELD_META = {
   time: { label: "时间", icon: "calendar" },
   title: { label: "标题", icon: "type" },
   created: { label: "创建时间", icon: "clock" },
   updated: { label: "更新时间", icon: "clock" },
+  favorited: { label: "收藏时间", icon: "star" },
 };
-const BUILTIN_SORT_FIELDS = new Set(["time", "title", "created", "updated"]);
-const TIMESTAMP_SORT_KEYS = { created: "createdAt", updated: "updatedAt" };
+const BUILTIN_SORT_FIELDS = new Set(["time", "title", "created", "updated", "favorited"]);
+const TIMESTAMP_SORT_KEYS = { created: "createdAt", updated: "updatedAt", favorited: "favoriteAt" };
 const TITLE_SORT_COLUMN = { key: "title" };
-
-export function isDefaultSort(sort) {
-  return String(sort?.field || "time") === "time" && (Number(sort?.dir) < 0 ? -1 : 1) === 1;
-}
 
 function normalizeSortDir(dir) {
   return Number(dir) < 0 ? -1 : 1;
+}
+
+// Coerce any sort input (a single { field, dir }, a level array, or junk) into a
+// clean ordered level list: each field appears once, dirs normalized, always ≥1
+// level. Accepts the legacy single-object shape so old persisted sorts upgrade.
+export function normalizeSortLevels(sort) {
+  const raw = Array.isArray(sort) ? sort : sort ? [sort] : [];
+  const seen = new Set();
+  const levels = [];
+  for (const level of raw) {
+    const field = String(level?.field || "time");
+    if (seen.has(field)) continue;
+    seen.add(field);
+    levels.push({ field, dir: normalizeSortDir(level?.dir) });
+  }
+  return levels.length ? levels : [{ field: "time", dir: 1 }];
+}
+
+export function isDefaultSort(sort) {
+  const levels = normalizeSortLevels(sort);
+  return levels.length === 1 && levels[0].field === "time" && levels[0].dir === 1;
 }
 
 function sortTimestamp(event, field) {
@@ -629,45 +629,66 @@ function timeSortRank(event) {
   return { sunk: false, key: event?.dateKey || 0 };
 }
 
-function compareByTime(dir) {
+// Per-LEVEL comparators return that field's order (sink-aware, direction-applied)
+// and 0 when two events tie on the field — NO id tiebreak, so the next level can
+// break the tie. compareEventsBySort chains them and applies one id tiebreak last.
+function timeLevelCompare(dir) {
   return (a, b) => {
     const ra = timeSortRank(a);
     const rb = timeSortRank(b);
     if (ra.sunk !== rb.sunk) return ra.sunk ? 1 : -1;
-    // Sunk events (「更早」 bucket, undated) never reverse — keep them chronological by
-    // dateKey (matching the legacy compareTimelineEvents order) so the default sort
-    // stays byte-for-byte today's order inside the 更早 catch-all bucket.
-    if (ra.sunk) return ra.key - rb.key || (a?.dateKey || 0) - (b?.dateKey || 0) || (a?.id || 0) - (b?.id || 0);
-    return (ra.key - rb.key) * dir || (a?.id || 0) - (b?.id || 0);
+    // Sunk events (「更早」 bucket, undated) never reverse — keep them chronological
+    // by dateKey (legacy compareTimelineEvents order) so the default stays today's.
+    if (ra.sunk) return ra.key - rb.key || (a?.dateKey || 0) - (b?.dateKey || 0);
+    return (ra.key - rb.key) * dir;
   };
 }
 
-// Build the active comparator from `{ field, dir }`. `time` gets the sink-aware
-// comparator above (unifying the timeline and the old table time-sort, which used
-// a naive dateKey); custom columns delegate to compareEventsByColumn (unchanged
-// table semantics); title/timestamps sink missing values then apply direction.
-export function compareEventsBySort(sort, columns = []) {
-  const field = String(sort?.field || "time");
-  const dir = normalizeSortDir(sort?.dir);
-  if (field === "time") return compareByTime(dir);
-  if (!BUILTIN_SORT_FIELDS.has(field)) {
-    const column = normalizeTopicColumns(columns).find((col) => col.key === field);
-    // Deleted-column safety (clamp normally prevents this): fall back to time in the
-    // requested direction rather than silently forcing ascending.
-    return column ? compareEventsByColumn(column, dir) : compareByTime(dir);
-  }
+function builtinLevelCompare(field, dir) {
   return (a, b) => {
     const ha = builtinFieldHasValue(a, field);
     const hb = builtinFieldHasValue(b, field);
     if (ha !== hb) return ha ? -1 : 1;
-    let primary = 0;
-    if (ha) {
-      primary =
-        field === "title"
-          ? String(eventColumnValue(a, TITLE_SORT_COLUMN)).localeCompare(String(eventColumnValue(b, TITLE_SORT_COLUMN)), "zh")
-          : (sortTimestamp(a, field) || 0) - (sortTimestamp(b, field) || 0);
+    if (!ha) return 0;
+    const primary =
+      field === "title"
+        ? String(eventColumnValue(a, TITLE_SORT_COLUMN)).localeCompare(String(eventColumnValue(b, TITLE_SORT_COLUMN)), "zh")
+        : (sortTimestamp(a, field) || 0) - (sortTimestamp(b, field) || 0);
+    return primary * dir;
+  };
+}
+
+// Custom column level (unchanged table semantics): checkbox → checked-first,
+// otherwise the localized rendered value; empties render "—" and sort as such.
+function columnLevelCompare(column, dir) {
+  return (a, b) => {
+    if (column.type === "checkbox") {
+      return ((isCheckboxChecked(b?.extra?.[column.key]) ? 1 : 0) - (isCheckboxChecked(a?.extra?.[column.key]) ? 1 : 0)) * dir;
     }
-    return primary * dir || (a?.id || 0) - (b?.id || 0);
+    return String(eventColumnValue(a, column)).localeCompare(String(eventColumnValue(b, column)), "zh") * dir;
+  };
+}
+
+function levelComparator(level, columns) {
+  const field = String(level?.field || "time");
+  const dir = normalizeSortDir(level?.dir);
+  if (field === "time") return timeLevelCompare(dir);
+  if (BUILTIN_SORT_FIELDS.has(field)) return builtinLevelCompare(field, dir);
+  const column = normalizeTopicColumns(columns).find((col) => col.key === field);
+  // Deleted-column safety (clamp normally prevents this): fall back to time.
+  return column ? columnLevelCompare(column, dir) : timeLevelCompare(dir);
+}
+
+// Build the active comparator from a sort level list: chain the per-level
+// comparators (first non-zero wins), closed by a stable id tiebreak.
+export function compareEventsBySort(sort, columns = []) {
+  const comparators = normalizeSortLevels(sort).map((level) => levelComparator(level, columns));
+  return (a, b) => {
+    for (const compare of comparators) {
+      const result = compare(a, b);
+      if (result) return result;
+    }
+    return (a?.id || 0) - (b?.id || 0);
   };
 }
 
@@ -676,11 +697,12 @@ function sortFieldEntry(field) {
 }
 
 // Which fields a view may sort by (docs §4). Each view only promises dimensions it
-// can actually show: grouped views (timeline/outline) → time only (rendered as a
-// 正序/倒序 toggle); table → time/title + every visible custom column (all of which
-// are real column headers, so a header caret always exists); list/gallery/board →
-// the four universal fields (no custom columns, which those cards don't surface).
-export function sortFieldsForView(view, columns = []) {
+// can show: cross-notebook favorites (rendered flat) → time/title/收藏时间; grouped
+// views (timeline/outline) → time only; table → time/title + every visible custom
+// column (real headers, so a caret always exists); list/gallery/board → the four
+// universal fields (no custom columns, which those cards don't surface).
+export function sortFieldsForView(view, columns = [], favorites = false) {
+  if (favorites) return ["time", "title", "favorited"].map(sortFieldEntry);
   if (view === "timeline" || view === "outline") return [sortFieldEntry("time")];
   if (view === "table") {
     const fields = [sortFieldEntry("time"), sortFieldEntry("title")];
@@ -692,14 +714,20 @@ export function sortFieldsForView(view, columns = []) {
   return ["time", "title", "created", "updated"].map(sortFieldEntry);
 }
 
-// Direction universal, field clamped: keep `dir`, keep `field` when the target
-// view supports it, else fall back to time (e.g. table sorted by 类型 → timeline
-// → time, same direction). Also rescues a field pointing at a deleted column.
-export function clampSortForView(sort, view, columns = []) {
-  const dir = normalizeSortDir(sort?.dir);
-  const field = String(sort?.field || "time");
-  const allowed = new Set(sortFieldsForView(view, columns).map((entry) => entry.field));
-  return { field: allowed.has(field) ? field : "time", dir };
+// Direction universal, fields clamped per view: keep each level's dir, drop levels
+// whose field the view can't sort (collapsing them onto time, then deduping), so a
+// table multi-sort degrades to a single time level on a grouped view. Always ≥1.
+export function clampSortForView(sort, view, columns = [], favorites = false) {
+  const allowed = new Set(sortFieldsForView(view, columns, favorites).map((entry) => entry.field));
+  const seen = new Set();
+  const levels = [];
+  for (const level of normalizeSortLevels(sort)) {
+    const field = allowed.has(level.field) ? level.field : "time";
+    if (seen.has(field)) continue;
+    seen.add(field);
+    levels.push({ field, dir: level.dir });
+  }
+  return levels.length ? levels : [{ field: "time", dir: 1 }];
 }
 
 // A property column "has a value" for an event when the row renders something
@@ -1119,16 +1147,15 @@ export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", c
     const buckets = new Map();
     for (const event of filtered) {
       const parts = event.dateParts || {};
-      const isEarlier = event?.era === "更早";
-      const bucketKey = isEarlier ? "earlier" : groupBy === "month" ? `${parts.year}-${padTwo(parts.month)}` : String(parts.year ?? "");
+      // Undated notes have no year/month, so they get their own trailing bucket
+      // (the sort already sinks them last) instead of a fabricated "null年" group.
+      const undated = !eventHasDate(event);
+      const isEarlier = !undated && event?.era === "更早";
+      const bucketKey = undated ? "undated" : isEarlier ? "earlier" : groupBy === "month" ? `${parts.year}-${padTwo(parts.month)}` : String(parts.year ?? "");
+      const title = undated ? "未定时间" : isEarlier ? "更早" : groupBy === "month" ? `${parts.year}年${parts.month}月` : String(parts.year ?? "");
 
       if (!buckets.has(bucketKey)) {
-        buckets.set(bucketKey, {
-          key: bucketKey,
-          title: isEarlier ? "更早" : groupBy === "month" ? `${parts.year}年${parts.month}月` : String(parts.year ?? ""),
-          subtitle: "",
-          items: [],
-        });
+        buckets.set(bucketKey, { key: bucketKey, title, subtitle: "", items: [] });
       }
 
       buckets.get(bucketKey).items.push(event);
