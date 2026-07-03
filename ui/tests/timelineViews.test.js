@@ -6,14 +6,22 @@ import {
   availableDisplayViews,
   BOARD_UNASSIGNED_ID,
   buildBoardGroups,
+  clampSortForView,
   compareEventsByColumn,
+  compareEventsBySort,
   countMindmapNodes,
   IMPLEMENTED_DISPLAY_STYLES,
+  isDefaultSort,
   MINDMAP_LAYOUTS,
   mindmapRootData,
   pickBoardColumn,
   resolveDisplayStyle,
+  sortFieldsForView,
 } from "../src/utils/timelineNotes.js";
+
+function sortIds(events, sort, columns = []) {
+  return [...events].sort(compareEventsBySort(sort, columns)).map((event) => event.id);
+}
 
 test("availableDisplayViews lists only implemented views, flagged per capability", () => {
   const views = availableDisplayViews(["timeline", "table", "list", "board"]);
@@ -257,4 +265,111 @@ test("MINDMAP_LAYOUTS exposes the X6 free/tree presets with stable keys", () => 
   assert.ok(keys.includes("organizationStructure"));
   assert.equal(new Set(keys).size, keys.length); // no dupes
   assert.ok(MINDMAP_LAYOUTS.every((item) => item.key && item.label));
+});
+
+// --- Center-column sort (docs/center-sort-design.md) -----------------------
+
+test("compareEventsBySort orders by time and reverses on descending", () => {
+  const events = [
+    { id: 1, dateKey: 19000101 },
+    { id: 2, dateKey: 18000101 },
+    { id: 3, dateKey: 18500101 },
+  ];
+  assert.deepEqual(sortIds(events, { field: "time", dir: 1 }), [2, 3, 1]);
+  assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [1, 3, 2]);
+});
+
+test("compareEventsBySort sinks undated notes to the bottom in BOTH directions", () => {
+  const events = [
+    { id: 1, hasDate: false },
+    { id: 2, dateKey: 18000101 },
+    { id: 3, dateKey: 19000101 },
+  ];
+  // asc: dated ascending, undated last; desc: dated reversed, undated STILL last
+  // (a naive * -1 would float the value-less note to the top — the bug we avoid).
+  assert.deepEqual(sortIds(events, { field: "time", dir: 1 }), [2, 3, 1]);
+  assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [3, 2, 1]);
+});
+
+test("compareEventsBySort sinks the 更早 bucket below real-dated notes both ways", () => {
+  const events = [
+    { id: 1, dateKey: -50000101, era: "更早" },
+    { id: 2, dateKey: 18000101 },
+    { id: 3, dateKey: 19000101 },
+  ];
+  assert.deepEqual(sortIds(events, { field: "time", dir: 1 }), [2, 3, 1]);
+  assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [3, 2, 1]);
+});
+
+test("compareEventsBySort sorts title localized and timestamps with missing-sinks", () => {
+  const byTitle = [
+    { id: 1, headline: "banana" },
+    { id: 2, headline: "apple" },
+    { id: 3, headline: "cherry" },
+  ];
+  assert.deepEqual(sortIds(byTitle, { field: "title", dir: 1 }), [2, 1, 3]);
+  assert.deepEqual(sortIds(byTitle, { field: "title", dir: -1 }), [3, 1, 2]);
+
+  const byCreated = [
+    { id: 1, createdAt: "2026-01-03T00:00:00Z" },
+    { id: 2, createdAt: "2026-01-01T00:00:00Z" },
+    { id: 3 }, // no createdAt → sinks in both directions
+  ];
+  assert.deepEqual(sortIds(byCreated, { field: "created", dir: 1 }), [2, 1, 3]);
+  assert.deepEqual(sortIds(byCreated, { field: "created", dir: -1 }), [1, 2, 3]);
+});
+
+test("time sort keeps chronological order INSIDE the 更早 bucket (zero-change default)", () => {
+  // Two 更早 events whose id order disagrees with dateKey order: the sunk bucket must
+  // still order by dateKey (legacy compareTimelineEvents behavior), not by id.
+  const events = [
+    { id: 10, dateKey: -70000101, era: "更早" }, // older
+    { id: 3, dateKey: -50000101, era: "更早" }, // newer
+    { id: 2, dateKey: 18000101 },
+  ];
+  assert.deepEqual(sortIds(events, { field: "time", dir: 1 }), [2, 10, 3]);
+  // desc reverses only the real-dated span; the 更早 bucket stays chronological + last.
+  assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [2, 10, 3]);
+});
+
+test("compareEventsBySort delegates custom columns to the column engine", () => {
+  const checkbox = [{ key: "done", label: "完成", type: "checkbox", visible: true }];
+  const checkEvents = [
+    { id: 1, extra: { done: "false" } },
+    { id: 2, extra: { done: "true" } },
+  ];
+  assert.deepEqual(sortIds(checkEvents, { field: "done", dir: 1 }, checkbox), [2, 1]);
+  assert.deepEqual(sortIds(checkEvents, { field: "done", dir: -1 }, checkbox), [1, 2]);
+
+  const text = [{ key: "note", label: "备注", type: "text", visible: true }];
+  const textEvents = [
+    { id: 1, extra: { note: "beta" } },
+    { id: 2, extra: { note: "alpha" } },
+  ];
+  assert.deepEqual(sortIds(textEvents, { field: "note", dir: 1 }, text), [2, 1]);
+});
+
+test("clampSortForView keeps direction but drops fields a view can't sort", () => {
+  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "timeline"), { field: "time", dir: -1 });
+  assert.deepEqual(clampSortForView({ field: "title", dir: -1 }, "list"), { field: "title", dir: -1 });
+  assert.deepEqual(clampSortForView({ field: "ghost", dir: 1 }, "table", []), { field: "time", dir: 1 });
+  // table has no created/updated column, so it can't sort by them (doc §4).
+  assert.deepEqual(clampSortForView({ field: "created", dir: -1 }, "table", []), { field: "time", dir: -1 });
+});
+
+test("sortFieldsForView exposes the right fields per view", () => {
+  assert.deepEqual(sortFieldsForView("timeline").map((entry) => entry.field), ["time"]);
+  // list/gallery/board: four universal fields, never custom columns.
+  assert.deepEqual(sortFieldsForView("list").map((entry) => entry.field), ["time", "title", "created", "updated"]);
+  const columns = [{ key: "pri", label: "优先级", type: "text", visible: true }];
+  assert.ok(!sortFieldsForView("list", columns).some((entry) => entry.field === "pri"));
+  // table: time/title + visible custom columns, and NOT created/updated (no such column).
+  assert.deepEqual(sortFieldsForView("table", columns).map((entry) => entry.field), ["time", "title", "pri"]);
+  assert.ok(sortFieldsForView("table", columns).some((entry) => entry.field === "pri" && entry.custom));
+});
+
+test("isDefaultSort recognizes only time-ascending", () => {
+  assert.equal(isDefaultSort({ field: "time", dir: 1 }), true);
+  assert.equal(isDefaultSort({ field: "time", dir: -1 }), false);
+  assert.equal(isDefaultSort({ field: "title", dir: 1 }), false);
 });

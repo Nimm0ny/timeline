@@ -678,3 +678,15 @@ test("propertyHref builds safe hrefs and neutralizes script schemes", () => {
   assert.equal(propertyHref("url", ""), "");
   assert.equal(propertyHref("text", "x"), "");
 });
+
+test("groupTimelineEvents reverses era group order for a descending time sort", () => {
+  const events = [
+    { id: 1, dateKey: 18000101, dateParts: { year: 1800, month: 1, day: 1 }, era: "清代" },
+    { id: 2, dateKey: 19000101, dateParts: { year: 1900, month: 1, day: 1 }, era: "民国" },
+  ];
+  const asc = groupTimelineEvents(events, "era", "", [], { field: "time", dir: 1 });
+  const desc = groupTimelineEvents(events, "era", "", [], { field: "time", dir: -1 });
+  assert.deepEqual(asc.map((group) => group.title), ["清代", "民国"]);
+  assert.deepEqual(desc.map((group) => group.title), ["民国", "清代"]);
+  assert.deepEqual(desc[0].items.map((event) => event.id), [2]);
+});

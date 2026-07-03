@@ -12,15 +12,17 @@ import {
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   clampTimelineColumnWidth,
-  compareEventsByColumn,
+  compareEventsBySort,
   dateKeyFromLocator,
   DISPLAY_VIEW_META,
   eventColumnValue,
   isCheckboxChecked,
+  isDefaultSort,
   isOptionColumn,
   pickBoardColumn,
   resolveDisplayStyle,
   resolvePropertyChips,
+  sortFieldsForView,
   timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
 } from "@/utils/timelineNotes";
@@ -123,6 +125,12 @@ const props = defineProps({
     type: String,
     default: "timeline",
   },
+  // Active sort { field, dir } for the center column, already clamped by the page
+  // to what the effective view can sort (docs/center-sort-design.md).
+  sort: {
+    type: Object,
+    default: () => ({ field: "time", dir: 1 }),
+  },
   capabilities: {
     type: Array,
     default: () => [],
@@ -163,6 +171,7 @@ const emit = defineEmits([
   "toggle-preview",
   "save-columns",
   "resize-column",
+  "change-sort",
   "batch-favorite",
   "batch-trash",
   "batch-restore",
@@ -173,7 +182,7 @@ const emit = defineEmits([
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
-// '' | 'locator' | 'columns' — only one may be open at a time.
+// '' | 'locator' | 'columns' | 'views' | 'sort' | 'newtype' — only one open at a time.
 const activePopover = ref("");
 const locatorValue = ref("");
 const searchOpen = ref(false);
@@ -195,8 +204,6 @@ let stopColumnResize = null;
 // restore/permanent), so no full-payload reconstruction is needed.
 const selectMode = ref(false);
 const selectedIds = ref([]);
-// Table view column sort (default: time ascending); clicking the active header flips.
-const tableSort = ref({ key: "time", dir: 1 });
 // Outline view: era groups the user has collapsed (keyed by group.key).
 const collapsedGroups = ref(new Set());
 
@@ -278,14 +285,28 @@ function flatEvents() {
   return props.groups.flatMap((group) => group.items);
 }
 
-function setTableSort(key) {
-  tableSort.value = tableSort.value.key === key ? { key, dir: tableSort.value.dir * -1 } : { key, dir: 1 };
+// Sort control (docs/center-sort-design.md). The page owns { field, dir } and
+// clamps it per view; here we only surface options and emit changes. Flat views
+// (table/list/gallery) re-sort the flattened set directly, bypassing the era
+// grouping; grouped views read props.groups (already ordered by the page).
+function sortedFlatEvents() {
+  return [...flatEvents()].sort(compareEventsBySort(props.sort, props.columns));
 }
 
-function tableSortedEvents() {
-  const columns = visibleColumns();
-  const column = columns.find((col) => col.key === tableSort.value.key) || columns[0];
-  return [...flatEvents()].sort(compareEventsByColumn(column, tableSort.value.dir));
+function sortOptions() {
+  return sortFieldsForView(effectiveView(), props.columns);
+}
+
+// Pick a field (table header or the flat-view menu): re-selecting the active field
+// flips direction, a new field starts ascending.
+function applySortField(field) {
+  const dir = props.sort.field === field ? props.sort.dir * -1 : 1;
+  emit("change-sort", { field, dir });
+}
+
+// Grouped views (timeline/outline) only choose a time direction.
+function applySortDir(dir) {
+  emit("change-sort", { field: "time", dir });
 }
 
 // Board view: the option property to group by (SSOT-gated `board` capability
@@ -295,13 +316,14 @@ function boardColumn() {
 }
 
 function boardGroups() {
-  return buildBoardGroups(flatEvents(), boardColumn());
+  return buildBoardGroups(flatEvents(), boardColumn(), props.sort);
 }
 
-// Gallery view: every entry as a card; the primary image (thumb preferred) rides
-// the index DTO, empty for imageless entries (which render a placeholder).
+// Gallery view: every entry as a card, ordered by the active sort; the primary
+// image (thumb preferred) rides the index DTO, empty for imageless entries (which
+// render a placeholder).
 function galleryEvents() {
-  return flatEvents();
+  return sortedFlatEvents();
 }
 
 function eventThumb(event) {
@@ -548,9 +570,6 @@ watch(
   () => props.topicId,
   (topicId) => {
     builtinWidths.value = loadBuiltinWidths(topicId);
-    // Reset table sort to the default so a custom column sorted in one notebook
-    // doesn't silently carry a now-missing caret into the next.
-    tableSort.value = { key: "time", dir: 1 };
     // Drop outline collapse state (era keys are per-notebook) on notebook switch.
     collapsedGroups.value = new Set();
   },
@@ -691,6 +710,18 @@ onBeforeUnmount(() => {
         </button>
 
         <button
+          v-if="!props.mobile"
+          type="button"
+          class="iconbtn lg"
+          data-popover-anchor="sort"
+          :class="{ on: activePopover === 'sort' || !isDefaultSort(props.sort) }"
+          title="排序"
+          @click.stop="togglePopover('sort')"
+        >
+          <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
+        </button>
+
+        <button
           v-if="props.showViewSwitcher"
           type="button"
           class="iconbtn lg"
@@ -756,6 +787,51 @@ onBeforeUnmount(() => {
             <span class="pop-item-label">{{ view.label }}</span>
             <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
           </button>
+        </template>
+
+        <template v-else-if="activePopover === 'sort'">
+          <div class="pop-title">排序</div>
+          <template v-if="effectiveView() === 'timeline' || effectiveView() === 'outline'">
+            <button
+              type="button"
+              class="pop-item"
+              :class="{ 'is-active': props.sort.dir >= 0 }"
+              @click="applySortDir(1)"
+            >
+              <TimelineLucideIcon class="pop-item-ic" name="chevronUp" :stroke-width="1.5" />
+              <span class="pop-item-label">时间正序</span>
+              <TimelineLucideIcon v-if="props.sort.dir >= 0" class="pop-item-check" name="check" :stroke-width="2" />
+            </button>
+            <button
+              type="button"
+              class="pop-item"
+              :class="{ 'is-active': props.sort.dir < 0 }"
+              @click="applySortDir(-1)"
+            >
+              <TimelineLucideIcon class="pop-item-ic" name="chevronDown" :stroke-width="1.5" />
+              <span class="pop-item-label">时间倒序</span>
+              <TimelineLucideIcon v-if="props.sort.dir < 0" class="pop-item-check" name="check" :stroke-width="2" />
+            </button>
+          </template>
+          <template v-else>
+            <button
+              v-for="field in sortOptions()"
+              :key="field.field"
+              type="button"
+              class="pop-item"
+              :class="{ 'is-active': props.sort.field === field.field }"
+              @click="applySortField(field.field)"
+            >
+              <TimelineLucideIcon class="pop-item-ic" :name="field.icon" :stroke-width="1.5" />
+              <span class="pop-item-label">{{ field.label }}</span>
+              <TimelineLucideIcon
+                v-if="props.sort.field === field.field"
+                class="pop-item-check"
+                :name="props.sort.dir < 0 ? 'chevronDown' : 'chevronUp'"
+                :stroke-width="2"
+              />
+            </button>
+          </template>
         </template>
 
         <template v-else-if="activePopover === 'newtype'">
@@ -922,14 +998,14 @@ onBeforeUnmount(() => {
             :key="column.key"
             type="button"
             class="tl-col-head th-sort"
-            :class="{ 'is-sorted': tableSort.key === column.key }"
-            @click.stop="setTableSort(column.key)"
+            :class="{ 'is-sorted': props.sort.field === column.key }"
+            @click.stop="applySortField(column.key)"
           >
             <span>{{ column.label }}</span>
             <TimelineLucideIcon
-              v-if="tableSort.key === column.key"
+              v-if="props.sort.field === column.key"
               class="th-caret"
-              :name="tableSort.dir < 0 ? 'chevronDown' : 'chevronUp'"
+              :name="props.sort.dir < 0 ? 'chevronDown' : 'chevronUp'"
               :stroke-width="2"
             />
           </button>
@@ -938,7 +1014,7 @@ onBeforeUnmount(() => {
         </div>
 
         <button
-          v-for="event in tableSortedEvents()"
+          v-for="event in sortedFlatEvents()"
           :key="event.id"
           :ref="(element) => setRowRef(event.id, element)"
           type="button"
@@ -1155,7 +1231,7 @@ onBeforeUnmount(() => {
     <div v-else ref="feedRef" class="feed scroll">
       <div class="feed-inner view-list">
         <button
-          v-for="event in flatEvents()"
+          v-for="event in sortedFlatEvents()"
           :key="event.id"
           :ref="(element) => setRowRef(event.id, element)"
           type="button"

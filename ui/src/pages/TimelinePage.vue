@@ -18,14 +18,17 @@ import {
   buildFavoriteFacetRows,
   buildOptionId,
   buildRecentFavoriteEvents,
-  compareTimelineEvents,
   buildGlobalFavoriteEvents,
+  clampSortForView,
+  compareEventsBySort,
+  DEFAULT_SORT,
   filterFavoriteEventsByScope,
   groupTimelineEvents,
   matchesEventSearch,
   matchesPropertyFilter,
   mindmapRootData,
   normalizeTopicColumns,
+  resolveDisplayStyle,
 } from "@/utils/timelineNotes";
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/timeline-notes/CommandPalette.vue"));
@@ -44,6 +47,9 @@ const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
 const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
+// Center-column sort persists per notebook (docs/center-sort-design.md), keyed
+// like the built-in column widths' `tl-colw:` — no data-contract change.
+const SORT_STORAGE_PREFIX = "tl-sort:";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
@@ -66,6 +72,30 @@ function readStorage(key, fallback) {
 function writeStorage(key, value) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(key, String(value));
+}
+
+function normalizeSort(sort) {
+  return { field: String(sort?.field || "time"), dir: Number(sort?.dir) < 0 ? -1 : 1 };
+}
+
+function loadSort(topicId) {
+  if (!topicId) return { ...DEFAULT_SORT };
+  const raw = readStorage(SORT_STORAGE_PREFIX + topicId, "");
+  if (!raw) return { ...DEFAULT_SORT };
+  try {
+    return normalizeSort(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_SORT };
+  }
+}
+
+function persistSort(topicId, sort) {
+  if (!topicId) return;
+  try {
+    writeStorage(SORT_STORAGE_PREFIX + topicId, JSON.stringify(normalizeSort(sort)));
+  } catch {
+    /* storage disabled/full — the sort still applies for the session */
+  }
 }
 
 function parseRouteNumber(name) {
@@ -162,6 +192,8 @@ const state = reactive({
   relatedPreviewStyle: {},
   topicCreateRequestKey: 0,
   editPreview: null,
+  // Center-column sort { field, dir }; reloaded per notebook from localStorage.
+  sort: { ...DEFAULT_SORT },
 });
 
 let resizeCleanup = null;
@@ -296,6 +328,34 @@ const feedCapabilities = computed(() => {
 const showViewSwitcher = computed(
   () => !isMobile.value && !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
 );
+// Sort (docs/center-sort-design.md): direction is universal, field is clamped to
+// what the effective view can sort — so a table sorted by 类型 degrades to the same
+// direction on time when switching to a grouped view. Mirrors the feed's own
+// effectiveView() (resolveDisplayStyle + mobile→timeline) so both agree on the clamp.
+const effectiveDisplayStyle = computed(() =>
+  isMobile.value ? "timeline" : resolveDisplayStyle(feedDisplayStyle.value, feedCapabilities.value)
+);
+// Clamp/compare against the SAME columns the feed renders (feedColumns is [] in
+// cross-notebook favorites) so the page and the feed never disagree on which custom
+// fields are sortable — outside favorites this is identical to topicColumns.
+const activeSort = computed(() => clampSortForView(state.sort, effectiveDisplayStyle.value, feedColumns.value));
+const activeComparator = computed(() => compareEventsBySort(activeSort.value, feedColumns.value));
+
+// Reload the per-notebook sort whenever the active notebook changes (and on mount).
+watch(
+  () => state.activeTopicId,
+  (topicId) => {
+    state.sort = loadSort(topicId);
+  },
+  { immediate: true }
+);
+
+function changeSort(sort) {
+  const next = normalizeSort(sort);
+  state.sort = next;
+  // Cross-notebook favorites has no single owner notebook — keep it session-only.
+  if (!isGlobalFavoritesMode.value) persistSort(state.activeTopicId, next);
+}
 // Visible now means visible: once a user turns a property column on, the center
 // feed renders it even if every current row would show "—". This keeps the eye
 // toggle's behavior direct and predictable.
@@ -413,7 +473,7 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
   if (isGlobalFavoritesMode.value) {
     return [...previewedEvents()]
       .filter((event) => matchesEventSearch(event, search, []))
-      .sort(compareTimelineEvents);
+      .sort(activeComparator.value);
   }
 
   // The row being edited stays visible even if the live draft no longer matches
@@ -426,11 +486,11 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
     .filter((event) => event.id === editingId || !propertyFilter?.key || matchesPropertyFilter(event, propertyFilter))
     .filter((event) => event.id === editingId || !era || event.era === era)
     .filter((event) => event.id === editingId || matchesEventSearch(event, search, columns))
-    .sort(compareTimelineEvents);
+    .sort(activeComparator.value);
 }
 
 const visibleEvents = computed(() => filterEvents());
-const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "era", ""));
+const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, "era", "", feedColumns.value, activeSort.value));
 
 const feedEmptyReason = computed(() => {
   if (state.error) return "";
@@ -1994,6 +2054,7 @@ watch(
       :show-column-controls="!isGlobalFavoritesMode"
       :display-style="feedDisplayStyle"
       :capabilities="feedCapabilities"
+      :sort="activeSort"
       :show-view-switcher="showViewSwitcher"
       :search-placeholder="isGlobalFavoritesMode ? '搜索跨本收藏' : '搜索当前时间线'"
       :search-request-key="state.searchRequestKey"
@@ -2004,6 +2065,7 @@ watch(
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
       @change-view="changeDisplayStyle"
+      @change-sort="changeSort"
       @resize-column="resizeTopicColumn"
       @select-event="selectEvent"
       @toggle-favorite="toggleFavorite"
