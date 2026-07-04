@@ -5157,11 +5157,16 @@ button.prop-row-type.open .timeline-lucide-icon {
   overflow: hidden;
 }
 
+/* Top padding must stay 0: .view-board is the scroll container, so any padding-top
+   sits BELOW where the sticky .bd-col-head sticks (top:0) yet ABOVE the overflow
+   clip (border box) — cards scroll up into that band and bleed above the header.
+   Other views' scroll containers have no top padding either, so the header sits
+   flush under the toolbar. Column breathing room lives in .bd-col-head's padding. */
 .view-board {
   max-width: none;
   height: 100%;
   margin: 0;
-  padding: 10px 26px 24px;
+  padding: 0 26px 24px;
   display: flex;
   gap: 14px;
   align-items: flex-start;
