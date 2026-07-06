@@ -32,6 +32,25 @@ export const api = {
   listBookshelves() {
     return request("/api/bookshelves");
   },
+  createBookshelf(name) {
+    return request("/api/bookshelves", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, title: name }),
+    });
+  },
+  updateBookshelf(bookshelfId, payload) {
+    return request(`/api/bookshelves/${encodeURIComponent(bookshelfId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteBookshelf(bookshelfId) {
+    return request(`/api/bookshelves/${encodeURIComponent(bookshelfId)}`, {
+      method: "DELETE",
+    });
+  },
   getIndex() {
     return request("/api/index");
   },

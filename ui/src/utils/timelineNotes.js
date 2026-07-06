@@ -1258,3 +1258,103 @@ export function dateKeyFromLocator(value) {
   if (Number.isNaN(year) || month < 1 || month > 12 || day < 1 || day > 31) return null;
   return year * 10000 + month * 100 + day;
 }
+
+export function normalizeTopicBookshelf(topic = {}) {
+  const name = String(topic?.bookshelfName || "").trim() || "default";
+  const title = String(topic?.bookshelfTitle || "").trim() || (name === "qstheory" ? "求是" : "编年");
+  return {
+    id: topic?.bookshelfId ?? null,
+    name,
+    title,
+  };
+}
+
+export function findBookshelfByName(bookshelves, name, fallbackShelves = []) {
+  const target = String(name || "").trim();
+  if (!target) return null;
+  const primary = (Array.isArray(bookshelves) ? bookshelves : []).find((shelf) => String(shelf?.name || "").trim() === target);
+  if (primary) return primary;
+  return (Array.isArray(fallbackShelves) ? fallbackShelves : []).find((shelf) => String(shelf?.name || "").trim() === target) || null;
+}
+
+export function resolveTopicCreateShelfName(shelfName = "", activeBookshelfName = "", bookshelfTree = []) {
+  const normalizedShelfName = typeof shelfName === "string" ? shelfName : "";
+  return (
+    String(normalizedShelfName || "").trim() ||
+    String(activeBookshelfName || "").trim() ||
+    String(bookshelfTree?.[0]?.name || "").trim()
+  );
+}
+
+export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []) {
+  const liveEventsByTopic = new Map();
+  for (const event of Array.isArray(allEvents) ? allEvents : []) {
+    if (!event || event.deletedAt) continue;
+    const topicId = Number(event.topicId);
+    if (!liveEventsByTopic.has(topicId)) liveEventsByTopic.set(topicId, []);
+    liveEventsByTopic.get(topicId).push(event);
+  }
+
+  const shelves = [];
+  const byShelf = new Map();
+  for (const shelf of Array.isArray(bookshelves) ? bookshelves : []) {
+    const normalizedName = String(shelf?.name || "").trim();
+    if (!normalizedName || byShelf.has(normalizedName)) continue;
+    const entry = {
+      id: shelf?.id ?? null,
+      name: normalizedName,
+      title: String(shelf?.title || normalizedName).trim() || normalizedName,
+      topicCount: 0,
+      eventCount: 0,
+      topics: [],
+    };
+    byShelf.set(normalizedName, entry);
+    shelves.push(entry);
+  }
+
+  for (const topic of Array.isArray(topics) ? topics : []) {
+    const bookshelf = normalizeTopicBookshelf(topic);
+    let shelf = byShelf.get(bookshelf.name);
+    if (!shelf) {
+      shelf = {
+        id: bookshelf.id,
+        name: bookshelf.name,
+        title: bookshelf.title,
+        topicCount: 0,
+        eventCount: 0,
+        topics: [],
+      };
+      byShelf.set(bookshelf.name, shelf);
+      shelves.push(shelf);
+    }
+
+    const eras = [];
+    const eraMap = new Map();
+    for (const event of (liveEventsByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
+      const era = String(event?.era || "未分组").trim() || "未分组";
+      if (!eraMap.has(era)) {
+        eraMap.set(era, { era, count: 0 });
+        eras.push(eraMap.get(era));
+      }
+      eraMap.get(era).count += 1;
+    }
+
+    shelf.topicCount += 1;
+    shelf.eventCount += Number(topic.eventCount || 0);
+    shelf.topics.push({ topic, eras });
+  }
+
+  return shelves;
+}
+
+export function resolveCreateTopicRequest(input, activeBookshelfName = "", bookshelves = [], bookshelfTree = []) {
+  const topicName = typeof input === "string" ? input : String(input?.name || "").trim();
+  const shelfNameInput = typeof input === "string" ? activeBookshelfName : input?.bookshelfName;
+  const bookshelfName = resolveTopicCreateShelfName(shelfNameInput, activeBookshelfName, bookshelfTree);
+  const bookshelf = findBookshelfByName(bookshelves, bookshelfName, bookshelfTree);
+  return {
+    topicName,
+    bookshelfName,
+    bookshelfId: bookshelf?.id ?? null,
+  };
+}

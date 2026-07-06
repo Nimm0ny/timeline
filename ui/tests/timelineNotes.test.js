@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildBookshelfTree,
   buildPropertyUsage,
   buildOptionId,
   buildEditorDraft,
@@ -30,11 +31,15 @@ import {
   mindmapPlainText,
   matchesPropertyFilter,
   normalizeEventExtra,
+  normalizeTopicBookshelf,
   normalizeTopicColumns,
   propertyHref,
+  resolveCreateTopicRequest,
+  resolveTopicCreateShelfName,
   resolvePropertyChips,
   serializeTopicColumnsDraft,
   timelineTimeColumnWidth,
+  findBookshelfByName,
 } from "../src/utils/timelineNotes.js";
 
 const tagsColumn = {
@@ -702,4 +707,79 @@ test("groupTimelineEvents by year buckets undated notes into 未定时间, not a
   assert.ok(titles.includes("1800") && titles.includes("1900") && titles.includes("未定时间"));
   assert.ok(!titles.some((title) => title.includes("null") || title === "")); // no fabricated null-year bucket
   assert.equal(groups[groups.length - 1].title, "未定时间"); // undated sinks last
+});
+
+test("normalizeTopicBookshelf falls back to system shelf semantics", () => {
+  assert.deepEqual(normalizeTopicBookshelf({}), { id: null, name: "default", title: "编年" });
+  assert.deepEqual(normalizeTopicBookshelf({ bookshelfId: 7, bookshelfName: "qstheory", bookshelfTitle: "" }), {
+    id: 7,
+    name: "qstheory",
+    title: "求是",
+  });
+});
+
+test("buildBookshelfTree keeps empty shelves and groups topic eras chronologically", () => {
+  const topics = [
+    { id: 1, title: "党史", eventCount: 2, bookshelfId: 10, bookshelfName: "default", bookshelfTitle: "编年" },
+    { id: 2, title: "求是网-理论", eventCount: 1, bookshelfId: 11, bookshelfName: "qstheory", bookshelfTitle: "求是" },
+  ];
+  const bookshelves = [
+    { id: 10, name: "default", title: "编年" },
+    { id: 11, name: "qstheory", title: "求是" },
+    { id: 12, name: "archive", title: "档案" },
+  ];
+  const allEvents = [
+    { id: 101, topicId: 1, dateKey: 18400601, era: "近代中国" },
+    { id: 102, topicId: 1, dateKey: 19150504, era: "新文化运动" },
+    { id: 201, topicId: 2, dateKey: 20260101, era: "专题" },
+  ];
+
+  const tree = buildBookshelfTree(topics, bookshelves, allEvents);
+
+  assert.deepEqual(tree.map((shelf) => [shelf.name, shelf.topicCount]), [
+    ["default", 1],
+    ["qstheory", 1],
+    ["archive", 0],
+  ]);
+  assert.deepEqual(tree[0].topics[0].eras.map((era) => era.era), ["近代中国", "新文化运动"]);
+  assert.equal(tree[2].topics.length, 0);
+});
+
+test("resolveTopicCreateShelfName ignores pointer-event-like inputs and falls back deterministically", () => {
+  const tree = [{ name: "default" }, { name: "qstheory" }];
+
+  assert.equal(resolveTopicCreateShelfName("qstheory", "default", tree), "qstheory");
+  assert.equal(resolveTopicCreateShelfName({ type: "click" }, "default", tree), "default");
+  assert.equal(resolveTopicCreateShelfName({ type: "click" }, "", tree), "default");
+  assert.equal(resolveTopicCreateShelfName(null, "", []), "");
+});
+
+test("findBookshelfByName resolves the shelf-scoped create target by stable name", () => {
+  const shelves = [
+    { id: 10, name: "default", title: "编年" },
+    { id: 11, name: "qstheory", title: "求是" },
+  ];
+  const synthesized = [{ id: 12, name: "archive", title: "档案" }];
+
+  assert.equal(findBookshelfByName(shelves, " qstheory ").id, 11);
+  assert.equal(findBookshelfByName(shelves, "missing"), null);
+  assert.equal(findBookshelfByName(shelves, "archive", synthesized).id, 12);
+});
+
+test("resolveCreateTopicRequest preserves shelf-scoped notebook creation across emitted input shapes", () => {
+  const bookshelves = [{ id: 10, name: "default", title: "编年" }];
+  const synthesizedTree = [{ id: 12, name: "archive", title: "档案" }];
+
+  assert.deepEqual(
+    resolveCreateTopicRequest({ name: "新笔记", bookshelfName: "archive" }, "default", bookshelves, synthesizedTree),
+    { topicName: "新笔记", bookshelfName: "archive", bookshelfId: 12 }
+  );
+  assert.deepEqual(
+    resolveCreateTopicRequest("全局新增", "default", bookshelves, synthesizedTree),
+    { topicName: "全局新增", bookshelfName: "default", bookshelfId: 10 }
+  );
+  assert.deepEqual(
+    resolveCreateTopicRequest({ name: "点击事件", bookshelfName: { type: "click" } }, "", [], synthesizedTree),
+    { topicName: "点击事件", bookshelfName: "archive", bookshelfId: 12 }
+  );
 });

@@ -298,6 +298,18 @@ def publish_parts(publish_date: str, publish_time: str) -> tuple[int, int, int]:
     return parsed.year, parsed.month, parsed.day
 
 
+def publish_parts_from_url(article_url: str) -> tuple[int, int, int] | None:
+    path = urlsplit(article_url).path
+    match = re.search(r"/(\d{8})/[0-9a-f]+/c\.html$", path, flags=re.IGNORECASE)
+    if match:
+        stamp = match.group(1)
+        return int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8])
+    match = re.search(r"/(\d{4})-(\d{2})/(\d{2})/c_[0-9]+\.htm$", path, flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    return None
+
+
 def infer_channel(title: str, fallback: str) -> str:
     text = clean_text(title)
     for separator in (" | ", " │ ", "│", "｜", "|"):
@@ -320,7 +332,13 @@ def article_payload(seed: Seed, article_url: str, document, *, listed_title: str
     if not author_name:
         author_name = meta_content(document, "author")
     channel = infer_channel(title or listed_title, seed.channel)
-    year, month, day = publish_parts(publish_date, publish_time)
+    try:
+        year, month, day = publish_parts(publish_date, publish_time)
+    except ValueError:
+        fallback = publish_parts_from_url(article_url)
+        if fallback is None:
+            raise
+        year, month, day = fallback
     body = body_markdown(document, article_url, title=title, subtitle=subtitle, author_name=author_name)
     if not title or not body:
         raise ValueError(f"Incomplete article payload for {article_url}")
@@ -425,8 +443,22 @@ def build_manifest(stats: dict, output_dir: Path, manifest_name: str) -> dict:
     }
 
 
+def retired_output_files(payloads: dict[str, dict]) -> set[str]:
+    # Magazine exports used to aggregate every issue into one notebook file
+    # named 求是杂志.json. The current model emits one file per issue, so we
+    # retire only that known obsolete artifact instead of broadly deleting any
+    # non-current JSON in the output directory.
+    if any(re.fullmatch(r"\d{4}年第\d+期", topic) for topic in payloads):
+        return {"求是杂志.json"}
+    return set()
+
+
 def write_batch_output(output_dir: Path, payloads: dict[str, dict], stats: dict, manifest_name: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    retired_files = retired_output_files(payloads)
+    for path in output_dir.glob("*.json"):
+        if path.name in retired_files:
+            path.unlink()
     for topic, payload in payloads.items():
         write_output(output_dir / f"{safe_filename(topic)}.json", payload)
     write_output(output_dir / manifest_name, build_manifest(stats, output_dir, manifest_name))
@@ -492,12 +524,13 @@ def extract_qishi_issue_article_links(issue_url: str, document) -> list[tuple[st
         return []
     links: list[tuple[str, str]] = []
     seen: set[str] = set()
+    blocked_labels = {"理论资源导航", "【网站声明】", "网站声明", "投稿《求是》", "求是网简介"}
     for node in root.xpath(".//a[@href]"):
         article_url = article_url_from_href(issue_url, node.get("href", "").strip())
         if article_url is None or article_url in seen:
             continue
         label = clean_text("".join(node.xpath(".//text()")))
-        if not label or label in {"理论资源导航", "【网站声明】"}:
+        if not label or label in blocked_labels:
             continue
         links.append((article_url, label))
         seen.add(article_url)
@@ -511,17 +544,17 @@ def qishi_issue_payload(issue_label: str, listed_title: str, article_url: str, d
         document,
         listed_title=listed_title,
     )
-    payload["era"] = issue_label
+    payload["era"] = payload["headline"]
     payload["extra"]["issue_label"] = issue_label
     return payload
 
 
-def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict | None, dict]:
+def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
     archive_url = "https://www.qstheory.cn/qs/mulu.htm"
     failures: list[str] = []
-    issue_events: list[dict] = []
+    issue_events: dict[str, list[dict]] = defaultdict(list)
     seen_by_issue: set[tuple[str, str]] = set()
-    channels: set[str] = set()
+    issue_channels: dict[str, set[str]] = defaultdict(set)
     year_filters = issue_year_filters(args.magazine_year)
     try:
         archive_doc = parse_html(
@@ -535,7 +568,7 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict | None, dict]:
         )
     except Exception as exc:  # pragma: no cover - network variance
         failures.append(f"{archive_url} :: {exc}")
-        return None, {"errors": failures, "issueCount": 0, "articleCount": 0}
+        return {}, {"errors": failures, "issueCount": 0, "articleCount": 0, "channelsByIssue": issue_channels}
 
     year_links = extract_qishi_year_links(archive_doc, archive_url, year_filters)
     issue_count = 0
@@ -588,18 +621,22 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict | None, dict]:
                         )
                     )
                     payload = qishi_issue_payload(issue_label, listed_title, article_url, article_doc)
-                    issue_events.append(payload)
-                    channels.add(payload["extra"]["channel"])
+                    issue_events[issue_label].append(payload)
+                    issue_channels[issue_label].add(payload["extra"]["channel"])
                 except Exception as exc:  # pragma: no cover - network variance
                     failures.append(f"{article_url} :: {exc}")
     if not issue_events:
-        return None, {"errors": failures, "issueCount": issue_count, "articleCount": 0, "channels": channels}
-    payload = build_topic_payload("求是杂志", args.subtitle, issue_events)
-    return payload, {
+        return {}, {"errors": failures, "issueCount": issue_count, "articleCount": 0, "channelsByIssue": issue_channels}
+    payloads = {
+        issue_label: build_topic_payload(issue_label, args.subtitle, events)
+        for issue_label, events in issue_events.items()
+        if events
+    }
+    return payloads, {
         "errors": failures,
         "issueCount": issue_count,
-        "articleCount": len(issue_events),
-        "channels": channels,
+        "articleCount": sum(len(events) for events in issue_events.values()),
+        "channelsByIssue": issue_channels,
     }
 
 
@@ -666,15 +703,15 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
         "channelsByTopic": channels_by_topic,
     }
     if should_crawl_magazine(args.seed, args.topic):
-        magazine_payload, magazine_stats = crawl_qishi_magazine(args)
+        magazine_payloads, magazine_stats = crawl_qishi_magazine(args)
         stats["errors"].extend(magazine_stats["errors"])
         stats["linkCount"] += magazine_stats["articleCount"]
-        if magazine_payload is not None:
-            payloads["求是杂志"] = magazine_payload
-            if "求是杂志" not in stats["topicOrder"]:
-                stats["topicOrder"].append("求是杂志")
-            stats["eventCountByTopic"]["求是杂志"] = len(magazine_payload["events"])
-            stats["channelsByTopic"]["求是杂志"] = magazine_stats["channels"] or {"求是杂志"}
+        for issue_label, payload in magazine_payloads.items():
+            payloads[issue_label] = payload
+            if issue_label not in stats["topicOrder"]:
+                stats["topicOrder"].append(issue_label)
+            stats["eventCountByTopic"][issue_label] = len(payload["events"])
+            stats["channelsByTopic"][issue_label] = magazine_stats["channelsByIssue"].get(issue_label) or {"求是杂志"}
     return payloads, stats
 
 

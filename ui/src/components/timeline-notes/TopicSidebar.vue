@@ -13,6 +13,7 @@ import {
   normalizeTopicColumns,
   PROPERTY_TYPE_LABELS,
   propertyTypeIcon,
+  resolveTopicCreateShelfName,
 } from "@/utils/timelineNotes";
 
 const props = defineProps({
@@ -108,12 +109,15 @@ const emit = defineEmits([
   "create-event",
   "create-event-in-topic",
   "create-mindmap-in-topic",
+  "create-bookshelf",
   "create-topic",
+  "rename-bookshelf",
   "rename-topic",
   "select-topic",
   "select-era",
   "update:filter",
   "update:property-filter",
+  "delete-bookshelf",
   "delete-topic",
   "batch-delete-topics",
   "save-topic-columns",
@@ -139,27 +143,82 @@ const state = reactive({
   propertyTopicCollapsed: {},
 });
 
+const bookshelfName = ref("");
+const creatingBookshelf = ref(false);
+const bookshelfCreateRef = ref(null);
+const bookshelfInputRef = ref(null);
+const renamingBookshelfName = ref("");
+const renameBookshelfValue = ref("");
+const renameBookshelfInputRef = ref(null);
+const bookshelfMenu = ref(null); // { bookshelf, x, y } | null
 const topicName = ref("");
 const creatingTopic = ref(false);
-const topicCreateRef = ref(null);
+const topicCreateShelfName = ref("");
+const topicCreateRef = ref({});
 const topicInputRef = ref(null);
 
-// Notion-style notebook creation: a clean inline row at the BOTTOM of the 笔记本
-// list (where the new notebook — ordered by id asc — actually lands), opened from
-// either the group-head + or the persistent "新增" row. No floating box, no ✓/✗
-// buttons — a borderless field that commits on Enter/blur and cancels on Esc.
-function startCreateTopic() {
+function startCreateBookshelf() {
   state.sections.topics = false;
+  if (bookshelfMenu.value) closeBookshelfMenu();
+  if (topicMenu.value) closeTopicMenu();
+  if (topicCreateMenu.value) closeCreateTopicMenu();
+  creatingTopic.value = false;
+  topicName.value = "";
+  topicCreateShelfName.value = "";
+  renamingBookshelfName.value = "";
+  renameBookshelfValue.value = "";
+  creatingBookshelf.value = true;
+  nextTick(() => {
+    bookshelfInputRef.value?.focus();
+    bookshelfCreateRef.value?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function cancelCreateBookshelf() {
+  creatingBookshelf.value = false;
+  bookshelfName.value = "";
+}
+
+function onCreateBookshelfBlur() {
+  if (bookshelfName.value.trim()) {
+    submitBookshelf();
+  } else {
+    cancelCreateBookshelf();
+  }
+}
+
+function registerTopicCreateRef(shelfName, el) {
+  if (el) topicCreateRef.value[shelfName] = el;
+  else delete topicCreateRef.value[shelfName];
+}
+
+// Notebook creation lives inside the target bookshelf instead of as a global
+// pseudo-row at the bottom of the tree.
+function startCreateTopic(shelfName = "") {
+  const targetShelfName = resolveTopicCreateShelfName(shelfName, props.activeBookshelfName, props.bookshelfTree);
+  if (!targetShelfName) return;
+  state.sections.topics = false;
+  if (bookshelfMenu.value) closeBookshelfMenu();
+  if (topicMenu.value) closeTopicMenu();
+  if (topicCreateMenu.value) closeCreateTopicMenu();
+  creatingBookshelf.value = false;
+  bookshelfName.value = "";
+  renamingBookshelfName.value = "";
+  renameBookshelfValue.value = "";
+  topicCreateShelfName.value = targetShelfName;
   creatingTopic.value = true;
+  const targetShelf = props.bookshelfTree.find((item) => item.name === targetShelfName);
+  if (targetShelf && !isBookshelfExpanded(targetShelf)) emit("toggle-bookshelf", targetShelfName);
   nextTick(() => {
     topicInputRef.value?.focus();
-    topicCreateRef.value?.scrollIntoView({ block: "nearest" });
+    topicCreateRef.value[targetShelfName]?.scrollIntoView({ block: "nearest" });
   });
 }
 
 function cancelCreateTopic() {
   creatingTopic.value = false;
   topicName.value = "";
+  topicCreateShelfName.value = "";
 }
 
 // Commit-on-blur (Notion): clicking away saves a named draft, discards an empty one.
@@ -195,6 +254,19 @@ function closeTopicMenu() {
   topicMenu.value = null;
 }
 
+function openBookshelfMenu(bookshelf, event) {
+  closeCreateTopicMenu();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const width = 152;
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const y = Math.min(rect.bottom + 4, window.innerHeight - 96);
+  bookshelfMenu.value = { bookshelf, x, y };
+}
+
+function closeBookshelfMenu() {
+  bookshelfMenu.value = null;
+}
+
 function openCreateInTopicMenu(topicId, event) {
   closeTopicMenu();
   const rect = event.currentTarget.getBoundingClientRect();
@@ -209,6 +281,7 @@ function closeCreateTopicMenu() {
 }
 
 function onPaneScroll() {
+  if (bookshelfMenu.value) closeBookshelfMenu();
   if (topicMenu.value) closeTopicMenu();
   if (topicCreateMenu.value) closeCreateTopicMenu();
   if (typeMenu.value) typeMenu.value = null;
@@ -238,6 +311,36 @@ function cancelRenameTopic() {
   renameValue.value = "";
 }
 
+function startRenameBookshelf(bookshelf) {
+  closeBookshelfMenu();
+  renamingBookshelfName.value = bookshelf.name;
+  renameBookshelfValue.value = bookshelf.title || bookshelf.name || "";
+  nextTick(() => {
+    renameBookshelfInputRef.value?.focus();
+    renameBookshelfInputRef.value?.select?.();
+  });
+}
+
+function cancelRenameBookshelf() {
+  renamingBookshelfName.value = "";
+  renameBookshelfValue.value = "";
+}
+
+function submitRenameBookshelf() {
+  const shelfName = renamingBookshelfName.value;
+  if (!shelfName) return;
+  const next = renameBookshelfValue.value.trim().slice(0, CONTENT_LIMITS.topicTitle);
+  const bookshelf = props.bookshelfTree.find((item) => item.name === shelfName);
+  const current = (bookshelf?.title || bookshelf?.name || "").trim();
+  renamingBookshelfName.value = "";
+  renameBookshelfValue.value = "";
+  if (next && next !== current) emit("rename-bookshelf", { name: shelfName, title: next });
+}
+
+function onRenameBookshelfBlur() {
+  if (renamingBookshelfName.value) submitRenameBookshelf();
+}
+
 function submitRenameTopic() {
   const id = renamingTopicId.value;
   if (id == null) return;
@@ -253,6 +356,11 @@ function onRenameBlur() {
   if (renamingTopicId.value != null) submitRenameTopic();
 }
 
+function deleteBookshelfFromMenu(bookshelf) {
+  closeBookshelfMenu();
+  emit("delete-bookshelf", bookshelf.name);
+}
+
 function deleteFromMenu(topic) {
   closeTopicMenu();
   emit("delete-topic", topic.id);
@@ -260,13 +368,14 @@ function deleteFromMenu(topic) {
 
 function onMenuKeydown(event) {
   if (event.key === "Escape") {
+    closeBookshelfMenu();
     closeTopicMenu();
     closeCreateTopicMenu();
   }
 }
 
-watch([topicMenu, topicCreateMenu], ([menu, createMenu]) => {
-  if (menu || createMenu) document.addEventListener("keydown", onMenuKeydown);
+watch([bookshelfMenu, topicMenu, topicCreateMenu], ([shelfMenu, menu, createMenu]) => {
+  if (shelfMenu || menu || createMenu) document.addEventListener("keydown", onMenuKeydown);
   else document.removeEventListener("keydown", onMenuKeydown);
 });
 
@@ -886,6 +995,10 @@ function toggleBookshelfGroup(bookshelf) {
   emit("toggle-bookshelf", name);
 }
 
+function isCreatingTopicInShelf(bookshelf) {
+  return creatingTopic.value && topicCreateShelfName.value === bookshelf.name;
+}
+
 function toggleTopic(topicId) {
   if (selectMode.value) {
     toggleTopicSelection(topicId);
@@ -915,15 +1028,27 @@ function openGlobalFavorites() {
   emit("open-global-favorites");
 }
 
+function submitBookshelf() {
+  const nextName = bookshelfName.value
+    .trim()
+    .slice(0, CONTENT_LIMITS.topicTitle)
+    .replace(/[^\w\-\u4e00-\u9fff]/g, "");
+  if (!nextName) return;
+  emit("create-bookshelf", nextName);
+  bookshelfName.value = "";
+  creatingBookshelf.value = false;
+}
+
 function submitTopic() {
   const nextName = topicName.value
     .trim()
     .slice(0, CONTENT_LIMITS.topicTitle)
     .replace(/[^\w\-\u4e00-\u9fff]/g, "");
   if (!nextName) return;
-  emit("create-topic", nextName);
+  emit("create-topic", { name: nextName, bookshelfName: topicCreateShelfName.value });
   topicName.value = "";
   creatingTopic.value = false;
+  topicCreateShelfName.value = "";
 }
 
 const allCollapsed = ref(false);
@@ -982,6 +1107,16 @@ watch(
     state.ribbon = "files";
     startCreateTopic();
   }
+);
+
+watch(
+  () => props.bookshelfTree,
+  (shelves) => {
+    const names = new Set((shelves || []).map((shelf) => shelf.name));
+    if (renamingBookshelfName.value && !names.has(renamingBookshelfName.value)) cancelRenameBookshelf();
+    if (topicCreateShelfName.value && !names.has(topicCreateShelfName.value)) cancelCreateTopic();
+  },
+  { deep: true }
 );
 
 watch(
@@ -1224,8 +1359,11 @@ watch(typeMenu, (value) => {
           <div class="tg-head" @click="toggleSection('topics')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
             <span class="tg-name">书架</span>
-            <button type="button" class="iconbtn sm" :class="{ on: creatingTopic }" title="新建笔记本" @click.stop="startCreateTopic">
-              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+            <button type="button" class="iconbtn sm" :class="{ on: creatingBookshelf }" title="新建书架" @click.stop="startCreateBookshelf">
+              <TimelineLucideIcon name="bookshelf" :stroke-width="1.5" />
+            </button>
+            <button type="button" class="iconbtn sm" :class="{ on: creatingTopic }" title="新建笔记本" @click.stop="startCreateTopic()">
+              <TimelineLucideIcon name="notebook" :stroke-width="1.5" />
             </button>
           </div>
           <div class="tg-body">
@@ -1233,16 +1371,43 @@ watch(typeMenu, (value) => {
             <p v-else-if="props.error" class="sidebar-copy">{{ props.error }}</p>
             <template v-else>
               <div v-for="bookshelf in props.bookshelfTree" :key="bookshelf.name">
+                <div v-if="renamingBookshelfName === bookshelf.name" class="ti folder ti-create">
+                  <span class="ti-chev"></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
+                  <input
+                    ref="renameBookshelfInputRef"
+                    v-model="renameBookshelfValue"
+                    class="ti-create-input"
+                    type="text"
+                    :maxlength="CONTENT_LIMITS.topicTitle"
+                    @keyup.enter="submitRenameBookshelf"
+                    @keyup.esc="cancelRenameBookshelf"
+                    @blur="onRenameBookshelfBlur"
+                  />
+                </div>
                 <button
+                  v-else
                   type="button"
                   class="ti folder"
-                  :class="{ active: bookshelf.name === props.activeBookshelfName, collapsed: !isBookshelfExpanded(bookshelf) }"
+                  :class="{
+                    active: bookshelf.name === props.activeBookshelfName,
+                    collapsed: !isBookshelfExpanded(bookshelf),
+                    'menu-open': bookshelfMenu && bookshelfMenu.bookshelf.name === bookshelf.name,
+                  }"
                   @click="toggleBookshelfGroup(bookshelf)"
                 >
                   <span class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
                   <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
                   <span class="ti-name">{{ bookshelf.title }}</span>
                   <span class="ti-cnt">{{ bookshelf.topicCount }}</span>
+                  <span v-if="!selectMode" class="ti-acts">
+                    <span class="ti-act" title="更多操作" @click.stop="openBookshelfMenu(bookshelf, $event)">
+                      <TimelineLucideIcon name="more" :stroke-width="1.5" />
+                    </span>
+                    <span class="ti-act" title="在此书架下新建笔记本" @click.stop="startCreateTopic(bookshelf.name)">
+                      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+                    </span>
+                  </span>
                 </button>
                 <Transition name="topic-kids-stack">
                   <div v-if="isBookshelfExpanded(bookshelf)" class="ti-kids-shell">
@@ -1314,39 +1479,44 @@ watch(typeMenu, (value) => {
                           </div>
                         </Transition>
                       </div>
+
+                      <div v-if="isCreatingTopicInShelf(bookshelf)" :ref="(el) => registerTopicCreateRef(bookshelf.name, el)" class="ti folder ti-create" :style="{ '--depth': 1 }">
+                        <span class="ti-chev"></span>
+                        <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                        <input
+                          ref="topicInputRef"
+                          v-model="topicName"
+                          class="ti-create-input"
+                          type="text"
+                          :maxlength="CONTENT_LIMITS.topicTitle"
+                          placeholder="新笔记本名称"
+                          @keyup.enter="submitTopic"
+                          @keyup.esc="cancelCreateTopic"
+                          @blur="onCreateBlur"
+                        />
+                      </div>
                     </div>
                   </div>
                 </Transition>
               </div>
             </template>
 
-            <div v-if="creatingTopic" ref="topicCreateRef" class="ti folder ti-create">
+            <div v-if="creatingBookshelf" ref="bookshelfCreateRef" class="ti folder ti-create">
               <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+              <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
               <input
-                ref="topicInputRef"
-                v-model="topicName"
+                ref="bookshelfInputRef"
+                v-model="bookshelfName"
                 class="ti-create-input"
                 type="text"
                 :maxlength="CONTENT_LIMITS.topicTitle"
-                placeholder="新笔记本名称"
-                @keyup.enter="submitTopic"
-                @keyup.esc="cancelCreateTopic"
-                @blur="onCreateBlur"
+                placeholder="新书架名称"
+                @keyup.enter="submitBookshelf"
+                @keyup.esc="cancelCreateBookshelf"
+                @blur="onCreateBookshelfBlur"
               />
             </div>
 
-            <button
-              v-if="!props.loading"
-              type="button"
-              class="ti leaf ti-add"
-              title="新建笔记本"
-              @click="startCreateTopic"
-            >
-              <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon name="plusSign" :stroke-width="1.5" /></span>
-              <span class="ti-name">新增</span>
-            </button>
           </div>
         </div>
 
@@ -1494,6 +1664,19 @@ watch(typeMenu, (value) => {
         </button>
         <button type="button" class="iconbtn" title="设置" @click="emit('open-settings')">
           <TimelineLucideIcon name="settings" :stroke-width="1.5" />
+        </button>
+      </div>
+    </div>
+
+    <div v-if="bookshelfMenu" class="ti-menu-backdrop" @click="closeBookshelfMenu" @contextmenu.prevent="closeBookshelfMenu">
+      <div class="popover ti-menu" :style="{ left: bookshelfMenu.x + 'px', top: bookshelfMenu.y + 'px' }" @click.stop>
+        <button type="button" class="pop-item" @click="startRenameBookshelf(bookshelfMenu.bookshelf)">
+          <TimelineLucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
+          <span class="lbl">重命名</span>
+        </button>
+        <button type="button" class="pop-item danger" @click="deleteBookshelfFromMenu(bookshelfMenu.bookshelf)">
+          <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
+          <span class="lbl">删除</span>
         </button>
       </div>
     </div>

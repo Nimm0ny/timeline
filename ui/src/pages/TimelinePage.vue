@@ -15,12 +15,13 @@ import {
   buildX6SeedSnapshot,
 } from "@/utils/mindmapX6.js";
 import {
+  buildBookshelfTree,
   buildFavoriteFacetRows,
   buildOptionId,
   buildRecentFavoriteEvents,
   buildGlobalFavoriteEvents,
   clampSortForView,
-  compareTimelineEvents,
+  findBookshelfByName,
   compareEventsBySort,
   DEFAULT_SORT,
   filterFavoriteEventsByScope,
@@ -28,6 +29,8 @@ import {
   matchesEventSearch,
   matchesPropertyFilter,
   mindmapRootData,
+  normalizeTopicBookshelf,
+  resolveCreateTopicRequest,
   normalizeSortLevels,
   normalizeTopicColumns,
   resolveDisplayStyle,
@@ -169,6 +172,7 @@ const state = reactive({
   routeRestoreSnapshot: null,
   menuEvent: null,
   settingsOpen: false,
+  confirmDeleteBookshelf: null,
   confirmDeleteTopics: null,
   confirmPurgeIds: null,
   rightOpen: false,
@@ -233,75 +237,7 @@ const workspaceStyle = computed(() => ({
   "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
 }));
 
-function normalizeTopicBookshelf(topic = {}) {
-  const name = String(topic?.bookshelfName || "").trim() || "default";
-  const title = String(topic?.bookshelfTitle || "").trim() || (name === "qstheory" ? "求是" : "编年");
-  return {
-    id: topic?.bookshelfId ?? null,
-    name,
-    title,
-  };
-}
-
-const bookshelfTree = computed(() => {
-  const liveEventsByTopic = new Map();
-  for (const event of timelineStore.state.eventsIndex || []) {
-    if (!event || event.deletedAt) continue;
-    const topicId = Number(event.topicId);
-    if (!liveEventsByTopic.has(topicId)) liveEventsByTopic.set(topicId, []);
-    liveEventsByTopic.get(topicId).push(event);
-  }
-
-  const shelves = [];
-  const byShelf = new Map();
-  for (const shelf of state.bookshelves) {
-    const normalizedName = String(shelf?.name || "").trim();
-    if (!normalizedName || byShelf.has(normalizedName)) continue;
-    const entry = {
-      id: shelf?.id ?? null,
-      name: normalizedName,
-      title: String(shelf?.title || normalizedName).trim() || normalizedName,
-      topicCount: 0,
-      eventCount: 0,
-      topics: [],
-    };
-    byShelf.set(normalizedName, entry);
-    shelves.push(entry);
-  }
-
-  for (const topic of state.topics) {
-    const bookshelf = normalizeTopicBookshelf(topic);
-    let shelf = byShelf.get(bookshelf.name);
-    if (!shelf) {
-      shelf = {
-        id: bookshelf.id,
-        name: bookshelf.name,
-        title: bookshelf.title,
-        topicCount: 0,
-        eventCount: 0,
-        topics: [],
-      };
-      byShelf.set(bookshelf.name, shelf);
-      shelves.push(shelf);
-    }
-
-    const eras = [];
-    const eraMap = new Map();
-    for (const event of (liveEventsByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
-      const era = String(event?.era || "未分组").trim() || "未分组";
-      if (!eraMap.has(era)) {
-        eraMap.set(era, { era, count: 0 });
-        eras.push(eraMap.get(era));
-      }
-      eraMap.get(era).count += 1;
-    }
-
-    shelf.topicCount += 1;
-    shelf.eventCount += Number(topic.eventCount || 0);
-    shelf.topics.push({ topic, eras });
-  }
-  return shelves;
-});
+const bookshelfTree = computed(() => buildBookshelfTree(state.topics, state.bookshelves, timelineStore.state.eventsIndex));
 
 const activeBookshelfName = computed(() => state.focusedBookshelfName || (state.activeTopicMeta ? normalizeTopicBookshelf(state.activeTopicMeta).name : ""));
 
@@ -1524,10 +1460,16 @@ async function selectTopic(topicId) {
   });
 }
 
-async function createTopic(name) {
+function bookshelfByName(name) {
+  return findBookshelfByName(state.bookshelves, name, bookshelfTree.value);
+}
+
+async function createTopic(input) {
+  const request = resolveCreateTopicRequest(input, activeBookshelfName.value, state.bookshelves, bookshelfTree.value);
+  const topicName = request.topicName;
+  if (!topicName) return;
   try {
-    const targetShelf = state.bookshelves.find((shelf) => shelf.name === activeBookshelfName.value) || null;
-    const created = await api.createTopic(name, targetShelf?.id ?? null);
+    const created = await api.createTopic(topicName, request.bookshelfId);
     timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
     applyWorkspaceSelection({
@@ -1536,12 +1478,42 @@ async function createTopic(name) {
       preferredMode: "view",
       openDetail: false,
     });
-    pushToast(`已创建笔记本：${name}`);
+    pushToast(`已创建笔记本：${topicName}`);
     state.rightOpen = false;
     closeMobileSidebar();
     await syncRouteState({ topicId: created.id, eventId: null });
   } catch (error) {
     pushToast(`创建笔记本失败：${error.message}`, "error");
+  }
+}
+
+async function createBookshelf(name) {
+  try {
+    const created = await api.createBookshelf(name);
+    state.bookshelves = [...state.bookshelves, created].sort((left, right) => Number(left.id || 0) - Number(right.id || 0));
+    state.focusedBookshelfName = created.name || "";
+    persistBookshelfCollapsed({
+      ...state.bookshelfCollapsed,
+      [created.name]: false,
+    });
+    pushToast(`已创建书架：${created.title || name}`);
+    closeMobileSidebar();
+  } catch (error) {
+    pushToast(`创建书架失败：${error.message}`, "error");
+  }
+}
+
+async function renameBookshelf({ name, title } = {}) {
+  const bookshelf = bookshelfByName(name);
+  const nextTitle = String(title || "").trim();
+  if (!bookshelf?.id || !nextTitle) return;
+  try {
+    const updated = await api.updateBookshelf(bookshelf.id, { title: nextTitle });
+    state.bookshelves = state.bookshelves.map((item) => (item.id === updated.id ? { ...item, ...updated } : item));
+    if (state.focusedBookshelfName === bookshelf.name) state.focusedBookshelfName = updated.name || bookshelf.name;
+    pushToast(`已重命名书架：${updated.title || nextTitle}`);
+  } catch (error) {
+    pushToast(`重命名书架失败：${error.message}`, "error");
   }
 }
 
@@ -1876,6 +1848,32 @@ async function addPropertyOption({ key, option }) {
 function topicsByIds(ids) {
   const wanted = new Set(ids);
   return state.topics.filter((topic) => wanted.has(topic.id));
+}
+
+function requestDeleteBookshelf(bookshelfName) {
+  const bookshelf = bookshelfByName(bookshelfName);
+  if (bookshelf) state.confirmDeleteBookshelf = bookshelf;
+}
+
+function closeDeleteBookshelf() {
+  state.confirmDeleteBookshelf = null;
+}
+
+async function confirmDeleteBookshelfNow() {
+  const bookshelf = state.confirmDeleteBookshelf;
+  if (!bookshelf?.id) return;
+  try {
+    await api.deleteBookshelf(bookshelf.id);
+    state.bookshelves = state.bookshelves.filter((item) => item.id !== bookshelf.id);
+    if (state.focusedBookshelfName === bookshelf.name) {
+      state.focusedBookshelfName = normalizeTopicBookshelf(state.activeTopicMeta || {}).name;
+    }
+    pushToast(`已删除书架：${bookshelf.title || bookshelf.name}`);
+  } catch (error) {
+    pushToast(`删除书架失败：${error.message}`, "error");
+  } finally {
+    state.confirmDeleteBookshelf = null;
+  }
 }
 
 function requestDeleteTopic(topicId) {
@@ -2241,11 +2239,14 @@ watch(
       :error="state.error"
       :column-saving="state.columnSaving"
       :create-topic-request-key="state.topicCreateRequestKey"
+      @create-bookshelf="createBookshelf"
       @create-event="startCreateEvent"
       @create-event-in-topic="createEventInTopic"
       @create-mindmap-in-topic="createMindmapNote"
       @create-topic="createTopic"
+      @rename-bookshelf="renameBookshelf"
       @rename-topic="renameTopic"
+      @delete-bookshelf="requestDeleteBookshelf"
       @delete-topic="requestDeleteTopic"
       @batch-delete-topics="requestBatchDeleteTopics"
       @save-topic-columns="saveTopicColumns"
@@ -2403,6 +2404,17 @@ watch(
           <button type="button" class="timeline-primary-btn" @click="saveAndContinue">保存</button>
           <button type="button" class="timeline-secondary-btn" @click="discardAndContinue">放弃</button>
           <button type="button" class="timeline-secondary-btn" @click="closeUnsavedDialog">取消</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="state.confirmDeleteBookshelf" class="timeline-modal-backdrop" @click="closeDeleteBookshelf">
+      <section class="timeline-confirm-card" role="dialog" aria-modal="true" aria-label="删除书架" @click.stop>
+        <h3>删除书架</h3>
+        <p>将删除「{{ state.confirmDeleteBookshelf.title || state.confirmDeleteBookshelf.name }}」。仅空书架允许删除。</p>
+        <div class="timeline-confirm-actions">
+          <button type="button" class="timeline-primary-btn danger" @click="confirmDeleteBookshelfNow">删除</button>
+          <button type="button" class="timeline-secondary-btn" @click="closeDeleteBookshelf">取消</button>
         </div>
       </section>
     </div>
