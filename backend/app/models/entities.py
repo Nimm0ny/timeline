@@ -10,6 +10,20 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class Bookshelf(Base):
+    __tablename__ = "bookshelves"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    topics: Mapped[list["Topic"]] = relationship("Topic", back_populates="bookshelf")
+
+
 class Topic(Base):
     __tablename__ = "topics"
 
@@ -17,6 +31,7 @@ class Topic(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     subtitle: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    bookshelf_id: Mapped[int | None] = mapped_column(ForeignKey("bookshelves.id"), nullable=True, index=True)
     columns_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     # Default display style for the notebook's "entry" notes; one of
     # timeline/table/board/gallery/list/outline (see note-types-and-views-design.md).
@@ -31,6 +46,7 @@ class Topic(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
+    bookshelf: Mapped[Bookshelf | None] = relationship("Bookshelf", back_populates="topics")
     events: Mapped[list["TimelineEvent"]] = relationship(
         "TimelineEvent", back_populates="topic", cascade="all, delete-orphan"
     )

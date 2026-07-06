@@ -29,6 +29,9 @@ export const api = {
   listTopics() {
     return request("/api/topics");
   },
+  listBookshelves() {
+    return request("/api/bookshelves");
+  },
   getIndex() {
     return request("/api/index");
   },
@@ -41,11 +44,11 @@ export const api = {
   getEvent(id) {
     return request(`/api/events/${encodeURIComponent(id)}`);
   },
-  createTopic(name) {
+  createTopic(name, bookshelfId = null) {
     return request("/api/topics", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(bookshelfId ? { name, bookshelfId } : { name }),
     });
   },
   deleteTopic(topicId) {

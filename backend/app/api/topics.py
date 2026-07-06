@@ -52,7 +52,7 @@ def get_search(
 
 @router.post("/api/topics")
 def post_topic(payload: dict, db: Session = Depends(get_db)):
-    return create_topic(db, payload.get("name", ""))
+    return create_topic(db, payload.get("name", ""), payload.get("bookshelfId"))
 
 
 @router.get("/api/topics/{topic_id}")

@@ -16,6 +16,7 @@ from backend.app.services.date_utils import (
 )
 from backend.app.services.timeline import (
     DEFAULT_TOPIC_COLUMNS,
+    ensure_topic_bookshelf_assignments,
     normalize_topic_columns,
     sanitize_topic_name,
 )
@@ -92,6 +93,8 @@ def ensure_timeline_event_schema():
     if "topics" in inspector.get_table_names():
         topic_columns = {column["name"] for column in inspector.get_columns("topics")}
         topic_statements = []
+        if "bookshelf_id" not in topic_columns:
+            topic_statements.append("ALTER TABLE topics ADD COLUMN bookshelf_id INTEGER")
         if "columns_json" not in topic_columns:
             topic_statements.append("ALTER TABLE topics ADD COLUMN columns_json TEXT DEFAULT '[]'")
         if "display_style" not in topic_columns:
@@ -104,6 +107,7 @@ def ensure_timeline_event_schema():
             with engine.begin() as connection:
                 for statement in topic_statements:
                     connection.execute(text(statement))
+                connection.execute(text("CREATE INDEX IF NOT EXISTS ix_topics_bookshelf_id ON topics(bookshelf_id)"))
 
     if "timeline_events" not in inspector.get_table_names():
         return
@@ -385,6 +389,8 @@ def migrate_to_property_model():
 def migrate_legacy_files(db: Session):
     if db.query(Topic).count() > 0:
         seed_config_if_missing(db)
+        if ensure_topic_bookshelf_assignments(db):
+            db.commit()
         return
 
     seed_config_if_missing(db)
@@ -394,6 +400,8 @@ def migrate_legacy_files(db: Session):
     )
     for path in topic_files:
         import_topic_file(db, path)
+    if ensure_topic_bookshelf_assignments(db):
+        db.commit()
 
 
 def seed_config_if_missing(db: Session):

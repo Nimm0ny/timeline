@@ -3,12 +3,16 @@ import io
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
 
 from backend.app.api.config import router as config_router
 from backend.app.api.media import router as media_router
 from backend.app import main as main_module
+from backend.app.db.session import Base
 from backend.app.db.session import get_db
-from backend.app.services import timeline as timeline_service
+from backend.app.services import legacy_migration as legacy_migration_module, timeline as timeline_service
+from backend.app.services.timeline import ensure_topic_bookshelf_assignments
 from backend.app.services.timeline import export_topic_data, import_topic_data
 
 
@@ -42,6 +46,8 @@ def test_topic_meta_range_and_summary(client, seeded_topic):
     meta = client.get(f"/api/topics/{seeded_topic.id}/meta")
     assert meta.status_code == 200
     body = meta.json()
+    assert body["bookshelfName"] == "default"
+    assert body["bookshelfTitle"] == "编年"
     assert body["columns"] == []
     assert body["minDateKey"] == 18400101
     assert body["maxDateKey"] == 18410215
@@ -52,6 +58,67 @@ def test_topic_meta_range_and_summary(client, seeded_topic):
     payload = summary.json()
     assert payload["items"][0]["displayLabel"] == "1840-01"
     assert payload["items"][0]["eventCount"] == 2
+
+
+def test_bookshelf_contracts_cover_list_create_update_delete_and_topic_assignment(client, seeded_topic):
+    shelves = client.get("/api/bookshelves")
+    assert shelves.status_code == 200
+    default_shelf = next(item for item in shelves.json() if item["name"] == "default")
+    assert default_shelf["title"] == "编年"
+    assert default_shelf["topicCount"] == 1
+    assert default_shelf["eventCount"] == 4
+
+    reserved = client.post("/api/bookshelves", json={"name": "qstheory", "title": "错误标题"})
+    assert reserved.status_code == 400
+
+    created_shelf = client.post("/api/bookshelves", json={"name": "qishi", "title": "求是"}).json()
+    assert created_shelf["name"] == "qishi"
+    assert created_shelf["title"] == "求是"
+
+    moved = client.put(
+        f"/api/topics/{seeded_topic.id}/meta",
+        json={"bookshelfId": created_shelf["id"]},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["bookshelfId"] == created_shelf["id"]
+    assert moved.json()["bookshelfName"] == "qishi"
+    assert moved.json()["bookshelfTitle"] == "求是"
+
+    created_topic = client.post(
+        "/api/topics",
+        json={"name": "qishi_theory", "bookshelfId": created_shelf["id"]},
+    )
+    assert created_topic.status_code == 200
+    assert created_topic.json()["bookshelfId"] == created_shelf["id"]
+
+    updated_shelf = client.put(
+        f"/api/bookshelves/{created_shelf['id']}",
+        json={"title": "求是文库"},
+    )
+    assert updated_shelf.status_code == 200
+    assert updated_shelf.json()["title"] == "求是文库"
+
+    immutable_name = client.put(
+        f"/api/bookshelves/{created_shelf['id']}",
+        json={"name": "renamed-shelf"},
+    )
+    assert immutable_name.status_code == 400
+
+    non_empty_delete = client.delete(f"/api/bookshelves/{created_shelf['id']}")
+    assert non_empty_delete.status_code == 409
+
+    invalid_clear = client.put(f"/api/topics/{seeded_topic.id}/meta", json={"bookshelfId": None})
+    assert invalid_clear.status_code == 400
+
+    qstheory_topic = client.post("/api/topics", json={"name": "求是网-新增专题"})
+    assert qstheory_topic.status_code == 200
+    assert qstheory_topic.json()["bookshelfName"] == "qstheory"
+    assert qstheory_topic.json()["bookshelfTitle"] == "求是"
+
+    empty_shelf = client.post("/api/bookshelves", json={"name": "archive", "title": "档案"}).json()
+    removed = client.delete(f"/api/bookshelves/{empty_shelf['id']}")
+    assert removed.status_code == 200
+    assert removed.json() == {"ok": True}
 
 
 def test_index_and_event_detail_contract(client, seeded_topic):
@@ -580,3 +647,92 @@ def test_import_accepts_legacy_and_v2_payloads(db_session, seeded_topic):
     assert exported["columns"][0]["key"] == "place"
     assert exported["events"][0]["headline"] == "V2 Import"
     assert exported["events"][0]["extra"] == {"place": "上海"}
+
+
+def test_bookshelf_schema_migration_adds_topic_column_and_assigns_default_and_qs_topics(tmp_path, monkeypatch):
+    db_path = tmp_path / "legacy-bookshelf.db"
+    test_engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE topics ("
+                "id INTEGER PRIMARY KEY, name TEXT, title TEXT, subtitle TEXT, "
+                "created_at DATETIME, updated_at DATETIME)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO topics (id, name, title, subtitle, created_at, updated_at) "
+                "VALUES (1, 'history', 'History', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO topics (id, name, title, subtitle, created_at, updated_at) "
+                "VALUES (2, '求是网-理论', '求是网-理论', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO topics (id, name, title, subtitle, created_at, updated_at) "
+                "VALUES (3, '求是杂志-2026年第13期', '求是杂志-2026年第13期', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    Base.metadata.create_all(bind=test_engine)
+    monkeypatch.setattr(legacy_migration_module, "engine", test_engine)
+    legacy_migration_module.ensure_timeline_event_schema()
+    legacy_migration_module.ensure_timeline_event_schema()
+
+    inspector = inspect(test_engine)
+    assert "bookshelves" in inspector.get_table_names()
+    assert "bookshelf_id" in {column["name"] for column in inspector.get_columns("topics")}
+
+    SessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, future=True)
+    session = SessionLocal()
+    try:
+        assert ensure_topic_bookshelf_assignments(session) == 5
+        session.commit()
+        rows = session.execute(
+            text(
+                """
+                SELECT topics.name, bookshelves.name AS bookshelf_name, bookshelves.title AS bookshelf_title
+                FROM topics
+                LEFT JOIN bookshelves ON bookshelves.id = topics.bookshelf_id
+                ORDER BY topics.id
+                """
+            )
+        ).mappings().all()
+    finally:
+        session.close()
+        test_engine.dispose()
+
+    assert rows[0]["bookshelf_name"] == "default"
+    assert rows[0]["bookshelf_title"] == "编年"
+    assert rows[1]["bookshelf_name"] == "qstheory"
+    assert rows[1]["bookshelf_title"] == "求是"
+    assert rows[2]["bookshelf_name"] == "qstheory"
+    assert rows[2]["bookshelf_title"] == "求是"
+
+
+def test_bookshelf_migration_seeds_default_shelf_for_empty_database(monkeypatch, tmp_path):
+    db_path = tmp_path / "empty.db"
+    test_engine = create_engine(f"sqlite:///{db_path}", future=True)
+
+    Base.metadata.create_all(bind=test_engine)
+    monkeypatch.setattr(legacy_migration_module, "engine", test_engine)
+    legacy_migration_module.ensure_timeline_event_schema()
+
+    SessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, future=True)
+    session = SessionLocal()
+    try:
+        assert ensure_topic_bookshelf_assignments(session) == 1
+        session.commit()
+        rows = session.execute(
+            text("SELECT name, title FROM bookshelves ORDER BY id")
+        ).mappings().all()
+    finally:
+        session.close()
+        test_engine.dispose()
+
+    assert rows == [{"name": "default", "title": "编年"}]

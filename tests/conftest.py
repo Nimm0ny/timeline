@@ -13,9 +13,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from backend.app.api.bookshelves import router as bookshelves_router
 from backend.app.api.topics import router as topics_router
 from backend.app.db.session import Base, get_db
-from backend.app.models.entities import EventItem, TimelineEvent, Topic
+from backend.app.models.entities import Bookshelf, EventItem, TimelineEvent, Topic
 from backend.app.services.date_utils import build_display_label, date_key_to_parts, make_date_key
 
 
@@ -40,6 +41,7 @@ def db_session() -> Generator[Session, None, None]:
 @pytest.fixture()
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     app = FastAPI()
+    app.include_router(bookshelves_router)
     app.include_router(topics_router)
 
     def override_get_db():
@@ -56,7 +58,11 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 
 @pytest.fixture()
 def seeded_topic(db_session: Session) -> Topic:
-    topic = Topic(name="history", title="History", subtitle="Daily history")
+    bookshelf = Bookshelf(name="default", title="编年")
+    db_session.add(bookshelf)
+    db_session.flush()
+
+    topic = Topic(name="history", title="History", subtitle="Daily history", bookshelf_id=bookshelf.id)
     db_session.add(topic)
     db_session.flush()
 

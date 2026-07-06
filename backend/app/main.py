@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.app.api.bookshelves import router as bookshelves_router
 from backend.app.api.config import router as config_router
 from backend.app.api.frontend import router as frontend_router
 from backend.app.api.media import router as media_router
@@ -66,7 +67,7 @@ async def app_lifespan(_app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="历史长河 API", lifespan=app_lifespan)
+    app = FastAPI(title="编年 API", lifespan=app_lifespan)
 
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     THEME_DIR.mkdir(parents=True, exist_ok=True)
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.mount("/theme", StaticFiles(directory=str(THEME_DIR)), name="theme")
 
     app.include_router(config_router)
+    app.include_router(bookshelves_router)
     app.include_router(topics_router)
     app.include_router(media_router)
     app.include_router(themes_router)

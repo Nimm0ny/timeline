@@ -9,7 +9,6 @@ import {
   buildPropertyKey,
   buildPropertyRows,
   canChangePropertyType,
-  compareTimelineEvents,
   editablePropertyTypeChoices,
   normalizeTopicColumns,
   PROPERTY_TYPE_LABELS,
@@ -32,6 +31,18 @@ const props = defineProps({
   allEvents: {
     type: Array,
     default: () => [],
+  },
+  bookshelfTree: {
+    type: Array,
+    default: () => [],
+  },
+  bookshelfCollapsed: {
+    type: Object,
+    default: () => ({}),
+  },
+  activeBookshelfName: {
+    type: String,
+    default: "",
   },
   activeTopicId: {
     type: Number,
@@ -112,6 +123,8 @@ const emit = defineEmits([
   "open-favorite-event",
   "open-settings",
   "select-ribbon",
+  "toggle-bookshelf",
+  "set-all-bookshelves-collapsed",
 ]);
 
 const state = reactive({
@@ -315,7 +328,7 @@ function submitBatchDelete() {
 // Each ribbon owns a distinct left-pane panel (Obsidian-style). The notebook
 // tree, tags, and stats are no longer stacked together under one tab.
 const RIBBON_PANELS = {
-  files: { title: "笔记本", sections: ["views", "topics"], tree: true },
+  files: { title: "书架", sections: ["views", "topics"], tree: true },
   search: { title: "搜索", sections: ["views", "topics"], tree: true },
   star: { title: "收藏", sections: ["globalFavorites"], tree: false },
   tags: { title: "属性", sections: ["properties"], tree: false },
@@ -761,32 +774,12 @@ function countForFilter(filter) {
 }
 
 const quickFilters = computed(() => [
-  { id: "all", label: "全部笔记", count: countForFilter("all"), icon: "library" },
+  { id: "all", label: "全部笔记", count: countForFilter("all"), icon: "allNotes" },
   { id: "today", label: "今天", count: countForFilter("today"), icon: "calendar" },
   { id: "week", label: "本周", count: countForFilter("week"), icon: "clock" },
   { id: "favorite", label: "收藏", count: countForFilter("favorite"), icon: "star" },
   { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "archive" },
 ]);
-
-// Era (time-period) rows for the active notebook, ordered chronologically to
-// mirror the center timeline's era grouping: both bucket events in
-// `compareTimelineEvents` order (earliest dateKey first, "更早" last) and keep
-// first-appearance order, so left-pane nav and center groups never disagree —
-// fitting a 编年/by-year product. Counts still run over all live events so the
-// list never blanks out under an active view filter.
-const eraRows = computed(() => {
-  const order = [];
-  const byEra = new Map();
-  for (const event of [...liveEvents.value].sort(compareTimelineEvents)) {
-    const key = String(event?.era || "未分组").trim() || "未分组";
-    if (!byEra.has(key)) {
-      byEra.set(key, { era: key, count: 0 });
-      order.push(key);
-    }
-    byEra.get(key).count += 1;
-  }
-  return order.map((key) => byEra.get(key));
-});
 
 const liveEventsByTopic = computed(() => {
   const grouped = new Map();
@@ -880,6 +873,19 @@ function isTopicExpanded(topicId) {
   return !selectMode.value && topicId === props.activeTopicId && state.topicCollapsed[topicId] !== true;
 }
 
+function isBookshelfExpanded(bookshelf) {
+  const name = String(bookshelf?.name || "").trim();
+  if (!name) return false;
+  if (props.bookshelfCollapsed[name] != null) return props.bookshelfCollapsed[name] !== true;
+  return name === props.activeBookshelfName;
+}
+
+function toggleBookshelfGroup(bookshelf) {
+  const name = String(bookshelf?.name || "").trim();
+  if (!name) return;
+  emit("toggle-bookshelf", name);
+}
+
 function toggleTopic(topicId) {
   if (selectMode.value) {
     toggleTopicSelection(topicId);
@@ -932,6 +938,7 @@ function toggleCollapseAll() {
   for (const topic of props.topics) {
     state.topicCollapsed[topic.id] = collapse;
   }
+  emit("set-all-bookshelves-collapsed", collapse);
   allCollapsed.value = collapse;
 }
 
@@ -1027,8 +1034,8 @@ watch(typeMenu, (value) => {
       <button class="rb brand" :title="props.brand">
         <TimelineLucideIcon name="book" :stroke-width="1.5" />
       </button>
-      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="笔记本" @click="selectRibbon('files')">
-        <TimelineLucideIcon name="folder" :stroke-width="1.5" />
+      <button class="rb" :class="{ active: state.ribbon === 'files' }" title="书架" @click="selectRibbon('files')">
+        <TimelineLucideIcon name="bookshelf" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" @click="focusSearch">
         <TimelineLucideIcon name="search" :stroke-width="1.5" />
@@ -1122,7 +1129,7 @@ watch(typeMenu, (value) => {
                   @click="selectFavoriteScope(item.scope)"
                 >
                   <span class="ti-chev"></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
                   <span class="ti-name">{{ item.label }}</span>
                   <span class="ti-cnt">{{ item.count }}</span>
                 </button>
@@ -1216,75 +1223,97 @@ watch(typeMenu, (value) => {
         <div v-if="panelHas('topics')" class="tg" :class="{ collapsed: state.sections.topics }">
           <div class="tg-head" @click="toggleSection('topics')">
             <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
-            <span class="tg-name">笔记本</span>
+            <span class="tg-name">书架</span>
             <button type="button" class="iconbtn sm" :class="{ on: creatingTopic }" title="新建笔记本" @click.stop="startCreateTopic">
               <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
             </button>
           </div>
           <div class="tg-body">
-            <p v-if="props.loading" class="sidebar-copy">正在加载笔记本...</p>
+            <p v-if="props.loading" class="sidebar-copy">正在加载书架...</p>
             <p v-else-if="props.error" class="sidebar-copy">{{ props.error }}</p>
             <template v-else>
-              <div v-for="topic in props.topics" :key="topic.id">
-                <div v-if="renamingTopicId === topic.id" class="ti folder ti-create">
-                  <span class="ti-chev"></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.5" /></span>
-                  <input
-                    :ref="(el) => (renameInputRef.value = el)"
-                    v-model="renameValue"
-                    class="ti-create-input"
-                    type="text"
-                    :maxlength="CONTENT_LIMITS.topicTitle"
-                    @keyup.enter="submitRenameTopic"
-                    @keyup.esc="cancelRenameTopic"
-                    @blur="onRenameBlur"
-                  />
-                </div>
+              <div v-for="bookshelf in props.bookshelfTree" :key="bookshelf.name">
                 <button
-                  v-else
                   type="button"
                   class="ti folder"
-                    :class="{
-                      active: !selectMode && topic.id === props.activeTopicId,
-                      selected: selectMode && isTopicSelected(topic.id),
-                      collapsed: !isTopicExpanded(topic.id),
-                      'menu-open': (topicMenu && topicMenu.topic.id === topic.id) || (topicCreateMenu && topicCreateMenu.topicId === topic.id),
-                    }"
-                    @click="toggleTopic(topic.id)"
-                  >
-                  <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(topic.id) }">
-                    <TimelineLucideIcon v-if="isTopicSelected(topic.id)" name="check" :stroke-width="2.4" />
-                  </span>
-                  <span v-else class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.5" /></span>
-                  <span class="ti-name">{{ topic.title || topic.name }}</span>
-                  <span class="ti-cnt">{{ topic.eventCount || 0 }}</span>
-                  <span v-if="!selectMode" class="ti-acts">
-                    <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(topic, $event)">
-                      <TimelineLucideIcon name="more" :stroke-width="1.5" />
-                    </span>
-                    <span class="ti-act" title="在此笔记本新建笔记" @click.stop="openCreateInTopicMenu(topic.id, $event)">
-                      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
-                    </span>
-                  </span>
+                  :class="{ active: bookshelf.name === props.activeBookshelfName, collapsed: !isBookshelfExpanded(bookshelf) }"
+                  @click="toggleBookshelfGroup(bookshelf)"
+                >
+                  <span class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
+                  <span class="ti-name">{{ bookshelf.title }}</span>
+                  <span class="ti-cnt">{{ bookshelf.topicCount }}</span>
                 </button>
                 <Transition name="topic-kids-stack">
-                  <div v-if="isTopicExpanded(topic.id)" class="ti-kids-shell">
+                  <div v-if="isBookshelfExpanded(bookshelf)" class="ti-kids-shell">
                     <div class="ti-kids" :style="{ '--pdepth': 0 }">
-                      <button
-                        v-for="(era, index) in eraRows"
-                        :key="era.era"
-                        type="button"
-                        class="ti leaf"
-                        :class="{ active: era.era === props.activeEra }"
-                        :style="{ '--depth': 1, '--stack-index': index }"
-                        @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
-                      >
-                        <span class="ti-chev"></span>
-                        <span class="ti-ic"><TimelineLucideIcon name="timeline" :stroke-width="1.5" /></span>
-                        <span class="ti-name">{{ era.era }}</span>
-                        <span class="ti-cnt">{{ era.count }}</span>
-                      </button>
+                      <div v-for="entry in bookshelf.topics" :key="entry.topic.id">
+                        <div v-if="renamingTopicId === entry.topic.id" class="ti folder ti-create" :style="{ '--depth': 1 }">
+                          <span class="ti-chev"></span>
+                          <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                          <input
+                            :ref="(el) => (renameInputRef.value = el)"
+                            v-model="renameValue"
+                            class="ti-create-input"
+                            type="text"
+                            :maxlength="CONTENT_LIMITS.topicTitle"
+                            @keyup.enter="submitRenameTopic"
+                            @keyup.esc="cancelRenameTopic"
+                            @blur="onRenameBlur"
+                          />
+                        </div>
+                        <button
+                          v-else
+                          type="button"
+                          class="ti folder"
+                          :class="{
+                            active: !selectMode && entry.topic.id === props.activeTopicId,
+                            selected: selectMode && isTopicSelected(entry.topic.id),
+                            collapsed: !isTopicExpanded(entry.topic.id),
+                            'menu-open':
+                              (topicMenu && topicMenu.topic.id === entry.topic.id) ||
+                              (topicCreateMenu && topicCreateMenu.topicId === entry.topic.id),
+                          }"
+                          :style="{ '--depth': 1 }"
+                          @click="toggleTopic(entry.topic.id)"
+                        >
+                          <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(entry.topic.id) }">
+                            <TimelineLucideIcon v-if="isTopicSelected(entry.topic.id)" name="check" :stroke-width="2.4" />
+                          </span>
+                          <span v-else class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+                          <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                          <span class="ti-name">{{ entry.topic.title || entry.topic.name }}</span>
+                          <span class="ti-cnt">{{ entry.topic.eventCount || 0 }}</span>
+                          <span v-if="!selectMode" class="ti-acts">
+                            <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(entry.topic, $event)">
+                              <TimelineLucideIcon name="more" :stroke-width="1.5" />
+                            </span>
+                            <span class="ti-act" title="在此笔记本新建笔记" @click.stop="openCreateInTopicMenu(entry.topic.id, $event)">
+                              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+                            </span>
+                          </span>
+                        </button>
+                        <Transition name="topic-kids-stack">
+                          <div v-if="isTopicExpanded(entry.topic.id)" class="ti-kids-shell">
+                            <div class="ti-kids" :style="{ '--pdepth': 1 }">
+                              <button
+                                v-for="(era, index) in entry.eras"
+                                :key="era.era"
+                                type="button"
+                                class="ti leaf"
+                                :class="{ active: era.era === props.activeEra }"
+                                :style="{ '--depth': 2, '--stack-index': index }"
+                                @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
+                              >
+                                <span class="ti-chev"></span>
+                                <span class="ti-ic"><TimelineLucideIcon name="timeline" :stroke-width="1.5" /></span>
+                                <span class="ti-name">{{ era.era }}</span>
+                                <span class="ti-cnt">{{ era.count }}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
                     </div>
                   </div>
                 </Transition>
@@ -1293,7 +1322,7 @@ watch(typeMenu, (value) => {
 
             <div v-if="creatingTopic" ref="topicCreateRef" class="ti folder ti-create">
               <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon name="folder" :stroke-width="1.5" /></span>
+              <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
               <input
                 ref="topicInputRef"
                 v-model="topicName"
@@ -1342,7 +1371,7 @@ watch(typeMenu, (value) => {
                 <span class="tg-chev" :class="{ collapsed: !isPropertyTopicOpen(entry.topic.id) }">
                   <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
                 </span>
-                <span class="prop-topic-ic"><TimelineLucideIcon name="folder" :stroke-width="1.5" /></span>
+                <span class="prop-topic-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
                 <span class="prop-topic-name">{{ entry.topic.title || entry.topic.name }}</span>
                 <span v-if="entry.active" class="prop-topic-badge">当前</span>
                 <span class="prop-topic-count">{{ entry.properties.length }}</span>

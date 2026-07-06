@@ -16,14 +16,14 @@
 ## 0. 目标与边界（Define-First）
 
 - **Goal**：切换笔记本秒开、媒体小而快、收藏/搜索成为可用的**跨本**视图、编辑器升级路线清晰；既有不变量零回归。
-- **Non-goals（本轮不做）**：笔记本真层级（仅在 schema 预留 `parent_id`，不实现 UI/逻辑）；知识类无日期笔记；多用户/协作；迁移 Postgres（SQLite 留用，见 §0.1.1）；CM6 编辑器实现（本文只排期，另立文档）。
+- **Non-goals（本轮不做）**：笔记本真层级（**此旧决策已被 `docs/bookshelf-hierarchy-design.md` 取代，不再适用**）；知识类无日期笔记；多用户/协作；迁移 Postgres（SQLite 留用，见 §0.1.1）；CM6 编辑器实现（本文只排期，另立文档）。
 - **Scope**：前端数据层、后端媒体管线、跨本来源标识、收藏视图、搜索命令面板（UI 壳 + FTS5 管线）、关联事件 modal、CM6 编辑器路线。
 - **Verification**：各阶段「验收」+ §8 总验收；`npm run agent:check / build / test:ui` + `python -m pytest` 全过；视觉改动按 `docs/agent-frontend-hardness.md` 归档 1920×1080 截图至 `docs/visual-qa/`。
 
 ### 0.1 决策基线（用户已拍板，执行勿再问）
 1. **SQLite 留用，不迁库**。理由：文本结构化数据极小（6 万条 × 5KB ≈ 300MB，SQLite 轻松），单人/读多写少碰不到并发写瓶颈；附件走文件系统、DB 只存引用。需迁库的边界（多人并发写 / 多 app server / 公网多租户）当前都不成立。
 2. **媒体默认压缩**（WebP），设置开放「保留原图」开关；开源方案 = **Pillow 库**（进程内上传即处理），非 imgproxy 那类服务（那类存原图、省带宽不省存储）。
-3. **笔记本平铺**，不做层级（schema 预留 `parent_id` 不实现）。
+3. **笔记本平铺**，不做层级（**此旧决策已被 `docs/bookshelf-hierarchy-design.md` 取代，不再适用**）。
 4. **收藏 = 跨本视图**，每行须清晰显示**来源笔记本**。
 5. **搜索 UI 参考 Codex 命令面板**（仅参考 UI）；搜索**功能**（字段权重/范围/模糊/属性过滤/排序）**另立设计**，本文只定 UI 壳 + FTS5 管线 + 结果契约。
 6. **编辑器走 CodeMirror 6**（AGENTS §9 唯一预批依赖）实现 Typora 式实时渲染，分期，细节另立 `docs/editor-cm6-design.md`。

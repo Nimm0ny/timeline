@@ -14,7 +14,7 @@ from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
-from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
+from backend.app.models.entities import AppConfigEntry, Bookshelf, EventItem, ImageAsset, TimelineEvent, Topic
 from backend.app.services.date_utils import (
     build_display_label,
     date_key_to_iso,
@@ -65,6 +65,11 @@ SEARCH_LIMIT_DEFAULT = 20
 SEARCH_LIMIT_MAX = 50
 SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 SEARCH_INDEX_TABLE = "timeline_events_fts"
+DEFAULT_BOOKSHELF_NAME = "default"
+DEFAULT_BOOKSHELF_TITLE = "编年"
+QSTHEORY_BOOKSHELF_NAME = "qstheory"
+QSTHEORY_BOOKSHELF_TITLE = "求是"
+QSTHEORY_TOPIC_PREFIXES = ("求是网-", "求是杂志-")
 
 
 def default_topic_columns_json() -> str:
@@ -220,12 +225,121 @@ def sanitize_topic_name(name: str) -> str:
     return "".join(c for c in name.strip() if c.isalnum() or c in "_-\u4e00-\u9fff")
 
 
+def sanitize_bookshelf_name(name: str) -> str:
+    return sanitize_topic_name(name)
+
+
+def classify_topic_bookshelf(name: str | None, title: str | None) -> tuple[str, str]:
+    for value in (str(name or "").strip(), str(title or "").strip()):
+        if any(value.startswith(prefix) for prefix in QSTHEORY_TOPIC_PREFIXES):
+            return QSTHEORY_BOOKSHELF_NAME, QSTHEORY_BOOKSHELF_TITLE
+    return DEFAULT_BOOKSHELF_NAME, DEFAULT_BOOKSHELF_TITLE
+
+
+def bookshelf_to_dict(bookshelf: Bookshelf, *, topic_count: int = 0, event_count: int = 0) -> dict:
+    return {
+        "id": bookshelf.id,
+        "name": bookshelf.name,
+        "title": bookshelf.title or bookshelf.name or "",
+        "createdAt": serialize_datetime(bookshelf.created_at),
+        "updatedAt": serialize_datetime(bookshelf.updated_at),
+        "topicCount": int(topic_count or 0),
+        "eventCount": int(event_count or 0),
+    }
+
+
+def topic_bookshelf_fields(topic: Topic) -> dict:
+    bookshelf = topic.bookshelf
+    return {
+        "bookshelfId": int(topic.bookshelf_id) if topic.bookshelf_id is not None else (bookshelf.id if bookshelf else None),
+        "bookshelfName": bookshelf.name if bookshelf else None,
+        "bookshelfTitle": (bookshelf.title or bookshelf.name) if bookshelf else None,
+    }
+
+
+def ensure_bookshelf(db: Session, name: str, title: str) -> Bookshelf:
+    bookshelf = db.query(Bookshelf).filter(Bookshelf.name == name).first()
+    if bookshelf is not None:
+        return bookshelf
+    bookshelf = Bookshelf(name=name, title=title or name)
+    db.add(bookshelf)
+    db.flush()
+    return bookshelf
+
+
+def ensure_default_bookshelf(db: Session) -> Bookshelf:
+    return ensure_bookshelf(db, DEFAULT_BOOKSHELF_NAME, DEFAULT_BOOKSHELF_TITLE)
+
+
+def ensure_qstheory_bookshelf(db: Session) -> Bookshelf:
+    return ensure_bookshelf(db, QSTHEORY_BOOKSHELF_NAME, QSTHEORY_BOOKSHELF_TITLE)
+
+
+def ensure_topic_bookshelf_assignments(db: Session) -> int:
+    changed = 0
+    if db.query(Bookshelf.id).filter(Bookshelf.name == DEFAULT_BOOKSHELF_NAME).first() is None:
+        ensure_default_bookshelf(db)
+        changed += 1
+
+    topics = db.query(Topic).filter(Topic.bookshelf_id.is_(None)).order_by(Topic.id.asc()).all()
+    if not topics:
+        return changed
+
+    default_bookshelf = ensure_default_bookshelf(db)
+    qstheory_bookshelf = None
+    assigned = 0
+    for topic in topics:
+        bookshelf_name, _ = classify_topic_bookshelf(topic.name, topic.title)
+        if bookshelf_name == QSTHEORY_BOOKSHELF_NAME:
+            if qstheory_bookshelf is None:
+                if db.query(Bookshelf.id).filter(Bookshelf.name == QSTHEORY_BOOKSHELF_NAME).first() is None:
+                    changed += 1
+                qstheory_bookshelf = ensure_qstheory_bookshelf(db)
+            topic.bookshelf = qstheory_bookshelf
+        else:
+            topic.bookshelf = default_bookshelf
+        assigned += 1
+    return changed + assigned
+
+
+def normalize_bookshelf_id(value, *, allow_none: bool = False) -> int | None:
+    if value is None:
+        if allow_none:
+            return None
+        raise HTTPException(status_code=400, detail="bookshelfId is required")
+    try:
+        bookshelf_id = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid bookshelfId") from exc
+    if bookshelf_id <= 0:
+        raise HTTPException(status_code=400, detail="Invalid bookshelfId")
+    return bookshelf_id
+
+
+def get_bookshelf_or_404(db: Session, bookshelf_id: int) -> Bookshelf:
+    bookshelf = db.get(Bookshelf, bookshelf_id)
+    if bookshelf is None:
+        raise HTTPException(status_code=404, detail="Bookshelf not found")
+    return bookshelf
+
+
+def resolve_topic_bookshelf(db: Session, bookshelf_id=None) -> Bookshelf:
+    if bookshelf_id is None:
+        return ensure_default_bookshelf(db)
+    normalized = normalize_bookshelf_id(bookshelf_id)
+    bookshelf = db.get(Bookshelf, normalized)
+    if bookshelf is None:
+        raise HTTPException(status_code=400, detail="Bookshelf not found")
+    return bookshelf
+
+
 def topic_to_dict(topic: Topic) -> dict:
     return {
         "id": topic.id,
         "name": topic.name,
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
+        **topic_bookshelf_fields(topic),
         "columns": deserialize_json_list(topic.columns_json),
         "displayStyle": normalize_display_style(topic.display_style),
         "sort": normalize_sort_levels(topic.sort_json),
@@ -972,7 +1086,7 @@ def serialize_event_rows(db: Session, rows: list[TimelineEvent]) -> list[dict]:
 
 
 def get_topic_or_404(db: Session, topic_id: int) -> Topic:
-    topic = db.get(Topic, topic_id)
+    topic = db.query(Topic).options(joinedload(Topic.bookshelf)).filter(Topic.id == topic_id).first()
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
     return topic
@@ -1032,6 +1146,7 @@ def list_topics(db: Session) -> list[dict]:
             func.max(TimelineEvent.date_key).label("max_date_key"),
             func.count(TimelineEvent.image_id).label("image_count"),
         )
+        .options(joinedload(Topic.bookshelf))
         .outerjoin(TimelineEvent, TimelineEvent.topic_id == Topic.id)
         .group_by(Topic.id)
         .order_by(Topic.id.asc())
@@ -1058,14 +1173,91 @@ def list_topics(db: Session) -> list[dict]:
     return items
 
 
-def create_topic(db: Session, name: str) -> dict:
+def list_bookshelves(db: Session) -> list[dict]:
+    rows = (
+        db.query(
+            Bookshelf,
+            func.count(func.distinct(Topic.id)).label("topic_count"),
+            func.count(TimelineEvent.id).label("event_count"),
+        )
+        .outerjoin(Topic, Topic.bookshelf_id == Bookshelf.id)
+        .outerjoin(TimelineEvent, TimelineEvent.topic_id == Topic.id)
+        .group_by(Bookshelf.id)
+        .order_by(Bookshelf.id.asc())
+        .all()
+    )
+    return [
+        bookshelf_to_dict(
+            bookshelf,
+            topic_count=int(topic_count or 0),
+            event_count=int(event_count or 0),
+        )
+        for bookshelf, topic_count, event_count in rows
+    ]
+
+
+def create_bookshelf(db: Session, payload: dict) -> dict:
+    safe = sanitize_bookshelf_name(str(payload.get("name", "")).strip())
+    if not safe:
+        raise HTTPException(status_code=400, detail="Invalid bookshelf name")
+    if safe in {DEFAULT_BOOKSHELF_NAME, QSTHEORY_BOOKSHELF_NAME}:
+        raise HTTPException(status_code=400, detail="Bookshelf name is reserved")
+    exists = db.query(Bookshelf).filter(Bookshelf.name == safe).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Bookshelf already exists")
+    title = str(payload.get("title") or safe).strip() or safe
+    bookshelf = Bookshelf(name=safe, title=title)
+    db.add(bookshelf)
+    db.commit()
+    db.refresh(bookshelf)
+    return bookshelf_to_dict(bookshelf)
+
+
+def update_bookshelf(db: Session, bookshelf_id: int, payload: dict) -> dict:
+    bookshelf = get_bookshelf_or_404(db, bookshelf_id)
+    if "name" in payload:
+        safe = sanitize_bookshelf_name(str(payload.get("name", "")).strip())
+        if not safe:
+            raise HTTPException(status_code=400, detail="Invalid bookshelf name")
+        if safe != bookshelf.name:
+            raise HTTPException(status_code=400, detail="Bookshelf name is immutable")
+    if "title" in payload:
+        title = str(payload.get("title") or "").strip()
+        bookshelf.title = title or bookshelf.title or bookshelf.name
+    db.commit()
+    db.refresh(bookshelf)
+    return bookshelf_to_dict(bookshelf)
+
+
+def delete_bookshelf(db: Session, bookshelf_id: int) -> dict:
+    bookshelf = get_bookshelf_or_404(db, bookshelf_id)
+    topic_count = db.query(func.count(Topic.id)).filter(Topic.bookshelf_id == bookshelf.id).scalar() or 0
+    if int(topic_count or 0) > 0:
+        raise HTTPException(status_code=409, detail="Bookshelf is not empty")
+    db.delete(bookshelf)
+    db.commit()
+    return {"ok": True}
+
+
+def create_topic(db: Session, name: str, bookshelf_id=None) -> dict:
     safe = sanitize_topic_name(name)
     if not safe:
         raise HTTPException(status_code=400, detail="Invalid topic name")
     exists = db.query(Topic).filter(Topic.name == safe).first()
     if exists:
         raise HTTPException(status_code=409, detail="Topic already exists")
-    topic = Topic(name=safe, title=safe, subtitle="", columns_json=default_topic_columns_json())
+    if bookshelf_id is None:
+        bookshelf_name, _ = classify_topic_bookshelf(safe, safe)
+        bookshelf = ensure_qstheory_bookshelf(db) if bookshelf_name == QSTHEORY_BOOKSHELF_NAME else ensure_default_bookshelf(db)
+    else:
+        bookshelf = resolve_topic_bookshelf(db, bookshelf_id)
+    topic = Topic(
+        name=safe,
+        title=safe,
+        subtitle="",
+        bookshelf=bookshelf,
+        columns_json=default_topic_columns_json(),
+    )
     db.add(topic)
     db.commit()
     db.refresh(topic)
@@ -1112,6 +1304,8 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.title = str(payload["title"] or "").strip()
     if "subtitle" in payload:
         topic.subtitle = str(payload["subtitle"] or "").strip()
+    if "bookshelfId" in payload:
+        topic.bookshelf = resolve_topic_bookshelf(db, normalize_bookshelf_id(payload.get("bookshelfId")))
     if "displayStyle" in payload:
         topic.display_style = normalize_display_style(payload.get("displayStyle"))
     if "sort" in payload:

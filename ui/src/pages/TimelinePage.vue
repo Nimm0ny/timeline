@@ -20,6 +20,7 @@ import {
   buildRecentFavoriteEvents,
   buildGlobalFavoriteEvents,
   clampSortForView,
+  compareTimelineEvents,
   compareEventsBySort,
   DEFAULT_SORT,
   filterFavoriteEventsByScope,
@@ -49,6 +50,7 @@ const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
 const NAV_POSITION_KEY = "chronicle-nav-position";
+const BOOKSHELF_COLLAPSE_KEY = "chronicle-bookshelf-collapsed";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
 function clamp(value, min, max) {
@@ -71,6 +73,22 @@ function readStorage(key, fallback) {
 function writeStorage(key, value) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(key, String(value));
+}
+
+function readObjectStorage(key, fallback = {}) {
+  const raw = readStorage(key, "");
+  if (!raw) return { ...fallback };
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { ...fallback };
+  } catch {
+    return { ...fallback };
+  }
+}
+
+function writeObjectStorage(key, value) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(value || {}));
 }
 
 // Sidebar edge is a two-value enum; coerce any legacy/invalid stored or server
@@ -127,6 +145,7 @@ const state = reactive({
     },
   },
   topics: [],
+  bookshelves: [],
   activeTopicId: null,
   activeTopicMeta: null,
   events: [],
@@ -161,6 +180,8 @@ const state = reactive({
   mobileSearchOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
   rightWidth: Number.parseInt(readStorage(RIGHT_WIDTH_KEY, "412"), 10) || 412,
+  bookshelfCollapsed: readObjectStorage(BOOKSHELF_COLLAPSE_KEY),
+  focusedBookshelfName: "",
   showPreview: readStorage(PREVIEW_KEY, "on") !== "off",
   searchRequestKey: 0,
   commandOpen: false,
@@ -211,6 +232,109 @@ const workspaceStyle = computed(() => ({
   "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
   "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
 }));
+
+function normalizeTopicBookshelf(topic = {}) {
+  const name = String(topic?.bookshelfName || "").trim() || "default";
+  const title = String(topic?.bookshelfTitle || "").trim() || (name === "qstheory" ? "求是" : "编年");
+  return {
+    id: topic?.bookshelfId ?? null,
+    name,
+    title,
+  };
+}
+
+const bookshelfTree = computed(() => {
+  const liveEventsByTopic = new Map();
+  for (const event of timelineStore.state.eventsIndex || []) {
+    if (!event || event.deletedAt) continue;
+    const topicId = Number(event.topicId);
+    if (!liveEventsByTopic.has(topicId)) liveEventsByTopic.set(topicId, []);
+    liveEventsByTopic.get(topicId).push(event);
+  }
+
+  const shelves = [];
+  const byShelf = new Map();
+  for (const shelf of state.bookshelves) {
+    const normalizedName = String(shelf?.name || "").trim();
+    if (!normalizedName || byShelf.has(normalizedName)) continue;
+    const entry = {
+      id: shelf?.id ?? null,
+      name: normalizedName,
+      title: String(shelf?.title || normalizedName).trim() || normalizedName,
+      topicCount: 0,
+      eventCount: 0,
+      topics: [],
+    };
+    byShelf.set(normalizedName, entry);
+    shelves.push(entry);
+  }
+
+  for (const topic of state.topics) {
+    const bookshelf = normalizeTopicBookshelf(topic);
+    let shelf = byShelf.get(bookshelf.name);
+    if (!shelf) {
+      shelf = {
+        id: bookshelf.id,
+        name: bookshelf.name,
+        title: bookshelf.title,
+        topicCount: 0,
+        eventCount: 0,
+        topics: [],
+      };
+      byShelf.set(bookshelf.name, shelf);
+      shelves.push(shelf);
+    }
+
+    const eras = [];
+    const eraMap = new Map();
+    for (const event of (liveEventsByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
+      const era = String(event?.era || "未分组").trim() || "未分组";
+      if (!eraMap.has(era)) {
+        eraMap.set(era, { era, count: 0 });
+        eras.push(eraMap.get(era));
+      }
+      eraMap.get(era).count += 1;
+    }
+
+    shelf.topicCount += 1;
+    shelf.eventCount += Number(topic.eventCount || 0);
+    shelf.topics.push({ topic, eras });
+  }
+  return shelves;
+});
+
+const activeBookshelfName = computed(() => state.focusedBookshelfName || (state.activeTopicMeta ? normalizeTopicBookshelf(state.activeTopicMeta).name : ""));
+
+function persistBookshelfCollapsed(nextState) {
+  state.bookshelfCollapsed = { ...nextState };
+  writeObjectStorage(BOOKSHELF_COLLAPSE_KEY, state.bookshelfCollapsed);
+}
+
+function ensureBookshelfExpandedForTopic(topicId = state.activeTopicId) {
+  const topic = state.topics.find((item) => item.id === Number(topicId));
+  if (!topic) return;
+  const { name } = normalizeTopicBookshelf(topic);
+  if (name) state.focusedBookshelfName = name;
+  if (!name || state.bookshelfCollapsed[name] !== true) return;
+  persistBookshelfCollapsed({ ...state.bookshelfCollapsed, [name]: false });
+}
+
+function toggleBookshelf(name) {
+  if (!name) return;
+  state.focusedBookshelfName = name;
+  persistBookshelfCollapsed({
+    ...state.bookshelfCollapsed,
+    [name]: state.bookshelfCollapsed[name] !== true,
+  });
+}
+
+function setAllBookshelvesCollapsed(collapsed) {
+  const nextState = { ...state.bookshelfCollapsed };
+  for (const bookshelf of bookshelfTree.value) {
+    nextState[bookshelf.name] = Boolean(collapsed);
+  }
+  persistBookshelfCollapsed(nextState);
+}
 
 const activeTopicTitle = computed(
   () => state.activeTopicMeta?.title || state.topics.find((topic) => topic.id === state.activeTopicId)?.title || "编年"
@@ -701,6 +825,7 @@ async function applyRouteSelectionFromQuery() {
 function syncActiveTopicFromStore() {
   state.topics = [...timelineStore.state.topics];
   state.activeTopicMeta = state.activeTopicId ? timelineStore.topicById(state.activeTopicId) : null;
+  ensureBookshelfExpandedForTopic(state.activeTopicId);
   state.events = state.activeTopicId ? timelineStore.eventsForTopic(state.activeTopicId) : [];
   state.eventBounds = state.activeTopicMeta
     ? {
@@ -763,7 +888,7 @@ async function loadWorkspace(options = {}) {
   state.locateDate = parseRouteString("date");
 
   try {
-    const [config] = await Promise.all([api.getConfig(), timelineStore.loadIndex()]);
+    const [config, bookshelves] = await Promise.all([api.getConfig(), api.listBookshelves(), timelineStore.loadIndex()]);
     state.config = {
       ...state.config,
       ...config,
@@ -771,6 +896,7 @@ async function loadWorkspace(options = {}) {
       navPosition: normalizeNavPosition(config?.navPosition),
       media: normalizeMediaConfig(config?.media),
     };
+    state.bookshelves = Array.isArray(bookshelves) ? bookshelves : [];
     // Mirror the cross-device truth into localStorage so the next load paints the
     // correct sidebar edge on frame 1 instead of flashing the default and swapping.
     writeStorage(NAV_POSITION_KEY, state.config.navPosition);
@@ -1400,8 +1526,10 @@ async function selectTopic(topicId) {
 
 async function createTopic(name) {
   try {
-    const created = await api.createTopic(name);
+    const targetShelf = state.bookshelves.find((shelf) => shelf.name === activeBookshelfName.value) || null;
+    const created = await api.createTopic(name, targetShelf?.id ?? null);
     timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
+    if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
     applyWorkspaceSelection({
       preferredTopicId: created.id,
       preferredEventId: null,
@@ -2098,6 +2226,9 @@ watch(
       :topics="state.topics"
       :events="state.events"
       :all-events="timelineStore.state.eventsIndex"
+      :bookshelf-tree="bookshelfTree"
+      :bookshelf-collapsed="state.bookshelfCollapsed"
+      :active-bookshelf-name="activeBookshelfName"
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
       :global-favorite-count="globalFavoriteEvents.length"
@@ -2123,6 +2254,8 @@ watch(
       @open-global-favorites="openGlobalFavorites"
       @update:favorite-scope="updateFavoriteScope"
       @open-favorite-event="selectEvent"
+      @toggle-bookshelf="toggleBookshelf"
+      @set-all-bookshelves-collapsed="setAllBookshelvesCollapsed"
       @select-era="updateActiveEra"
       @select-ribbon="handleSidebarRibbon"
       @select-topic="selectTopic"
