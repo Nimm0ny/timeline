@@ -38,8 +38,14 @@ import {
   resolveTopicCreateShelfName,
   resolvePropertyChips,
   serializeTopicColumnsDraft,
+  mergeTopicEventPage,
+  planTopicPageFetch,
+  shouldAutoLoadMoreForFilteredEvents,
+  shouldRequestMoreOnScroll,
   timelineTimeColumnWidth,
   findBookshelfByName,
+  sortBookshelfTree,
+  SIDEBAR_SORT_MODES,
 } from "../src/utils/timelineNotes.js";
 
 const tagsColumn = {
@@ -787,4 +793,153 @@ test("resolveCreateTopicRequest preserves shelf-scoped notebook creation across 
     resolveCreateTopicRequest({ name: "点击事件", bookshelfName: { type: "click" } }, "", [], synthesizedTree),
     { topicName: "点击事件", bookshelfName: "archive", bookshelfId: 12 }
   );
+});
+
+test("mergeTopicEventPage replaces on load and de-dupes by id across appended pages", () => {
+  const page1 = [{ id: 1, topicId: 7 }, { id: 2, topicId: 7 }];
+  // Non-append replaces whatever was there.
+  assert.deepEqual(mergeTopicEventPage([{ id: 9 }], page1).map((e) => e.id), [1, 2]);
+  // Append de-dupes the overlapping boundary row (id 2) and keeps order, no drop.
+  const page2 = [{ id: 2, topicId: 7 }, { id: 3, topicId: 7 }, { id: 4, topicId: 7 }];
+  const merged = mergeTopicEventPage(page1, page2, { append: true });
+  assert.deepEqual(merged.map((e) => e.id), [1, 2, 3, 4]);
+  // A fully-overlapping page adds nothing (idempotent).
+  assert.deepEqual(mergeTopicEventPage(merged, page1, { append: true }).map((e) => e.id), [1, 2, 3, 4]);
+});
+
+test("planTopicPageFetch decides fetch + threads the cursor across initial/force/append", () => {
+  assert.deepEqual(planTopicPageFetch({ loaded: false }, {}), { shouldFetch: true, requestCursor: null });
+  assert.deepEqual(planTopicPageFetch({ loaded: true }, {}), { shouldFetch: false, requestCursor: null });
+  assert.deepEqual(planTopicPageFetch({ loaded: true }, { force: true }), { shouldFetch: true, requestCursor: null });
+  assert.deepEqual(
+    planTopicPageFetch({ loaded: true, hasMore: true, nextCursor: "18500101:42" }, { append: true }),
+    { shouldFetch: true, requestCursor: "18500101:42" }
+  );
+  // No more pages -> don't fetch.
+  assert.deepEqual(
+    planTopicPageFetch({ loaded: true, hasMore: false, nextCursor: "x" }, { append: true }),
+    { shouldFetch: false, requestCursor: null }
+  );
+  // hasMore but no cursor -> skip (never silently refetch page 1).
+  assert.deepEqual(
+    planTopicPageFetch({ loaded: true, hasMore: true, nextCursor: null }, { append: true }),
+    { shouldFetch: false, requestCursor: null }
+  );
+  // Explicit cursor wins.
+  assert.deepEqual(
+    planTopicPageFetch({ loaded: true, hasMore: true, nextCursor: "a" }, { append: true, cursor: "b" }),
+    { shouldFetch: true, requestCursor: "b" }
+  );
+});
+
+test("shouldRequestMoreOnScroll fires only near the bottom and honors the guards", () => {
+  const near = { scrollHeight: 1000, scrollTop: 700, clientHeight: 100, hasMore: true }; // remaining 200 <= 320
+  assert.equal(shouldRequestMoreOnScroll(near), true);
+  assert.equal(shouldRequestMoreOnScroll({ scrollHeight: 1000, scrollTop: 100, clientHeight: 100, hasMore: true }), false);
+  // Exactly at the threshold still fires.
+  assert.equal(shouldRequestMoreOnScroll({ scrollHeight: 1000, scrollTop: 580, clientHeight: 100, hasMore: true }), true);
+  assert.equal(shouldRequestMoreOnScroll({ ...near, hasMore: false }), false);
+  assert.equal(shouldRequestMoreOnScroll({ ...near, loadingMore: true }), false);
+  assert.equal(shouldRequestMoreOnScroll({ ...near, loading: true }), false);
+  assert.equal(shouldRequestMoreOnScroll({ ...near, error: true }), false);
+  assert.equal(shouldRequestMoreOnScroll({ ...near, globalFavoritesMode: true }), false);
+});
+
+test("shouldAutoLoadMoreForFilteredEvents only keeps paging while a filtered topic page is empty", () => {
+  assert.equal(
+    shouldAutoLoadMoreForFilteredEvents({
+      activeTopicId: 1,
+      globalFavoritesMode: false,
+      hasMore: true,
+      eventsLoading: false,
+      loadingMore: false,
+      visibleCount: 0,
+    }),
+    true
+  );
+  assert.equal(
+    shouldAutoLoadMoreForFilteredEvents({
+      activeTopicId: 1,
+      globalFavoritesMode: false,
+      hasMore: true,
+      eventsLoading: false,
+      loadingMore: false,
+      visibleCount: 3,
+    }),
+    false
+  );
+  assert.equal(
+    shouldAutoLoadMoreForFilteredEvents({
+      activeTopicId: 1,
+      globalFavoritesMode: true,
+      hasMore: true,
+      eventsLoading: false,
+      loadingMore: false,
+      visibleCount: 0,
+    }),
+    false
+  );
+});
+
+const sidebarSortTree = () => [
+  {
+    name: "b",
+    title: "Beta",
+    eventCount: 5,
+    updatedAt: "2026-06-01T00:00:00Z",
+    topics: [
+      { topic: { id: 1, title: "Cat", eventCount: 2, updatedAt: "2026-02-01T00:00:00Z" }, eras: [{ era: "e", count: 2 }] },
+      { topic: { id: 2, title: "Dog", eventCount: 9, updatedAt: "2026-03-01T00:00:00Z" }, eras: [] },
+    ],
+  },
+  {
+    name: "a",
+    title: "Alpha",
+    eventCount: 8,
+    updatedAt: "2026-05-01T00:00:00Z",
+    topics: [{ topic: { id: 3, title: "Ant", eventCount: 1, updatedAt: "2026-04-01T00:00:00Z" }, eras: [] }],
+  },
+];
+
+const shelfTitles = (tree) => tree.map((shelf) => shelf.title);
+const topicTitles = (shelf) => shelf.topics.map((entry) => entry.topic.title);
+
+test("sortBookshelfTree default keeps the backend order untouched", () => {
+  const tree = sidebarSortTree();
+  const result = sortBookshelfTree(tree, "default");
+  assert.equal(result, tree); // same reference, no reordering
+  assert.deepEqual(shelfTitles(result), ["Beta", "Alpha"]);
+  assert.deepEqual(SIDEBAR_SORT_MODES, ["default", "name", "count", "updated"]);
+});
+
+test("sortBookshelfTree name sorts shelves and notebooks by title asc", () => {
+  const result = sortBookshelfTree(sidebarSortTree(), "name");
+  assert.deepEqual(shelfTitles(result), ["Alpha", "Beta"]);
+  const beta = result.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(beta), ["Cat", "Dog"]);
+});
+
+test("sortBookshelfTree count sorts by note count desc", () => {
+  const result = sortBookshelfTree(sidebarSortTree(), "count");
+  assert.deepEqual(shelfTitles(result), ["Alpha", "Beta"]); // 8 before 5
+  const beta = result.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(beta), ["Dog", "Cat"]); // 9 before 2
+});
+
+test("sortBookshelfTree updated sorts by updatedAt desc", () => {
+  const result = sortBookshelfTree(sidebarSortTree(), "updated");
+  assert.deepEqual(shelfTitles(result), ["Beta", "Alpha"]); // Jun before May
+  const beta = result.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(beta), ["Dog", "Cat"]); // Mar before Feb
+});
+
+test("sortBookshelfTree leaves the source tree and era lists untouched", () => {
+  const tree = sidebarSortTree();
+  const shelfSnapshot = shelfTitles(tree);
+  const topicSnapshot = topicTitles(tree[0]);
+  const result = sortBookshelfTree(tree, "count");
+  assert.deepEqual(shelfTitles(tree), shelfSnapshot);
+  assert.deepEqual(topicTitles(tree[0]), topicSnapshot);
+  const beta = result.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(beta.topics.find((entry) => entry.topic.title === "Cat").eras, [{ era: "e", count: 2 }]);
 });

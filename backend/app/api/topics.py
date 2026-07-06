@@ -81,7 +81,7 @@ def get_topic_events(
     from_date: str | None = Query(None, alias="from"),
     to_date: str | None = Query(None, alias="to"),
     cursor: str | None = Query(None),
-    limit: int | None = Query(None, ge=1, le=5000),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     return query_topic_events(

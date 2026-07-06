@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.session import Base
@@ -50,6 +50,12 @@ class Topic(Base):
     events: Mapped[list["TimelineEvent"]] = relationship(
         "TimelineEvent", back_populates="topic", cascade="all, delete-orphan"
     )
+    stats: Mapped["TopicStat | None"] = relationship(
+        "TopicStat", back_populates="topic", cascade="all, delete-orphan", uselist=False
+    )
+    era_stats: Mapped[list["TopicEraStat"]] = relationship(
+        "TopicEraStat", back_populates="topic", cascade="all, delete-orphan"
+    )
 
 
 class ImageAsset(Base):
@@ -77,6 +83,13 @@ class TimelineEvent(Base):
         Index("ix_timeline_events_topic_date_id", "topic_id", "date_key", "id"),
         Index("ix_timeline_events_topic_year_month", "topic_id", "date_year", "date_month"),
         Index("ix_timeline_events_topic_deleted", "topic_id", "deleted_at"),
+        Index(
+            "ix_timeline_events_live_topic_date",
+            "topic_id",
+            "date_key",
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -92,6 +105,8 @@ class TimelineEvent(Base):
     # Note kind: "entry" (markdown body, default) or "mindmap" (tree in body_json).
     note_type: Mapped[str] = mapped_column(String(32), default="entry", nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    preview_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    search_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # Structured body interpreted per note_type; only "mindmap" uses it (tree JSON).
     body_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
@@ -126,6 +141,36 @@ class EventItem(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     event: Mapped[TimelineEvent] = relationship("TimelineEvent", back_populates="items")
+
+
+class TopicStat(Base):
+    __tablename__ = "topic_stats"
+
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), primary_key=True)
+    live_event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deleted_event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    image_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    topic: Mapped[Topic] = relationship("Topic", back_populates="stats")
+
+
+class TopicEraStat(Base):
+    __tablename__ = "topic_era_stats"
+    __table_args__ = (Index("ix_topic_era_stats_topic_min_date", "topic_id", "min_date_key", "era"),)
+
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), primary_key=True)
+    era: Mapped[str] = mapped_column(String(255), primary_key=True)
+    live_event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    min_date_key: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    topic: Mapped[Topic] = relationship("Topic", back_populates="era_stats")
 
 
 class AppConfigEntry(Base):

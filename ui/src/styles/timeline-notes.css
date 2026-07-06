@@ -261,6 +261,10 @@ button {
 .sidebar {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
+  /* Bound the single grid row to the column height (.col = 100vh) so the pane can
+     never grow past the viewport. Without this the auto row stretches to the tall
+     notebook tree and .col{overflow:hidden} clips it instead of scrolling. */
+  grid-template-rows: minmax(0, 1fr);
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
 }
@@ -327,6 +331,9 @@ button {
 
 .pane {
   min-width: 0;
+  /* min-height:0 lets the flex column shrink inside the bounded grid row so
+     .pane-scroll (flex:1; overflow-y:auto) owns the overflow and scrolls. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

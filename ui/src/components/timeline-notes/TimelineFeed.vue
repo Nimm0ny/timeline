@@ -26,6 +26,7 @@ import {
   resolvePropertyChips,
   SORT_FIELD_META,
   sortFieldsForView,
+  shouldRequestMoreOnScroll,
   timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
 } from "@/utils/timelineNotes";
@@ -167,6 +168,18 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  hasMore: {
+    type: Boolean,
+    default: false,
+  },
+  loadingMore: {
+    type: Boolean,
+    default: false,
+  },
+  canRetryLoadMore: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -188,6 +201,7 @@ const emit = defineEmits([
   "open-command-palette",
   "change-view",
   "clear-context-filter",
+  "load-more",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -302,7 +316,7 @@ function flatEvents() {
 // (table/list/gallery) re-sort the flattened set directly, bypassing the era
 // grouping; grouped views read props.groups (already ordered by the page).
 const GROUP_BY_OPTIONS = [
-  { key: "era", label: "时期", icon: "outline" },
+  { key: "era", label: "分组", icon: "outline" },
   { key: "year", label: "年", icon: "calendar" },
   { key: "month", label: "月", icon: "calendar" },
 ];
@@ -583,6 +597,25 @@ function closeSearchIfEmpty() {
   }
 }
 
+function maybeRequestMore(target = feedRef.value, { auto = true } = {}) {
+  if (!target) return;
+  const requestMore = shouldRequestMoreOnScroll({
+    scrollHeight: target.scrollHeight,
+    scrollTop: target.scrollTop,
+    clientHeight: target.clientHeight,
+    hasMore: props.hasMore,
+    loadingMore: props.loadingMore,
+    globalFavoritesMode: props.globalFavoritesMode,
+    loading: props.loading,
+    error: props.error,
+  });
+  if (requestMore) emit("load-more", { auto });
+}
+
+function onFeedScroll(event) {
+  maybeRequestMore(event?.target, { auto: false });
+}
+
 function stopResizingColumn() {
   stopColumnResize?.();
   stopColumnResize = null;
@@ -737,8 +770,16 @@ watch(
     if (props.locateDate) {
       nextTick(() => focusDate(props.locateDate));
     }
+    nextTick(() => maybeRequestMore(feedRef.value, { auto: true }));
   },
   { deep: true }
+);
+
+watch(
+  () => [props.hasMore, props.loadingMore, props.loading],
+  () => {
+    nextTick(() => maybeRequestMore(feedRef.value, { auto: true }));
+  }
 );
 
 onMounted(() => {
@@ -917,7 +958,7 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activePopover === 'sort'">
           <template v-if="effectiveView() === 'timeline' || effectiveView() === 'outline'">
-            <div class="pop-title">分组</div>
+            <div class="pop-title">分组依据</div>
             <button
               v-for="opt in GROUP_BY_OPTIONS"
               :key="opt.key"
@@ -1029,8 +1070,19 @@ onBeforeUnmount(() => {
 
     <div v-if="props.loading" class="feed-empty">正在加载时间线...</div>
     <div v-else-if="props.error" class="feed-empty">{{ props.error }}</div>
-    <div v-else-if="!props.groups.length" class="feed-empty">{{ props.emptyReason }}</div>
-    <div v-else-if="effectiveView() === 'timeline'" ref="feedRef" class="feed scroll">
+    <div v-else-if="!props.groups.length" class="feed-empty">
+      <span>{{ props.emptyReason }}</span>
+      <button
+        v-if="props.canRetryLoadMore"
+        type="button"
+        class="iconbtn sm"
+        title="继续加载"
+        @click="emit('load-more', { auto: false })"
+      >
+        <TimelineLucideIcon name="refreshCw" :stroke-width="1.5" />
+      </button>
+    </div>
+      <div v-else-if="effectiveView() === 'timeline'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner" :style="{ '--rowgrid': rowGrid() }">
         <div class="tl-cols" id="tlCols">
           <span></span>
@@ -1145,7 +1197,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="effectiveView() === 'table'" ref="feedRef" class="feed scroll">
+      <div v-else-if="effectiveView() === 'table'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-table" :style="{ '--rowgrid': rowGrid() }">
         <div class="tl-cols">
           <span></span>
@@ -1244,7 +1296,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="effectiveView() === 'board'" ref="feedRef" class="feed scroll feed-x">
+      <div v-else-if="effectiveView() === 'board'" ref="feedRef" class="feed scroll feed-x" @scroll="onFeedScroll">
       <div class="feed-inner view-board">
         <section v-for="bucket in boardGroups()" :key="bucket.id" class="bd-col">
           <header class="bd-col-head">
@@ -1280,7 +1332,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="effectiveView() === 'gallery'" ref="feedRef" class="feed scroll">
+      <div v-else-if="effectiveView() === 'gallery'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-gallery">
         <button
           v-for="event in galleryEvents()"
@@ -1346,7 +1398,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="effectiveView() === 'outline'" ref="feedRef" class="feed scroll">
+      <div v-else-if="effectiveView() === 'outline'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-outline">
         <section v-for="group in props.groups" :key="group.key" class="ol-group">
           <button
@@ -1384,7 +1436,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else ref="feedRef" class="feed scroll">
+      <div v-else ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-list">
         <button
           v-for="event in sortedFlatEvents()"

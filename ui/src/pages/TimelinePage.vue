@@ -15,7 +15,6 @@ import {
   buildX6SeedSnapshot,
 } from "@/utils/mindmapX6.js";
 import {
-  buildBookshelfTree,
   buildFavoriteFacetRows,
   buildOptionId,
   buildRecentFavoriteEvents,
@@ -34,6 +33,9 @@ import {
   normalizeSortLevels,
   normalizeTopicColumns,
   resolveDisplayStyle,
+  shouldAutoLoadMoreForFilteredEvents,
+  sortBookshelfTree,
+  SIDEBAR_SORT_MODES,
 } from "@/utils/timelineNotes";
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/timeline-notes/CommandPalette.vue"));
@@ -53,6 +55,7 @@ const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
 const NAV_POSITION_KEY = "chronicle-nav-position";
+const SIDEBAR_SORT_KEY = "chronicle-sidebar-sort";
 const BOOKSHELF_COLLAPSE_KEY = "chronicle-bookshelf-collapsed";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
 
@@ -101,6 +104,10 @@ function normalizeNavPosition(value) {
   return value === "right" ? "right" : "left";
 }
 
+function normalizeSidebarSort(value) {
+  return SIDEBAR_SORT_MODES.includes(value) ? value : "default";
+}
+
 function parseRouteNumber(name) {
   const raw = route?.query?.[name];
   const value = Number.parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
@@ -140,6 +147,8 @@ const state = reactive({
     // Seeded from localStorage so the correct sidebar edge paints on frame 1;
     // loadWorkspace() reconciles with the cross-device app_config truth on load.
     navPosition: normalizeNavPosition(readStorage(NAV_POSITION_KEY, "left")),
+    // Left-tree sort seeded the same way so the saved order paints on frame 1.
+    sidebarSort: normalizeSidebarSort(readStorage(SIDEBAR_SORT_KEY, "default")),
     media: {
       compress: true,
       keepOriginal: false,
@@ -150,12 +159,15 @@ const state = reactive({
   },
   topics: [],
   bookshelves: [],
+  bookshelfTree: [],
   activeTopicId: null,
   activeTopicMeta: null,
   events: [],
   eventBounds: null,
   hasMore: false,
   nextCursor: null,
+  loadingMore: false,
+  autoLoadBlockedKey: "",
   searchQuery: "",
   selectedEventId: null,
   detailMode: "view",
@@ -240,9 +252,31 @@ const workspaceStyle = computed(() => ({
   "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
 }));
 
-const bookshelfTree = computed(() => buildBookshelfTree(state.topics, state.bookshelves, timelineStore.state.eventsIndex));
+const bookshelfTree = computed(() => state.bookshelfTree);
+// Presentational re-order of the sidebar tree (shelves + notebooks) by the saved
+// global sort; lookup/logic paths keep using the unsorted bookshelfTree above.
+const sortedBookshelfTree = computed(() => sortBookshelfTree(state.bookshelfTree, state.config.sidebarSort));
 
 const activeBookshelfName = computed(() => state.focusedBookshelfName || (state.activeTopicMeta ? normalizeTopicBookshelf(state.activeTopicMeta).name : ""));
+
+function flattenBookshelves(tree = []) {
+  return (Array.isArray(tree) ? tree : []).map(({ topics, ...bookshelf }) => ({ ...bookshelf }));
+}
+
+function flattenTopicsFromTree(tree = []) {
+  return (Array.isArray(tree) ? tree : []).flatMap((bookshelf) => (bookshelf?.topics || []).map((entry) => entry?.topic).filter(Boolean));
+}
+
+async function refreshBookshelfTree({ syncTopics = false } = {}) {
+  const tree = await api.listBookshelfTree();
+  state.bookshelfTree = Array.isArray(tree) ? tree : [];
+  state.bookshelves = flattenBookshelves(state.bookshelfTree);
+  if (syncTopics) timelineStore.setTopics(flattenTopicsFromTree(state.bookshelfTree));
+}
+
+async function refreshSidebarData({ reloadTopics = false } = {}) {
+  await refreshBookshelfTree({ syncTopics: reloadTopics });
+}
 
 function persistBookshelfCollapsed(nextState) {
   state.bookshelfCollapsed = { ...nextState };
@@ -277,6 +311,17 @@ function setAllBookshelvesCollapsed(collapsed) {
 
 const activeTopicTitle = computed(
   () => state.activeTopicMeta?.title || state.topics.find((topic) => topic.id === state.activeTopicId)?.title || "编年"
+);
+const autoLoadContextKey = computed(() =>
+  JSON.stringify([
+    state.activeTopicId || null,
+    state.sidebarFilter,
+    state.propertyFilter?.key || "",
+    state.propertyFilter?.value || "",
+    state.activeEra,
+    state.searchQuery.trim(),
+    state.collectionMode,
+  ])
 );
 
 const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
@@ -648,6 +693,38 @@ const feedEmptyReason = computed(() => {
   return "当前筛选下没有记录。";
 });
 
+watch(
+  () => [
+    visibleEvents.value.length,
+    state.hasMore,
+    state.eventsLoading,
+    state.loadingMore,
+    state.activeTopicId,
+    isGlobalFavoritesMode.value,
+  ],
+  ([visibleCount, hasMore, eventsLoading, loadingMore, activeTopicId, globalFavoritesMode]) => {
+    if (
+      state.autoLoadBlockedKey !== autoLoadContextKey.value &&
+      shouldAutoLoadMoreForFilteredEvents({
+        activeTopicId,
+        globalFavoritesMode,
+        hasMore,
+        eventsLoading,
+        loadingMore,
+        visibleCount,
+      })
+    ) {
+      void loadMoreActiveTopicEvents({ auto: true });
+    }
+  }
+);
+
+watch(autoLoadContextKey, (next, previous) => {
+  if (previous && next !== previous && state.autoLoadBlockedKey === previous) {
+    state.autoLoadBlockedKey = "";
+  }
+});
+
 async function syncRouteState(overrides = {}) {
   const topicId = overrides.topicId !== undefined ? overrides.topicId : state.activeTopicId;
   const eventId =
@@ -752,6 +829,30 @@ async function ensureTopicEventsReady(topicId, { force = false, throwOnError = f
   }
 }
 
+async function loadMoreActiveTopicEvents({ auto = false } = {}) {
+  const topicId = Number(state.activeTopicId);
+  if (
+    !topicId ||
+    state.loadingMore ||
+    isGlobalFavoritesMode.value ||
+    !timelineStore.topicHasMore(topicId) ||
+    (auto && state.autoLoadBlockedKey === autoLoadContextKey.value)
+  ) {
+    return;
+  }
+  state.loadingMore = true;
+  try {
+    await timelineStore.ensureTopicEvents(topicId, { append: true });
+    if (state.autoLoadBlockedKey === autoLoadContextKey.value) state.autoLoadBlockedKey = "";
+    syncActiveTopicFromStore();
+  } catch (error) {
+    if (auto) state.autoLoadBlockedKey = autoLoadContextKey.value;
+    pushToast(`更多事件加载失败：${error.message}`, "error");
+  } finally {
+    state.loadingMore = false;
+  }
+}
+
 async function ensureGlobalIndexReady() {
   if (timelineStore.state.indexLoaded) return true;
   const seq = ++topicEventsRequestSeq;
@@ -785,7 +886,17 @@ async function applyWorkspaceSelectionWithEvents(options = {}, loadOptions = {})
 async function ensureRouteSelectionData() {
   const routeTopicId = parseRouteNumber("topic");
   const routeEventId = parseRouteNumber("event");
-  if (routeTopicId) return ensureTopicEventsReady(routeTopicId);
+  if (routeTopicId) {
+    const ready = await ensureTopicEventsReady(routeTopicId);
+    if (!ready || !routeEventId || timelineStore.eventById(routeEventId)) return ready;
+    try {
+      await timelineStore.ensureEventDetail(routeEventId);
+      return true;
+    } catch (error) {
+      pushToast(`详情加载失败：${error.message}`, "error");
+      return false;
+    }
+  }
   if (!routeEventId || timelineStore.eventById(routeEventId)) return true;
   try {
     await timelineStore.ensureEventDetail(routeEventId);
@@ -846,8 +957,8 @@ function syncActiveTopicFromStore() {
         maxDate: state.activeTopicMeta.maxDate,
       }
     : null;
-  state.hasMore = false;
-  state.nextCursor = null;
+  state.hasMore = state.activeTopicId ? timelineStore.topicHasMore(state.activeTopicId) : false;
+  state.nextCursor = state.activeTopicId ? timelineStore.topicNextCursor(state.activeTopicId) : null;
 }
 
 function applyWorkspaceSelection(options = {}) {
@@ -898,22 +1009,22 @@ async function loadWorkspace(options = {}) {
   state.locateDate = parseRouteString("date");
 
   try {
-    const [config, bookshelves] = await Promise.all([
+    const [config] = await Promise.all([
       api.getConfig(),
-      api.listBookshelves(),
-      timelineStore.loadTopics({ force: options.force === true }),
+      refreshBookshelfTree({ syncTopics: true }),
     ]);
     state.config = {
       ...state.config,
       ...config,
       brandName: "编年",
       navPosition: normalizeNavPosition(config?.navPosition),
+      sidebarSort: normalizeSidebarSort(config?.sidebarSort),
       media: normalizeMediaConfig(config?.media),
     };
-    state.bookshelves = Array.isArray(bookshelves) ? bookshelves : [];
     // Mirror the cross-device truth into localStorage so the next load paints the
     // correct sidebar edge on frame 1 instead of flashing the default and swapping.
     writeStorage(NAV_POSITION_KEY, state.config.navPosition);
+    writeStorage(SIDEBAR_SORT_KEY, state.config.sidebarSort);
     await applyWorkspaceSelectionWithEvents(options, { throwOnError: true });
     await applyRouteSelectionFromQuery();
   } catch (error) {
@@ -1523,6 +1634,7 @@ async function saveEvent(payload) {
     detailPaneRef.value?.markSaved?.();
     state.detailDirty = false;
     timelineStore.upsertEvent(result);
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     state.selectedEventId = result.id;
     state.detailMode = "view";
@@ -1576,6 +1688,7 @@ async function createTopic(input) {
   try {
     const created = await api.createTopic(topicName, request.bookshelfId);
     timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
+    await refreshSidebarData({ reloadTopics: true });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
     const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: created.id,
@@ -1596,7 +1709,7 @@ async function createTopic(input) {
 async function createBookshelf(name) {
   try {
     const created = await api.createBookshelf(name);
-    state.bookshelves = [...state.bookshelves, created].sort((left, right) => Number(left.id || 0) - Number(right.id || 0));
+    await refreshBookshelfTree();
     state.focusedBookshelfName = created.name || "";
     persistBookshelfCollapsed({
       ...state.bookshelfCollapsed,
@@ -1615,7 +1728,7 @@ async function renameBookshelf({ name, title } = {}) {
   if (!bookshelf?.id || !nextTitle) return;
   try {
     const updated = await api.updateBookshelf(bookshelf.id, { title: nextTitle });
-    state.bookshelves = state.bookshelves.map((item) => (item.id === updated.id ? { ...item, ...updated } : item));
+    await refreshBookshelfTree();
     if (state.focusedBookshelfName === bookshelf.name) state.focusedBookshelfName = updated.name || bookshelf.name;
     pushToast(`已重命名书架：${updated.title || nextTitle}`);
   } catch (error) {
@@ -1632,6 +1745,7 @@ async function renameTopic({ id, title } = {}) {
   try {
     const meta = await api.updateTopicMeta(id, { title: name });
     timelineStore.upsertTopic(meta);
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     pushToast(`已重命名为：${meta.title}`);
   } catch (error) {
@@ -1744,6 +1858,7 @@ async function moveEventToTrash(event) {
   try {
     const result = await api.softDeleteEvent(event.id);
     timelineStore.patchEvent(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
@@ -1761,6 +1876,7 @@ async function restoreEvent(event) {
   try {
     const result = await api.restoreEvent(event.id);
     timelineStore.upsertEvent(result);
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
@@ -1778,6 +1894,7 @@ async function permanentlyDeleteEvent(event) {
   try {
     await api.permanentlyDeleteEvent(event.id);
     timelineStore.removeEvent(event.id);
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
     applyFilterState();
@@ -1858,6 +1975,7 @@ async function runBatch(ids, perEvent, doneLabel) {
   } catch (error) {
     pushToast(done ? `已处理 ${done} 条，其余失败：${error.message}` : `操作失败：${error.message}`, "error");
   } finally {
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     applyFilterState();
     state.rightOpen = false;
@@ -1970,7 +2088,7 @@ async function confirmDeleteBookshelfNow() {
   if (!bookshelf?.id) return;
   try {
     await api.deleteBookshelf(bookshelf.id);
-    state.bookshelves = state.bookshelves.filter((item) => item.id !== bookshelf.id);
+    await refreshBookshelfTree();
     if (state.focusedBookshelfName === bookshelf.name) {
       state.focusedBookshelfName = normalizeTopicBookshelf(state.activeTopicMeta || {}).name;
     }
@@ -2006,6 +2124,7 @@ async function confirmDeleteTopicNow() {
       timelineStore.removeTopic(topic.id);
       deleted += 1;
     }
+    await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     pushToast(topics.length > 1 ? `已删除 ${topics.length} 个笔记本` : `已删除笔记本：${topics[0].title || topics[0].name}`);
   } catch (error) {
@@ -2166,6 +2285,25 @@ async function updateNavPosition(position) {
     state.config.navPosition = previous;
     writeStorage(NAV_POSITION_KEY, previous);
     pushToast(`布局设置保存失败：${error.message}`, "error");
+  }
+}
+
+// Global left-tree sort (bookshelves + notebooks). Same optimistic + rollback +
+// localStorage-mirror path as navPosition; the reorder itself is a pure computed.
+async function updateSidebarSort(mode) {
+  const next = normalizeSidebarSort(mode);
+  const previous = normalizeSidebarSort(state.config.sidebarSort);
+  if (next === previous) return;
+  state.config.sidebarSort = next;
+  writeStorage(SIDEBAR_SORT_KEY, next);
+  try {
+    const updated = await api.updateConfig({ sidebarSort: next });
+    state.config.sidebarSort = normalizeSidebarSort(updated?.sidebarSort);
+    writeStorage(SIDEBAR_SORT_KEY, state.config.sidebarSort);
+  } catch (error) {
+    state.config.sidebarSort = previous;
+    writeStorage(SIDEBAR_SORT_KEY, previous);
+    pushToast(`排序设置保存失败：${error.message}`, "error");
   }
 }
 
@@ -2335,7 +2473,8 @@ watch(
       :topics="state.topics"
       :events="state.events"
       :all-events="timelineStore.state.eventsIndex"
-      :bookshelf-tree="bookshelfTree"
+      :bookshelf-tree="sortedBookshelfTree"
+      :sidebar-sort="state.config.sidebarSort"
       :bookshelf-collapsed="state.bookshelfCollapsed"
       :active-bookshelf-name="activeBookshelfName"
       :active-topic-id="state.activeTopicId"
@@ -2374,6 +2513,7 @@ watch(
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
       @update:property-filter="updatePropertyFilter"
+      @update:sidebar-sort="updateSidebarSort"
     />
 
     <MindmapSurface
@@ -2423,6 +2563,15 @@ watch(
       :command-search="!isMobile"
       :trash-view="!isGlobalFavoritesMode && state.sidebarFilter === 'trash'"
       :mobile="isMobile"
+      :has-more="state.hasMore"
+      :loading-more="state.loadingMore"
+      :can-retry-load-more="
+        !isGlobalFavoritesMode &&
+        state.hasMore &&
+        !state.eventsLoading &&
+        !state.loadingMore &&
+        state.autoLoadBlockedKey === autoLoadContextKey
+      "
       @create-event="startCreateEvent"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
@@ -2441,6 +2590,7 @@ watch(
       @open-command-palette="openCommandPalette"
       @clear-context-filter="clearFavoriteScope"
       @create-mindmap="createMindmapNote"
+      @load-more="loadMoreActiveTopicEvents($event || { auto: false })"
     />
 
     <EventDetailPane

@@ -32,6 +32,9 @@ export const api = {
   listBookshelves() {
     return request("/api/bookshelves");
   },
+  listBookshelfTree() {
+    return request("/api/bookshelves/tree");
+  },
   createBookshelf(name) {
     return request("/api/bookshelves", {
       method: "POST",

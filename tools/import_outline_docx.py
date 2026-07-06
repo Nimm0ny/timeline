@@ -203,6 +203,10 @@ def require_tables(conn: sqlite3.Connection, names: Iterable[str]) -> None:
         raise RuntimeError(f"Missing required tables: {', '.join(missing)}")
 
 
+def table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")}
+
+
 def get_bookshelf(conn: sqlite3.Connection, shelf_name: str) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT id, name, title FROM bookshelves WHERE name = ?",
@@ -407,35 +411,49 @@ def rewrite_topic_rows(conn: sqlite3.Connection, *, topic_id: int, notes: list[d
         raise RuntimeError(f"Expected {len(notes)} rows for topic {topic_id}, found {len(rows)} after insert")
     conn.execute(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE topic_id = ?", (topic_id,))
     now = utcnow_iso()
+    event_columns = table_columns(conn, "timeline_events")
+    has_preview_text = "preview_text" in event_columns
+    has_search_text = "search_text" in event_columns
     for row, note in zip(rows, notes):
         headline = str(note["headline"]).strip()
         era = str(note["era"]).strip()
         body_markdown = str(note["bodyMarkdown"]).strip()
+        plain_body = markdown_plain_text(body_markdown)
+        preview_text = plain_body[:120].rstrip()
+        search_text = plain_body
         conn.execute(
-            """
-            UPDATE timeline_events
-            SET year = ?, sort_key = ?, date_key = ?, date_year = ?, date_month = ?, date_day = ?,
-                headline = ?, era = ?, note_type = ?, body_markdown = ?, body_json = ?, extra_json = ?,
-                attachments_json = ?, related_event_ids_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
             (
-                headline,
-                0.0,
-                None,
-                None,
-                None,
-                None,
-                headline,
-                era,
-                DEFAULT_NOTE_TYPE,
-                body_markdown,
-                None,
-                "{}",
-                "[]",
-                "[]",
-                now,
-                row["id"],
+                """
+                UPDATE timeline_events
+                SET year = ?, sort_key = ?, date_key = ?, date_year = ?, date_month = ?, date_day = ?,
+                    headline = ?, era = ?, note_type = ?, body_markdown = ?, body_json = ?, extra_json = ?,
+                    attachments_json = ?, related_event_ids_json = ?,
+                """
+                + (" preview_text = ?, search_text = ?," if has_preview_text and has_search_text else "")
+                + """
+                    updated_at = ?
+                WHERE id = ?
+                """
+            ),
+            (
+                [
+                    headline,
+                    0.0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    headline,
+                    era,
+                    DEFAULT_NOTE_TYPE,
+                    body_markdown,
+                    None,
+                    "{}",
+                    "[]",
+                    "[]",
+                ]
+                + ([preview_text, search_text] if has_preview_text and has_search_text else [])
+                + [now, row["id"]]
             ),
         )
         conn.execute(
@@ -444,6 +462,67 @@ def rewrite_topic_rows(conn: sqlite3.Connection, *, topic_id: int, notes: list[d
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (row["id"], topic_id, headline, markdown_plain_text(body_markdown), era, ""),
+        )
+
+
+def rebuild_topic_read_models(conn: sqlite3.Connection, topic_id: int) -> None:
+    existing_tables = {
+        row["name"]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+    }
+    now = utcnow_iso()
+    if "topic_stats" in existing_tables:
+        row = conn.execute(
+            """
+            SELECT
+              SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) AS live_event_count,
+              SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted_event_count,
+              SUM(CASE WHEN deleted_at IS NULL AND favorite = 1 THEN 1 ELSE 0 END) AS favorite_count,
+              SUM(CASE WHEN deleted_at IS NULL AND image_id IS NOT NULL THEN 1 ELSE 0 END) AS image_count
+            FROM timeline_events
+            WHERE topic_id = ?
+            """,
+            (topic_id,),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO topic_stats (topic_id, live_event_count, deleted_event_count, favorite_count, image_count, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(topic_id) DO UPDATE SET
+              live_event_count = excluded.live_event_count,
+              deleted_event_count = excluded.deleted_event_count,
+              favorite_count = excluded.favorite_count,
+              image_count = excluded.image_count,
+              updated_at = excluded.updated_at
+            """,
+            (
+                topic_id,
+                int(row["live_event_count"] or 0),
+                int(row["deleted_event_count"] or 0),
+                int(row["favorite_count"] or 0),
+                int(row["image_count"] or 0),
+                now,
+            ),
+        )
+    if "topic_era_stats" in existing_tables:
+        conn.execute("DELETE FROM topic_era_stats WHERE topic_id = ?", (topic_id,))
+        conn.execute(
+            """
+            INSERT INTO topic_era_stats (topic_id, era, live_event_count, min_date_key, updated_at)
+            SELECT
+              ?,
+              CASE
+                WHEN TRIM(COALESCE(era, '')) = '' THEN '未分组'
+                ELSE TRIM(era)
+              END AS era_value,
+              COUNT(*) AS live_event_count,
+              MIN(date_key) AS min_date_key,
+              ?
+            FROM timeline_events
+            WHERE topic_id = ? AND deleted_at IS NULL
+            GROUP BY era_value
+            """,
+            (topic_id, now, topic_id),
         )
 
 
@@ -500,6 +579,7 @@ def main() -> int:
                     body_markdown=note["bodyMarkdown"],
                 )
             rewrite_topic_rows(conn, topic_id=topic_id, notes=notes)
+            rebuild_topic_read_models(conn, topic_id)
     finally:
         conn.close()
 

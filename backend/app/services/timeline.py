@@ -10,11 +10,20 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import and_, case, func, or_, text
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
-from backend.app.models.entities import AppConfigEntry, Bookshelf, EventItem, ImageAsset, TimelineEvent, Topic
+from backend.app.models.entities import (
+    AppConfigEntry,
+    Bookshelf,
+    EventItem,
+    ImageAsset,
+    TimelineEvent,
+    Topic,
+    TopicEraStat,
+    TopicStat,
+)
 from backend.app.services.date_utils import (
     build_display_label,
     date_key_to_iso,
@@ -740,13 +749,8 @@ def markdown_plain_text(source: str) -> str:
 
 
 def markdown_preview_text(event: TimelineEvent, *, max_length: int = 120) -> str:
-    items = serialize_items(event)
-    if normalize_note_type(event.note_type) != DEFAULT_NOTE_TYPE:
-        text = collect_mindmap_text(deserialize_body_json(event.body_json))
-    else:
-        source = event.body_markdown or default_body_markdown(items)
-        text = markdown_plain_text(source)
-    return text[:max_length].rstrip()
+    preview_text = str(event.preview_text or "").strip() or derive_event_text_fields_for_event(event)[0]
+    return preview_text[:max_length].rstrip()
 
 
 def flatten_search_values(value) -> list[str]:
@@ -778,6 +782,68 @@ def extra_search_text(extra: dict, topic: Topic | None) -> str:
         values = extra.get(key) if isinstance(extra.get(key), list) else [extra.get(key)]
         parts.extend(label for value in values if (label := option_labels.get(str(value))) and label != str(value))
     return " ".join(parts)
+
+
+def derive_event_text_fields(
+    *,
+    note_type: str,
+    body_markdown: str,
+    body_json,
+    items: list[dict],
+    extra: dict,
+    attachments: list[dict],
+    topic: Topic | None,
+) -> tuple[str, str]:
+    if note_type != DEFAULT_NOTE_TYPE:
+        plain_body = collect_mindmap_text(body_json)
+    else:
+        plain_body = markdown_plain_text(body_markdown or default_body_markdown(items))
+
+    preview_text = plain_body[:120].rstrip()
+    search_parts = [
+        plain_body,
+        *[str(item.get("text", "")) for item in items if isinstance(item, dict)],
+        extra_search_text(extra, topic),
+        *[
+            f"{attachment.get('name', '')} {attachment.get('filename', '')}"
+            for attachment in attachments
+            if isinstance(attachment, dict)
+        ],
+    ]
+    search_text = re.sub(r"\s+", " ", " ".join(str(part or "") for part in search_parts)).strip()
+    return preview_text, search_text
+
+
+def derive_event_text_fields_for_event(
+    event: TimelineEvent,
+    *,
+    data: dict | None = None,
+    topic: Topic | None = None,
+) -> tuple[str, str]:
+    if data is None:
+        items = serialize_items(event)
+        attachments = deserialize_json_list(event.attachments_json)
+        extra = deserialize_json_dict(event.extra_json)
+        body_markdown = event.body_markdown or default_body_markdown(items)
+        body_json = deserialize_body_json(event.body_json)
+        note_type = normalize_note_type(event.note_type)
+        topic = topic or event.topic
+    else:
+        items = data.get("items") or []
+        attachments = data.get("attachments") or []
+        extra = data.get("extra") or {}
+        body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
+        body_json = data.get("bodyJson")
+        note_type = normalize_note_type(data.get("noteType"))
+    return derive_event_text_fields(
+        note_type=note_type,
+        body_markdown=str(body_markdown or ""),
+        body_json=body_json,
+        items=items,
+        extra=extra if isinstance(extra, dict) else {},
+        attachments=attachments if isinstance(attachments, list) else [],
+        topic=topic,
+    )
 
 
 def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: Topic | None = None) -> dict:
@@ -998,20 +1064,59 @@ def event_date_payload(*, date_key: int | None, sort_key, headline: str) -> dict
 
 
 def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> str:
+    search_text = str(event.search_text or "").strip()
+    if search_text:
+        return search_text
     items = serialize_items(event)
     extra = deserialize_json_dict(event.extra_json)
-    parts = [
-        event.headline,
-        event.year,
-        event.era,
-        collect_mindmap_text(deserialize_body_json(event.body_json))
-        if normalize_note_type(event.note_type) != DEFAULT_NOTE_TYPE
-        else markdown_plain_text(event.body_markdown or default_body_markdown(items)),
-        *[item["text"] for item in items],
-        *flatten_search_values(extra),
-        *[f"{attachment.get('name', '')} {attachment.get('filename', '')}" for attachment in attachments],
-    ]
-    return re.sub(r"\s+", " ", " ".join(str(part or "") for part in parts)).strip()
+    return derive_event_text_fields(
+        note_type=normalize_note_type(event.note_type),
+        body_markdown=event.body_markdown or default_body_markdown(items),
+        body_json=deserialize_body_json(event.body_json),
+        items=items,
+        extra=extra,
+        attachments=attachments,
+        topic=event.topic,
+    )[1]
+
+
+def event_to_list_dict(event: TimelineEvent) -> dict:
+    headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
+    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
+    image_filename = event.image.filename if event.image else None
+    thumb_filename = event.image.thumb_filename if event.image else None
+    attachments = deserialize_json_list(event.attachments_json)
+    preview_text = str(event.preview_text or "").strip()
+    search_text = str(event.search_text or "").strip()
+    return {
+        "id": event.id,
+        "topicId": event.topic_id,
+        "nodeType": "event",
+        **date_payload,
+        "sortKey": event.sort_key,
+        "headline": headline,
+        "legacyYear": event.year,
+        "era": event.era,
+        "noteType": normalize_note_type(event.note_type),
+        "image": image_filename,
+        "imageUrl": f"/images/{image_filename}" if image_filename else None,
+        "thumbUrl": (
+            f"/images/{thumb_filename}"
+            if thumb_filename
+            else (f"/images/{image_filename}" if image_filename else None)
+        ),
+        "extra": deserialize_json_dict(event.extra_json),
+        "favorite": bool(event.favorite),
+        "favoriteAt": serialize_datetime(event.favorite_at),
+        "deletedAt": serialize_datetime(event.deleted_at),
+        "createdAt": serialize_datetime(event.created_at),
+        "updatedAt": serialize_datetime(event.updated_at),
+        # Authoritative columns (written on every create/update + one-time backfill),
+        # so the paginated list path reads them directly and never lazy-loads items/topic.
+        "preview": preview_text,
+        "searchText": search_text,
+        "attachmentCount": len(attachments),
+    }
 
 
 def event_to_index_dict(event: TimelineEvent) -> dict:
@@ -1044,8 +1149,8 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
         "deletedAt": serialize_datetime(event.deleted_at),
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
-        "preview": markdown_preview_text(event),
-        "searchText": event_index_search_text(event, attachments),
+        "preview": str(event.preview_text or "").strip() or markdown_preview_text(event),
+        "searchText": str(event.search_text or "").strip() or event_index_search_text(event, attachments),
         "attachmentCount": len(attachments),
     }
 
@@ -1085,6 +1190,190 @@ def serialize_event_rows(db: Session, rows: list[TimelineEvent]) -> list[dict]:
     return [event_to_dict(event, related_lookup) for event in rows]
 
 
+def live_topic_min_date_subquery():
+    return (
+        select(TimelineEvent.date_key)
+        .where(
+            TimelineEvent.topic_id == Topic.id,
+            TimelineEvent.deleted_at.is_(None),
+            TimelineEvent.date_key.is_not(None),
+        )
+        .order_by(TimelineEvent.date_key.asc())
+        .limit(1)
+        .correlate(Topic)
+        .scalar_subquery()
+    )
+
+
+def live_topic_max_date_subquery():
+    return (
+        select(TimelineEvent.date_key)
+        .where(
+            TimelineEvent.topic_id == Topic.id,
+            TimelineEvent.deleted_at.is_(None),
+            TimelineEvent.date_key.is_not(None),
+        )
+        .order_by(TimelineEvent.date_key.desc())
+        .limit(1)
+        .correlate(Topic)
+        .scalar_subquery()
+    )
+
+
+def get_or_create_topic_stat(db: Session, topic_id: int) -> TopicStat:
+    stat = db.get(TopicStat, topic_id)
+    if stat is not None:
+        return stat
+    stat = TopicStat(topic_id=topic_id)
+    db.add(stat)
+    db.flush()
+    return stat
+
+
+def rebuild_topic_stats_for_topic(db: Session, topic_id: int) -> TopicStat:
+    db.flush()
+    row = (
+        db.query(
+            func.coalesce(func.sum(case((TimelineEvent.deleted_at.is_(None), 1), else_=0)), 0),
+            func.coalesce(func.sum(case((TimelineEvent.deleted_at.is_not(None), 1), else_=0)), 0),
+            func.coalesce(
+                func.sum(case((and_(TimelineEvent.deleted_at.is_(None), TimelineEvent.favorite.is_(True)), 1), else_=0)),
+                0,
+            ),
+            func.coalesce(
+                func.sum(case((and_(TimelineEvent.deleted_at.is_(None), TimelineEvent.image_id.is_not(None)), 1), else_=0)),
+                0,
+            ),
+        )
+        .filter(TimelineEvent.topic_id == topic_id)
+        .one()
+    )
+    stat = get_or_create_topic_stat(db, topic_id)
+    stat.live_event_count = int(row[0] or 0)
+    stat.deleted_event_count = int(row[1] or 0)
+    stat.favorite_count = int(row[2] or 0)
+    stat.image_count = int(row[3] or 0)
+    stat.updated_at = datetime.now(timezone.utc)
+    return stat
+
+
+def rebuild_topic_era_stats_for_topic(db: Session, topic_id: int) -> None:
+    db.flush()
+    # synchronize_session="fetch" evicts the deleted rows from the identity map so a
+    # re-add of the same (topic_id, era) PK in this session doesn't collide (matters
+    # when rebuild runs twice in one session, e.g. batch/admin rebuilds).
+    db.query(TopicEraStat).filter(TopicEraStat.topic_id == topic_id).delete(synchronize_session="fetch")
+    # Group by the SAME normalized value we store, so distinct raw eras that
+    # normalize equal (e.g. "" from a mindmap and a typed "未分组", or whitespace
+    # variants) collapse into one row instead of colliding on the (topic_id, era)
+    # primary key. Mirrors tools/import_outline_docx.py's normalized GROUP BY.
+    era_value = case(
+        (func.trim(func.coalesce(TimelineEvent.era, "")) == "", "未分组"),
+        else_=func.trim(TimelineEvent.era),
+    )
+    rows = (
+        db.query(
+            era_value.label("era"),
+            func.count(TimelineEvent.id).label("live_event_count"),
+            func.min(TimelineEvent.date_key).label("min_date_key"),
+        )
+        .filter(TimelineEvent.topic_id == topic_id, TimelineEvent.deleted_at.is_(None))
+        .group_by(era_value)
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    for era, live_event_count, min_date_key in rows:
+        db.add(
+            TopicEraStat(
+                topic_id=topic_id,
+                era=era,
+                live_event_count=int(live_event_count or 0),
+                min_date_key=int(min_date_key) if min_date_key is not None else None,
+                updated_at=now,
+            )
+        )
+
+
+def rebuild_topic_read_models(db: Session, topic_ids: list[int] | None = None) -> None:
+    db.flush()
+    target_ids = topic_ids
+    if target_ids is None:
+        target_ids = [int(topic_id) for (topic_id,) in db.query(Topic.id).order_by(Topic.id.asc()).all()]
+    for topic_id in target_ids:
+        rebuild_topic_stats_for_topic(db, topic_id)
+        rebuild_topic_era_stats_for_topic(db, topic_id)
+
+
+def ensure_topic_read_models(db: Session) -> None:
+    topic_count = db.query(func.count(Topic.id)).scalar() or 0
+    stat_count = db.query(func.count(TopicStat.topic_id)).scalar() or 0
+    live_event_count = (
+        db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.deleted_at.is_(None)).scalar() or 0
+    )
+    era_count = db.query(func.count(TopicEraStat.topic_id)).scalar() or 0
+    if topic_count != stat_count or (live_event_count > 0 and era_count == 0):
+        rebuild_topic_read_models(db)
+
+
+TEXT_FIELDS_BACKFILL_KEY = "text_fields_backfilled_v1"
+
+
+def backfill_event_text_fields(db: Session) -> None:
+    # Run once (guarded by a marker), not every startup. Every write path and the
+    # docx importer already populate preview_text/search_text, so after this one-time
+    # backfill of pre-existing rows the columns are authoritative; re-scanning rows
+    # whose text legitimately derives to "" on every boot is wasted work.
+    if db.get(AppConfigEntry, TEXT_FIELDS_BACKFILL_KEY) is not None:
+        return
+    rows = (
+        db.query(TimelineEvent)
+        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.topic))
+        .filter(or_(TimelineEvent.preview_text == "", TimelineEvent.search_text == ""))
+        .all()
+    )
+    for event in rows:
+        preview_text, search_text = derive_event_text_fields_for_event(event)
+        event.preview_text = preview_text
+        event.search_text = search_text
+    db.add(AppConfigEntry(key=TEXT_FIELDS_BACKFILL_KEY, value="1"))
+    db.flush()
+
+
+def rebuild_topic_text_fields_and_search(db: Session, topic: Topic) -> None:
+    rows = (
+        db.query(TimelineEvent)
+        .options(selectinload(TimelineEvent.items))
+        .filter(TimelineEvent.topic_id == topic.id)
+        .all()
+    )
+    for event in rows:
+        preview_text, search_text = derive_event_text_fields_for_event(event, topic=topic)
+        event.preview_text = preview_text
+        event.search_text = search_text
+        upsert_search_index_row(db, event, topic=topic)
+    if rows:
+        db.flush()
+
+
+def topic_list_item(topic: Topic, stat: TopicStat | None, min_date_key, max_date_key) -> dict:
+    live_event_count = int(stat.live_event_count if stat is not None else 0)
+    image_count = int(stat.image_count if stat is not None else 0)
+    return {
+        **topic_to_dict(topic),
+        "eventCount": live_event_count,
+        "minDateKey": int(min_date_key) if min_date_key is not None else None,
+        "maxDateKey": int(max_date_key) if max_date_key is not None else None,
+        "minDate": date_key_to_iso(int(min_date_key)) if min_date_key is not None else None,
+        "maxDate": date_key_to_iso(int(max_date_key)) if max_date_key is not None else None,
+        **topic_capabilities_block(
+            topic,
+            event_count=live_event_count,
+            has_dated=max_date_key is not None,
+            has_image=image_count > 0,
+        ),
+    }
+
+
 def get_topic_or_404(db: Session, topic_id: int) -> Topic:
     topic = db.query(Topic).options(joinedload(Topic.bookshelf)).filter(Topic.id == topic_id).first()
     if topic is None:
@@ -1105,26 +1394,36 @@ def get_event_or_404(db: Session, event_id: int) -> TimelineEvent:
 
 
 def build_topic_bounds(db: Session, topic_id: int) -> dict:
-    row = (
-        db.query(
-            func.count(TimelineEvent.id),
-            func.min(TimelineEvent.date_key),
-            func.max(TimelineEvent.date_key),
-            func.count(TimelineEvent.image_id),
+    stat = db.get(TopicStat, topic_id)
+    min_date_key = (
+        db.query(TimelineEvent.date_key)
+        .filter(
+            TimelineEvent.topic_id == topic_id,
+            TimelineEvent.deleted_at.is_(None),
+            TimelineEvent.date_key.is_not(None),
         )
-        .filter(TimelineEvent.topic_id == topic_id)
-        .one()
+        .order_by(TimelineEvent.date_key.asc())
+        .limit(1)
+        .scalar()
     )
-    event_count = int(row[0] or 0)
-    min_date_key = int(row[1]) if row[1] is not None else None
-    max_date_key = int(row[2]) if row[2] is not None else None
+    max_date_key = (
+        db.query(TimelineEvent.date_key)
+        .filter(
+            TimelineEvent.topic_id == topic_id,
+            TimelineEvent.deleted_at.is_(None),
+            TimelineEvent.date_key.is_not(None),
+        )
+        .order_by(TimelineEvent.date_key.desc())
+        .limit(1)
+        .scalar()
+    )
     return {
-        "eventCount": event_count,
-        "minDateKey": min_date_key,
-        "maxDateKey": max_date_key,
+        "eventCount": int(stat.live_event_count if stat is not None else 0),
+        "minDateKey": int(min_date_key) if min_date_key is not None else None,
+        "maxDateKey": int(max_date_key) if max_date_key is not None else None,
         "minDate": date_key_to_iso(min_date_key) if min_date_key is not None else None,
         "maxDate": date_key_to_iso(max_date_key) if max_date_key is not None else None,
-        "hasImage": int(row[3] or 0) > 0,
+        "hasImage": int(stat.image_count if stat is not None else 0) > 0,
         "supportedZoomLevels": SUPPORTED_ZOOM_LEVELS,
     }
 
@@ -1138,39 +1437,21 @@ def timeline_event_order_clauses():
 
 
 def list_topics(db: Session) -> list[dict]:
+    min_date_key = live_topic_min_date_subquery()
+    max_date_key = live_topic_max_date_subquery()
     rows = (
         db.query(
             Topic,
-            func.count(TimelineEvent.id).label("event_count"),
-            func.min(TimelineEvent.date_key).label("min_date_key"),
-            func.max(TimelineEvent.date_key).label("max_date_key"),
-            func.count(TimelineEvent.image_id).label("image_count"),
+            TopicStat,
+            min_date_key.label("min_date_key"),
+            max_date_key.label("max_date_key"),
         )
         .options(joinedload(Topic.bookshelf))
-        .outerjoin(TimelineEvent, TimelineEvent.topic_id == Topic.id)
-        .group_by(Topic.id)
+        .outerjoin(TopicStat, TopicStat.topic_id == Topic.id)
         .order_by(Topic.id.asc())
         .all()
     )
-    items = []
-    for topic, event_count, min_date_key, max_date_key, image_count in rows:
-        items.append(
-            {
-                **topic_to_dict(topic),
-                "eventCount": int(event_count or 0),
-                "minDateKey": int(min_date_key) if min_date_key is not None else None,
-                "maxDateKey": int(max_date_key) if max_date_key is not None else None,
-                "minDate": date_key_to_iso(int(min_date_key)) if min_date_key is not None else None,
-                "maxDate": date_key_to_iso(int(max_date_key)) if max_date_key is not None else None,
-                **topic_capabilities_block(
-                    topic,
-                    event_count=int(event_count or 0),
-                    has_dated=max_date_key is not None,
-                    has_image=int(image_count or 0) > 0,
-                ),
-            }
-        )
-    return items
+    return [topic_list_item(topic, stat, row_min_date_key, row_max_date_key) for topic, stat, row_min_date_key, row_max_date_key in rows]
 
 
 def list_bookshelves(db: Session) -> list[dict]:
@@ -1178,10 +1459,10 @@ def list_bookshelves(db: Session) -> list[dict]:
         db.query(
             Bookshelf,
             func.count(func.distinct(Topic.id)).label("topic_count"),
-            func.count(TimelineEvent.id).label("event_count"),
+            func.coalesce(func.sum(TopicStat.live_event_count), 0).label("event_count"),
         )
         .outerjoin(Topic, Topic.bookshelf_id == Bookshelf.id)
-        .outerjoin(TimelineEvent, TimelineEvent.topic_id == Topic.id)
+        .outerjoin(TopicStat, TopicStat.topic_id == Topic.id)
         .group_by(Bookshelf.id)
         .order_by(Bookshelf.id.asc())
         .all()
@@ -1194,6 +1475,45 @@ def list_bookshelves(db: Session) -> list[dict]:
         )
         for bookshelf, topic_count, event_count in rows
     ]
+
+
+def list_bookshelf_tree(db: Session) -> list[dict]:
+    shelves = [{**bookshelf, "topics": []} for bookshelf in list_bookshelves(db)]
+    by_name = {shelf["name"]: shelf for shelf in shelves}
+    topics = list_topics(db)
+    era_rows = (
+        db.query(TopicEraStat)
+        .order_by(
+            TopicEraStat.topic_id.asc(),
+            case((TopicEraStat.min_date_key.is_(None), 1), else_=0).asc(),
+            TopicEraStat.min_date_key.asc(),
+            TopicEraStat.era.asc(),
+        )
+        .all()
+    )
+    eras_by_topic: dict[int, list[dict]] = {}
+    for row in era_rows:
+        eras_by_topic.setdefault(int(row.topic_id), []).append(
+            {"era": row.era, "count": int(row.live_event_count or 0)}
+        )
+    for topic in topics:
+        shelf_name = str(topic.get("bookshelfName") or "").strip() or DEFAULT_BOOKSHELF_NAME
+        shelf = by_name.get(shelf_name)
+        if shelf is None:
+            shelf = {
+                "id": topic.get("bookshelfId"),
+                "name": shelf_name,
+                "title": topic.get("bookshelfTitle") or shelf_name,
+                "createdAt": None,
+                "updatedAt": None,
+                "topicCount": 0,
+                "eventCount": 0,
+                "topics": [],
+            }
+            shelves.append(shelf)
+            by_name[shelf_name] = shelf
+        shelf["topics"].append({"topic": topic, "eras": eras_by_topic.get(int(topic["id"]), [])})
+    return shelves
 
 
 def create_bookshelf(db: Session, payload: dict) -> dict:
@@ -1259,6 +1579,8 @@ def create_topic(db: Session, name: str, bookshelf_id=None) -> dict:
         columns_json=default_topic_columns_json(),
     )
     db.add(topic)
+    db.flush()
+    rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(topic)
     return {
@@ -1277,6 +1599,8 @@ def delete_topic(db: Session, topic_id: int):
     )
     image_ids = {event.image_id for event in events if event.image_id}
     remove_search_index_topic(db, topic_id)
+    db.query(TopicEraStat).filter(TopicEraStat.topic_id == topic_id).delete(synchronize_session=False)
+    db.query(TopicStat).filter(TopicStat.topic_id == topic_id).delete(synchronize_session=False)
     db.delete(topic)
     db.commit()
     cleanup_orphan_images(db, image_ids)
@@ -1300,6 +1624,7 @@ def get_topic_meta(db: Session, topic_id: int) -> dict:
 
 def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
     topic = get_topic_or_404(db, topic_id)
+    columns_changed = False
     if "title" in payload:
         topic.title = str(payload["title"] or "").strip()
     if "subtitle" in payload:
@@ -1314,6 +1639,9 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.group_by = normalize_group_by(payload.get("groupBy"))
     if "columns" in payload:
         topic.columns_json = json.dumps(normalize_topic_columns(payload.get("columns")), ensure_ascii=False)
+        columns_changed = True
+    if columns_changed:
+        rebuild_topic_text_fields_and_search(db, topic)
     db.commit()
     db.refresh(topic)
     return get_topic_meta(db, topic_id)
@@ -1323,6 +1651,14 @@ def build_event_query(db: Session, topic_id: int):
     return (
         db.query(TimelineEvent)
         .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
+        .filter(TimelineEvent.topic_id == topic_id)
+    )
+
+
+def build_event_list_query(db: Session, topic_id: int):
+    return (
+        db.query(TimelineEvent)
+        .options(joinedload(TimelineEvent.image))
         .filter(TimelineEvent.topic_id == topic_id)
     )
 
@@ -1357,11 +1693,12 @@ def query_topic_events(
     from_key: int | None = None,
     to_key: int | None = None,
     cursor: tuple[int | None, int | None] | None = None,
-    limit: int | None = None,
+    limit: int | None = 100,
 ) -> dict:
     get_topic_or_404(db, topic_id)
     bounds = build_topic_bounds(db, topic_id)
-    query = build_event_query(db, topic_id)
+    safe_limit = max(1, min(int(limit or 100), 500))
+    query = build_event_list_query(db, topic_id)
 
     if from_key is not None:
         query = query.filter(TimelineEvent.date_key >= from_key)
@@ -1370,7 +1707,10 @@ def query_topic_events(
     if cursor is not None:
         cursor_key, cursor_id = cursor
         if cursor_id is None:
-            query = query.filter(TimelineEvent.date_key > cursor_key) if cursor_key is not None else query
+            if cursor_key is not None:
+                query = query.filter(
+                    or_(TimelineEvent.date_key > cursor_key, TimelineEvent.date_key.is_(None))
+                )
         else:
             if cursor_key is None:
                 query = query.filter(and_(TimelineEvent.date_key.is_(None), TimelineEvent.id > cursor_id))
@@ -1384,29 +1724,28 @@ def query_topic_events(
                 )
 
     query = query.order_by(*timeline_event_order_clauses())
-    if limit is not None:
-        query = query.limit(limit + 1)
+    query = query.limit(safe_limit + 1)
 
     rows = query.all()
     has_more = False
     next_cursor = None
 
-    if limit is not None and len(rows) > limit:
+    if len(rows) > safe_limit:
         has_more = True
-        rows = rows[:limit]
+        rows = rows[:safe_limit]
 
     if rows and has_more:
         last_row = rows[-1]
         next_cursor = f"{last_row.date_key if last_row.date_key is not None else 'null'}:{last_row.id}"
 
     return {
-        "items": serialize_event_rows(db, rows),
+        "items": [event_to_list_dict(event) for event in rows],
         "bounds": bounds,
         "range": {
             "from": from_key,
             "to": to_key,
             "cursor": cursor[0] if cursor else None,
-            "limit": limit,
+            "limit": safe_limit,
         },
         "hasMore": has_more,
         "nextCursor": next_cursor,
@@ -1660,7 +1999,8 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     }
 
 
-def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None):
+def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None, *, topic: Topic | None = None):
+    preview_text, search_text = derive_event_text_fields_for_event(event, data=data, topic=topic or event.topic)
     event.year = data["legacyYear"]
     event.sort_key = data["sortKey"]
     event.date_key = data["dateKey"]
@@ -1671,6 +2011,8 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
     event.era = data["era"]
     event.note_type = data["noteType"]
     event.body_markdown = data["bodyMarkdown"]
+    event.preview_text = preview_text
+    event.search_text = search_text
     event.body_json = json.dumps(data["bodyJson"], ensure_ascii=False) if data.get("bodyJson") is not None else None
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
@@ -1691,12 +2033,13 @@ def create_event(db: Session, topic_id: int, payload: dict) -> dict:
     data = normalize_event_payload(payload, topic=topic)
     image = resolve_image(db, data["image"])
     event = TimelineEvent(topic_id=topic.id)
-    write_event_model(event, data, image)
+    write_event_model(event, data, image, topic=topic)
     db.add(event)
     db.flush()
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
+    rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
     return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
@@ -1712,6 +2055,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
             raise HTTPException(status_code=409, detail="Deleted events can only be restored")
         apply_event_state(event, payload)
         upsert_search_index_row(db, event, topic=event.topic)
+        rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
         return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
 
@@ -1722,13 +2066,14 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
     data = normalize_event_payload(payload, topic=event.topic)
     data["extra"] = merge_orphan_extra(deserialize_json_dict(event.extra_json), data["extra"], event.topic)
     image = resolve_image(db, data["image"])
-    write_event_model(event, data, image)
+    write_event_model(event, data, image, topic=event.topic)
     for item in list(event.items):
         db.delete(item)
     db.flush()
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
+    rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
@@ -1741,11 +2086,13 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
     if not permanent:
         event.deleted_at = datetime.now(timezone.utc)
         remove_search_index_row(db, event.id)
+        rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
         return {"ok": True, "deletedAt": serialize_datetime(event.deleted_at)}
 
     remove_search_index_row(db, event.id)
     db.delete(event)
+    rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     cleanup_orphan_images(db, {old_image_id} if old_image_id else set())
     return {"ok": True}
@@ -1781,12 +2128,13 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
     for node in normalized_events:
         image = resolve_image(db, node["image"])
         event = TimelineEvent(topic_id=topic.id)
-        write_event_model(event, node, image)
+        write_event_model(event, node, image, topic=topic)
         db.add(event)
         db.flush()
         for index, item in enumerate(node["items"]):
             db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
         upsert_search_index_row(db, event, node, topic)
+    rebuild_topic_read_models(db, [topic.id])
     db.commit()
     cleanup_orphan_images(db, old_image_ids)
     return {"ok": True, "count": len(normalized_events)}

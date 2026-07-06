@@ -1,7 +1,15 @@
 import { reactive } from "vue";
 import { api } from "@/composables/useApi";
-import { buildEventPreview, compareTimelineEvents, mindmapPlainText } from "@/utils/timelineNotes";
+import {
+  buildEventPreview,
+  compareTimelineEvents,
+  mergeTopicEventPage,
+  mindmapPlainText,
+  planTopicPageFetch,
+} from "@/utils/timelineNotes";
 import { plainTextFromMarkdown } from "@/utils/markdownPreview";
+
+const DEFAULT_TOPIC_PAGE_SIZE = 100;
 
 function datePartsFromKey(dateKey) {
   const key = Number.parseInt(dateKey, 10) || 0;
@@ -51,6 +59,16 @@ function normalizeDetailEvent(event = {}, fallbackTopicId = null) {
     id: Number(event.id),
     topicId: Number(event.topicId ?? event.topic_id ?? fallbackTopicId),
   };
+}
+
+function hasFullEventDetail(event = {}) {
+  return (
+    "bodyMarkdown" in event ||
+    "bodyJson" in event ||
+    "attachments" in event ||
+    "items" in event ||
+    "relatedEvents" in event
+  );
 }
 
 function detailToIndexEvent(event = {}) {
@@ -119,6 +137,7 @@ export function useTimelineStore() {
     topics: [],
     eventsIndex: [],
     detailCache: new Map(),
+    topicPages: {},
     indexLoaded: false,
     topicsLoaded: false,
     loadedTopicIds: new Set(),
@@ -130,22 +149,39 @@ export function useTimelineStore() {
     state.topics.splice(0, state.topics.length, ...(topics || []).map(normalizeTopic));
   }
 
+  function setTopics(topics) {
+    replaceTopics(topics);
+    state.topicsLoaded = true;
+  }
+
   function replaceEvents(events) {
     state.eventsIndex.splice(0, state.eventsIndex.length, ...(events || []).map(normalizeIndexEvent).sort(compareTimelineEvents));
   }
 
-  function replaceTopicEvents(topicId, events = [], bounds = null) {
+  function topicPageState(topicId) {
+    return state.topicPages[Number(topicId)] || { loaded: false, hasMore: false, nextCursor: null };
+  }
+
+  function replaceTopicEvents(topicId, events = [], bounds = null, { append = false, hasMore = false, nextCursor = null } = {}) {
     const id = Number(topicId);
     if (!id) return;
     const normalized = (events || []).map((event) => normalizeIndexEvent(event, id));
+    const existingTopicEvents = append ? state.eventsIndex.filter((event) => event.topicId === id) : [];
+    const mergedTopicEvents = mergeTopicEventPage(existingTopicEvents, normalized, { append });
     const others = state.eventsIndex.filter((event) => event.topicId !== id);
-    state.eventsIndex.splice(0, state.eventsIndex.length, ...others, ...normalized);
+    state.eventsIndex.splice(0, state.eventsIndex.length, ...others, ...mergedTopicEvents);
     state.eventsIndex.sort(compareTimelineEvents);
     for (const event of events || []) {
+      if (!hasFullEventDetail(event)) continue;
       const detail = normalizeDetailEvent(event, id);
       if (detail.id) state.detailCache.set(detail.id, detail);
     }
     state.loadedTopicIds.add(id);
+    state.topicPages[id] = {
+      loaded: true,
+      hasMore: Boolean(hasMore),
+      nextCursor: nextCursor ?? null,
+    };
     updateTopicSummary(id, bounds);
   }
 
@@ -155,7 +191,8 @@ export function useTimelineStore() {
   }
 
   function detailById(eventId) {
-    return state.detailCache.get(Number(eventId)) || null;
+    const cached = state.detailCache.get(Number(eventId)) || null;
+    return cached && hasFullEventDetail(cached) ? cached : null;
   }
 
   function eventById(eventId) {
@@ -187,6 +224,7 @@ export function useTimelineStore() {
       return;
     }
     if (!state.loadedTopicIds.has(id)) return;
+    if (topicPageState(id).hasMore) return;
     const events = eventsForTopic(id);
     const { min, max } = minMaxEvents(events);
     topic.eventCount = events.length;
@@ -198,6 +236,14 @@ export function useTimelineStore() {
 
   function isTopicEventsLoaded(topicId) {
     return state.loadedTopicIds.has(Number(topicId));
+  }
+
+  function topicHasMore(topicId) {
+    return Boolean(topicPageState(topicId).hasMore);
+  }
+
+  function topicNextCursor(topicId) {
+    return topicPageState(topicId).nextCursor ?? null;
   }
 
   async function loadTopics({ force = false } = {}) {
@@ -220,6 +266,7 @@ export function useTimelineStore() {
       replaceEvents(payload.events || []);
       state.loadedTopicIds.clear();
       for (const topic of state.topics) state.loadedTopicIds.add(topic.id);
+      state.topicPages = Object.fromEntries(state.topics.map((topic) => [topic.id, { loaded: true, hasMore: false, nextCursor: null }]));
       state.topicsLoaded = true;
       state.indexLoaded = true;
     } finally {
@@ -227,23 +274,34 @@ export function useTimelineStore() {
     }
   }
 
-  async function ensureTopicEvents(topicId, { force = false } = {}) {
+  async function ensureTopicEvents(topicId, { force = false, append = false, cursor = null, limit = DEFAULT_TOPIC_PAGE_SIZE } = {}) {
     const id = Number(topicId);
     if (!id) return [];
-    if (isTopicEventsLoaded(id) && !force) return eventsForTopic(id);
-    const existing = topicEventRequests.get(id);
+    const currentPage = topicPageState(id);
+    const plan = planTopicPageFetch(
+      { loaded: isTopicEventsLoaded(id), hasMore: currentPage.hasMore, nextCursor: currentPage.nextCursor },
+      { append, cursor, force }
+    );
+    if (!plan.shouldFetch) return eventsForTopic(id);
+    const requestCursor = plan.requestCursor;
+    const requestKey = `${id}:${append ? requestCursor || "append" : force ? "force" : "initial"}`;
+    const existing = topicEventRequests.get(requestKey);
     if (existing && !force) return existing;
     const request = api
-      .getTimelineEvents(id)
+      .getTimelineEvents(id, { cursor: requestCursor, limit })
       .then((payload) => {
         const items = Array.isArray(payload) ? payload : payload?.items || [];
-        replaceTopicEvents(id, items, Array.isArray(payload) ? null : payload?.bounds || null);
+        replaceTopicEvents(id, items, Array.isArray(payload) ? null : payload?.bounds || null, {
+          append,
+          hasMore: Array.isArray(payload) ? false : payload?.hasMore || false,
+          nextCursor: Array.isArray(payload) ? null : payload?.nextCursor || null,
+        });
         return eventsForTopic(id);
       })
       .finally(() => {
-        topicEventRequests.delete(id);
+        topicEventRequests.delete(requestKey);
       });
-    topicEventRequests.set(id, request);
+    topicEventRequests.set(requestKey, request);
     return request;
   }
 
@@ -272,6 +330,7 @@ export function useTimelineStore() {
     replaceTopics(state.topics.filter((topic) => topic.id !== id));
     replaceEvents(state.eventsIndex.filter((event) => event.topicId !== id));
     state.loadedTopicIds.delete(id);
+    delete state.topicPages[id];
     for (const eventId of [...state.detailCache.keys()]) {
       const cached = state.detailCache.get(eventId);
       if (cached?.topicId === id) state.detailCache.delete(eventId);
@@ -324,7 +383,10 @@ export function useTimelineStore() {
     patchEvent,
     removeEvent,
     removeTopic,
+    setTopics,
     topicById,
+    topicHasMore,
+    topicNextCursor,
     upsertEvent,
     upsertTopic,
   };

@@ -322,17 +322,21 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
     inspector = inspect(test_engine)
     topic_cols = {column["name"] for column in inspector.get_columns("topics")}
     assert {"display_style", "sort_json", "group_by"}.issubset(topic_cols)
-    assert {"note_type", "body_json"}.issubset({column["name"] for column in inspector.get_columns("timeline_events")})
+    event_cols = {column["name"] for column in inspector.get_columns("timeline_events")}
+    assert {"note_type", "body_json", "preview_text", "search_text"}.issubset(event_cols)
+    assert "ix_timeline_events_live_topic_date" in {index["name"] for index in inspector.get_indexes("timeline_events")}
 
     # Existing rows backfill to defaults (zero-break migration).
     with test_engine.begin() as conn:
         display_style, sort_json, group_by = conn.execute(
             text("SELECT display_style, sort_json, group_by FROM topics WHERE id=1")
         ).one()
-        note_type, body_json = conn.execute(
-            text("SELECT note_type, body_json FROM timeline_events WHERE id=1")
+        note_type, body_json, preview_text, search_text = conn.execute(
+            text("SELECT note_type, body_json, preview_text, search_text FROM timeline_events WHERE id=1")
         ).one()
     assert (display_style, sort_json, group_by) == ("timeline", "[]", "era")
     assert note_type == "entry"
     assert body_json is None
+    assert preview_text == ""
+    assert search_text == ""
     test_engine.dispose()

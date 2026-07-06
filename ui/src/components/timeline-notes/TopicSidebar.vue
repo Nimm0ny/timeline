@@ -107,6 +107,10 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
+  sidebarSort: {
+    type: String,
+    default: "default",
+  },
 });
 
 const emit = defineEmits([
@@ -133,6 +137,7 @@ const emit = defineEmits([
   "select-ribbon",
   "toggle-bookshelf",
   "set-all-bookshelves-collapsed",
+  "update:sidebar-sort",
 ]);
 
 const state = reactive({
@@ -284,10 +289,42 @@ function closeCreateTopicMenu() {
   topicCreateMenu.value = null;
 }
 
+// Global left-tree sort picker (§ sidebar sort): one mode reorders shelves + the
+// notebooks inside each shelf. Anchored fixed under the pane-head button like the
+// row ⋯ menus, since the pane scroll-clips.
+const sortMenu = ref(null); // { x, y } | null
+const SIDEBAR_SORT_OPTIONS = [
+  { key: "default", label: "默认", icon: "list" },
+  { key: "name", label: "名称", icon: "alignLeft" },
+  { key: "count", label: "笔记数", icon: "hash" },
+  { key: "updated", label: "更新时间", icon: "clock" },
+];
+
+function openSortMenu(event) {
+  closeBookshelfMenu();
+  closeTopicMenu();
+  closeCreateTopicMenu();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const width = 152;
+  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const y = Math.min(rect.bottom + 4, window.innerHeight - 184);
+  sortMenu.value = { x, y };
+}
+
+function closeSortMenu() {
+  sortMenu.value = null;
+}
+
+function pickSidebarSort(mode) {
+  closeSortMenu();
+  if (mode !== props.sidebarSort) emit("update:sidebar-sort", mode);
+}
+
 function onPaneScroll() {
   if (bookshelfMenu.value) closeBookshelfMenu();
   if (topicMenu.value) closeTopicMenu();
   if (topicCreateMenu.value) closeCreateTopicMenu();
+  if (sortMenu.value) closeSortMenu();
   if (typeMenu.value) typeMenu.value = null;
   if (editing.value) closePropertyPopover();
 }
@@ -375,11 +412,12 @@ function onMenuKeydown(event) {
     closeBookshelfMenu();
     closeTopicMenu();
     closeCreateTopicMenu();
+    closeSortMenu();
   }
 }
 
-watch([bookshelfMenu, topicMenu, topicCreateMenu], ([shelfMenu, menu, createMenu]) => {
-  if (shelfMenu || menu || createMenu) document.addEventListener("keydown", onMenuKeydown);
+watch([bookshelfMenu, topicMenu, topicCreateMenu, sortMenu], ([shelfMenu, menu, createMenu, sortPop]) => {
+  if (shelfMenu || menu || createMenu || sortPop) document.addEventListener("keydown", onMenuKeydown);
   else document.removeEventListener("keydown", onMenuKeydown);
 });
 
@@ -1197,6 +1235,9 @@ watch(typeMenu, (value) => {
       <div class="pane-head">
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
+          <button v-if="!selectMode" type="button" class="iconbtn" :class="{ on: !!sortMenu }" title="排序" @click="openSortMenu($event)">
+            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
+          </button>
           <button v-if="!selectMode" type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
             <TimelineLucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.5" />
           </button>
@@ -1711,6 +1752,24 @@ watch(typeMenu, (value) => {
         <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'mindmap')">
           <TimelineLucideIcon name="mindmap" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">思维导图</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="sortMenu" class="ti-menu-backdrop" @click="closeSortMenu" @contextmenu.prevent="closeSortMenu">
+      <div class="popover ti-menu" :style="{ left: sortMenu.x + 'px', top: sortMenu.y + 'px' }" @click.stop>
+        <div class="pop-title">排序</div>
+        <button
+          v-for="opt in SIDEBAR_SORT_OPTIONS"
+          :key="opt.key"
+          type="button"
+          class="pop-item"
+          :class="{ 'is-active': opt.key === props.sidebarSort }"
+          @click="pickSidebarSort(opt.key)"
+        >
+          <TimelineLucideIcon :name="opt.icon" :stroke-width="1.5" class="pop-item-ic" />
+          <span class="pop-item-label">{{ opt.label }}</span>
+          <TimelineLucideIcon v-if="opt.key === props.sidebarSort" name="check" :stroke-width="2" class="pop-item-check" />
         </button>
       </div>
     </div>

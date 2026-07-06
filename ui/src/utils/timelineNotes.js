@@ -1286,6 +1286,42 @@ export function resolveTopicCreateShelfName(shelfName = "", activeBookshelfName 
   );
 }
 
+export const SIDEBAR_SORT_MODES = ["default", "name", "count", "updated"];
+
+// Compare two tree nodes (a shelf, or a notebook via entry.topic) for the sidebar
+// sort. count/updated sort descending (most notes / most recent first); name and
+// every tiebreak fall back to title ascending (zh-CN collation).
+function compareSidebarNodes(a, b, mode) {
+  if (mode === "count") {
+    const delta = Number(b?.eventCount || 0) - Number(a?.eventCount || 0);
+    if (delta) return delta;
+  } else if (mode === "updated") {
+    const av = a?.updatedAt ? Date.parse(a.updatedAt) : NaN;
+    const bv = b?.updatedAt ? Date.parse(b.updatedAt) : NaN;
+    const left = Number.isNaN(av) ? Number.NEGATIVE_INFINITY : av;
+    const right = Number.isNaN(bv) ? Number.NEGATIVE_INFINITY : bv;
+    if (right !== left) return right - left;
+  }
+  return String(a?.title || a?.name || "").localeCompare(String(b?.title || b?.name || ""), "zh-CN");
+}
+
+// Reorder the fetched bookshelf tree client-side so we never touch the backend's
+// per-shelf GROUP BY count query: one global mode sorts the shelves AND the
+// notebooks inside each shelf. "default" keeps the backend order (bookshelf id asc
+// = creation order); era sub-lists stay time-sorted and are never reordered here.
+// Non-mutating — returns fresh arrays / shelf objects, leaving the source untouched.
+export function sortBookshelfTree(tree, mode = "default") {
+  const shelves = Array.isArray(tree) ? tree : [];
+  if (!SIDEBAR_SORT_MODES.includes(mode) || mode === "default") return shelves;
+  const topicNode = (entry) => entry?.topic || entry || {};
+  return shelves
+    .map((shelf) => ({
+      ...shelf,
+      topics: [...(shelf?.topics || [])].sort((x, y) => compareSidebarNodes(topicNode(x), topicNode(y), mode)),
+    }))
+    .sort((x, y) => compareSidebarNodes(x, y, mode));
+}
+
 export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []) {
   const liveEventsByTopic = new Map();
   for (const event of Array.isArray(allEvents) ? allEvents : []) {
@@ -1345,6 +1381,69 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []
   }
 
   return shelves;
+}
+
+export function shouldAutoLoadMoreForFilteredEvents({
+  activeTopicId = null,
+  globalFavoritesMode = false,
+  hasMore = false,
+  eventsLoading = false,
+  loadingMore = false,
+  visibleCount = 0,
+} = {}) {
+  return Boolean(
+    activeTopicId &&
+      !globalFavoritesMode &&
+      hasMore &&
+      !eventsLoading &&
+      !loadingMore &&
+      Number(visibleCount) === 0
+  );
+}
+
+// --- Pagination core (pure helpers, unit-tested in ui/tests/timelineNotes.test.js) ---
+
+// Merge a freshly-fetched page into a topic's already-loaded events. On append,
+// de-dupes by id (a cursor page can re-include a boundary row) so paging never
+// duplicates or drops events; a non-append load replaces outright.
+export function mergeTopicEventPage(existing = [], incoming = [], { append = false } = {}) {
+  const incomingList = Array.isArray(incoming) ? incoming : [];
+  if (!append) return [...incomingList];
+  const existingList = Array.isArray(existing) ? existing : [];
+  const seen = new Set(existingList.map((event) => event.id));
+  return [...existingList, ...incomingList.filter((event) => !seen.has(event.id))];
+}
+
+// Decide whether ensureTopicEvents should hit the network and which cursor to
+// thread. Serves cache for an already-loaded topic (unless forced); on append,
+// only fetches when there is another page (hasMore) AND a cursor to advance past,
+// so it never silently refetches page 1.
+export function planTopicPageFetch(
+  { loaded = false, hasMore = false, nextCursor = null } = {},
+  { append = false, cursor = null, force = false } = {}
+) {
+  if (!append && loaded && !force) return { shouldFetch: false, requestCursor: null };
+  const requestCursor = cursor ?? (append ? nextCursor : null);
+  if (append && (!hasMore || !requestCursor)) return { shouldFetch: false, requestCursor: null };
+  return { shouldFetch: true, requestCursor };
+}
+
+// Whether a scroll position is close enough to the bottom to request the next
+// page — with the same guards the feed applies (only while more pages exist and
+// nothing else is loading/erroring).
+export function shouldRequestMoreOnScroll({
+  scrollHeight = 0,
+  scrollTop = 0,
+  clientHeight = 0,
+  hasMore = false,
+  loadingMore = false,
+  globalFavoritesMode = false,
+  loading = false,
+  error = false,
+  threshold = 320,
+} = {}) {
+  if (!hasMore || loadingMore || globalFavoritesMode || loading || error) return false;
+  return scrollHeight - scrollTop - clientHeight <= threshold;
 }
 
 export function resolveCreateTopicRequest(input, activeBookshelfName = "", bookshelves = [], bookshelfTree = []) {

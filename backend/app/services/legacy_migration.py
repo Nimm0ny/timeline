@@ -126,6 +126,10 @@ def ensure_timeline_event_schema():
         statements.append("ALTER TABLE timeline_events ADD COLUMN headline VARCHAR(255)")
     if "body_markdown" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN body_markdown TEXT DEFAULT ''")
+    if "preview_text" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN preview_text TEXT DEFAULT ''")
+    if "search_text" not in existing:
+        statements.append("ALTER TABLE timeline_events ADD COLUMN search_text TEXT DEFAULT ''")
     if "extra_json" not in existing:
         statements.append("ALTER TABLE timeline_events ADD COLUMN extra_json TEXT DEFAULT '{}'")
     if "attachments_json" not in existing:
@@ -170,6 +174,12 @@ def ensure_timeline_event_schema():
             text(
                 "CREATE INDEX IF NOT EXISTS ix_timeline_events_topic_deleted "
                 "ON timeline_events(topic_id, deleted_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_timeline_events_live_topic_date "
+                "ON timeline_events(topic_id, date_key) WHERE deleted_at IS NULL"
             )
         )
         connection.execute(
@@ -230,6 +240,8 @@ def ensure_timeline_event_schema():
                 """
                 UPDATE timeline_events
                 SET body_markdown = COALESCE(body_markdown, ''),
+                    preview_text = COALESCE(preview_text, ''),
+                    search_text = COALESCE(search_text, ''),
                     extra_json = COALESCE(extra_json, '{}'),
                     attachments_json = COALESCE(attachments_json, '[]'),
                     related_event_ids_json = COALESCE(related_event_ids_json, '[]'),

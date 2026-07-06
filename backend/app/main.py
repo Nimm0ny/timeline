@@ -16,7 +16,7 @@ from backend.app.api.topics import router as topics_router
 from backend.app.core.config import IMAGES_DIR, THEME_DIR
 from backend.app.db.session import SessionLocal
 from backend.app.services.legacy_migration import init_database, migrate_legacy_files
-from backend.app.services.timeline import rebuild_search_index
+from backend.app.services.timeline import backfill_event_text_fields, ensure_topic_read_models, rebuild_search_index
 
 
 MEDIA_CACHE_CONTROL = "public, max-age=31536000, immutable"
@@ -59,6 +59,8 @@ async def app_lifespan(_app: FastAPI):
     db = SessionLocal()
     try:
         migrate_legacy_files(db)
+        backfill_event_text_fields(db)
+        ensure_topic_read_models(db)
         rebuild_search_index(db)
         db.commit()
         yield
