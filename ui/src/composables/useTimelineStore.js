@@ -24,13 +24,14 @@ function normalizeTopic(topic = {}) {
   };
 }
 
-function normalizeIndexEvent(event = {}) {
+function normalizeIndexEvent(event = {}, fallbackTopicId = null) {
   const rawDateKey = event.dateKey == null || event.dateKey === "" ? null : Number.parseInt(event.dateKey, 10);
   const dateKey = Number.isFinite(rawDateKey) ? rawDateKey : null;
+  const topicId = Number(event.topicId ?? event.topic_id ?? fallbackTopicId);
   return {
     ...event,
     id: Number(event.id),
-    topicId: Number(event.topicId),
+    topicId,
     dateKey,
     hasDate: event.hasDate !== false && dateKey != null,
     dateParts: event.dateParts || (dateKey != null ? datePartsFromKey(dateKey) : { year: null, month: null, day: null }),
@@ -41,6 +42,14 @@ function normalizeIndexEvent(event = {}) {
     deletedAt: event.deletedAt ?? null,
     preview: String(event.preview || ""),
     attachmentCount: Number(event.attachmentCount || event.attachments?.length || 0),
+  };
+}
+
+function normalizeDetailEvent(event = {}, fallbackTopicId = null) {
+  return {
+    ...event,
+    id: Number(event.id),
+    topicId: Number(event.topicId ?? event.topic_id ?? fallbackTopicId),
   };
 }
 
@@ -111,8 +120,11 @@ export function useTimelineStore() {
     eventsIndex: [],
     detailCache: new Map(),
     indexLoaded: false,
+    topicsLoaded: false,
+    loadedTopicIds: new Set(),
     loading: false,
   });
+  const topicEventRequests = new Map();
 
   function replaceTopics(topics) {
     state.topics.splice(0, state.topics.length, ...(topics || []).map(normalizeTopic));
@@ -120,6 +132,21 @@ export function useTimelineStore() {
 
   function replaceEvents(events) {
     state.eventsIndex.splice(0, state.eventsIndex.length, ...(events || []).map(normalizeIndexEvent).sort(compareTimelineEvents));
+  }
+
+  function replaceTopicEvents(topicId, events = [], bounds = null) {
+    const id = Number(topicId);
+    if (!id) return;
+    const normalized = (events || []).map((event) => normalizeIndexEvent(event, id));
+    const others = state.eventsIndex.filter((event) => event.topicId !== id);
+    state.eventsIndex.splice(0, state.eventsIndex.length, ...others, ...normalized);
+    state.eventsIndex.sort(compareTimelineEvents);
+    for (const event of events || []) {
+      const detail = normalizeDetailEvent(event, id);
+      if (detail.id) state.detailCache.set(detail.id, detail);
+    }
+    state.loadedTopicIds.add(id);
+    updateTopicSummary(id, bounds);
   }
 
   function topicById(topicId) {
@@ -131,20 +158,56 @@ export function useTimelineStore() {
     return state.detailCache.get(Number(eventId)) || null;
   }
 
+  function eventById(eventId) {
+    const id = Number(eventId);
+    return state.eventsIndex.find((event) => event.id === id) || detailById(id);
+  }
+
   function eventsForTopic(topicId) {
     const id = Number(topicId);
     return state.eventsIndex.filter((event) => event.topicId === id).sort(compareTimelineEvents);
   }
 
-  function recomputeTopicSummaries() {
-    for (const topic of state.topics) {
-      const events = eventsForTopic(topic.id);
-      const { min, max } = minMaxEvents(events);
-      topic.eventCount = events.length;
-      topic.minDateKey = min?.dateKey ?? null;
-      topic.maxDateKey = max?.dateKey ?? null;
-      topic.minDate = min?.isoDate ?? null;
-      topic.maxDate = max?.isoDate ?? null;
+  function applyTopicBounds(topic, bounds) {
+    topic.eventCount = Number(bounds.eventCount || 0);
+    topic.minDateKey = bounds.minDateKey ?? null;
+    topic.maxDateKey = bounds.maxDateKey ?? null;
+    topic.minDate = bounds.minDate ?? null;
+    topic.maxDate = bounds.maxDate ?? null;
+    if ("hasImage" in bounds) topic.hasImage = Boolean(bounds.hasImage);
+    if ("supportedZoomLevels" in bounds) topic.supportedZoomLevels = bounds.supportedZoomLevels;
+  }
+
+  function updateTopicSummary(topicId, bounds = null) {
+    const id = Number(topicId);
+    const topic = topicById(id);
+    if (!topic) return;
+    if (bounds) {
+      applyTopicBounds(topic, bounds);
+      return;
+    }
+    if (!state.loadedTopicIds.has(id)) return;
+    const events = eventsForTopic(id);
+    const { min, max } = minMaxEvents(events);
+    topic.eventCount = events.length;
+    topic.minDateKey = min?.dateKey ?? null;
+    topic.maxDateKey = max?.dateKey ?? null;
+    topic.minDate = min?.isoDate ?? null;
+    topic.maxDate = max?.isoDate ?? null;
+  }
+
+  function isTopicEventsLoaded(topicId) {
+    return state.loadedTopicIds.has(Number(topicId));
+  }
+
+  async function loadTopics({ force = false } = {}) {
+    if (state.topicsLoaded && !force) return;
+    state.loading = true;
+    try {
+      replaceTopics(await api.listTopics());
+      state.topicsLoaded = true;
+    } finally {
+      state.loading = false;
     }
   }
 
@@ -155,10 +218,33 @@ export function useTimelineStore() {
       const payload = await api.getIndex();
       replaceTopics(payload.topics || []);
       replaceEvents(payload.events || []);
+      state.loadedTopicIds.clear();
+      for (const topic of state.topics) state.loadedTopicIds.add(topic.id);
+      state.topicsLoaded = true;
       state.indexLoaded = true;
     } finally {
       state.loading = false;
     }
+  }
+
+  async function ensureTopicEvents(topicId, { force = false } = {}) {
+    const id = Number(topicId);
+    if (!id) return [];
+    if (isTopicEventsLoaded(id) && !force) return eventsForTopic(id);
+    const existing = topicEventRequests.get(id);
+    if (existing && !force) return existing;
+    const request = api
+      .getTimelineEvents(id)
+      .then((payload) => {
+        const items = Array.isArray(payload) ? payload : payload?.items || [];
+        replaceTopicEvents(id, items, Array.isArray(payload) ? null : payload?.bounds || null);
+        return eventsForTopic(id);
+      })
+      .finally(() => {
+        topicEventRequests.delete(id);
+      });
+    topicEventRequests.set(id, request);
+    return request;
   }
 
   async function ensureEventDetail(eventId) {
@@ -178,7 +264,6 @@ export function useTimelineStore() {
       state.topics.push(normalized);
       state.topics.sort((left, right) => left.id - right.id);
     }
-    recomputeTopicSummaries();
     return topicById(normalized.id);
   }
 
@@ -186,6 +271,7 @@ export function useTimelineStore() {
     const id = Number(topicId);
     replaceTopics(state.topics.filter((topic) => topic.id !== id));
     replaceEvents(state.eventsIndex.filter((event) => event.topicId !== id));
+    state.loadedTopicIds.delete(id);
     for (const eventId of [...state.detailCache.keys()]) {
       const cached = state.detailCache.get(eventId);
       if (cached?.topicId === id) state.detailCache.delete(eventId);
@@ -193,7 +279,7 @@ export function useTimelineStore() {
   }
 
   function upsertEvent(event) {
-    const detail = { ...event, id: Number(event.id), topicId: Number(event.topicId) };
+    const detail = normalizeDetailEvent(event);
     const indexEvent = detailToIndexEvent(detail);
     const index = state.eventsIndex.findIndex((item) => item.id === indexEvent.id);
     if (index >= 0) {
@@ -203,32 +289,38 @@ export function useTimelineStore() {
     }
     state.eventsIndex.sort(compareTimelineEvents);
     state.detailCache.set(detail.id, detail);
-    recomputeTopicSummaries();
+    updateTopicSummary(indexEvent.topicId);
     return detail;
   }
 
   function patchEvent(eventId, patch) {
     const id = Number(eventId);
     const index = state.eventsIndex.findIndex((event) => event.id === id);
+    const topicId = index >= 0 ? state.eventsIndex[index].topicId : detailById(id)?.topicId;
     if (index >= 0) state.eventsIndex[index] = { ...state.eventsIndex[index], ...patch };
     const cached = state.detailCache.get(id);
     if (cached) state.detailCache.set(id, { ...cached, ...patch });
-    recomputeTopicSummaries();
+    updateTopicSummary(topicId);
   }
 
   function removeEvent(eventId) {
     const id = Number(eventId);
+    const existing = eventById(id);
     replaceEvents(state.eventsIndex.filter((event) => event.id !== id));
     state.detailCache.delete(id);
-    recomputeTopicSummaries();
+    updateTopicSummary(existing?.topicId);
   }
 
   return {
     state,
     detailById,
+    ensureTopicEvents,
     ensureEventDetail,
+    eventById,
     eventsForTopic,
+    isTopicEventsLoaded,
     loadIndex,
+    loadTopics,
     patchEvent,
     removeEvent,
     removeTopic,

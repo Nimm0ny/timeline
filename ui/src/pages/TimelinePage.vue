@@ -129,6 +129,7 @@ function parseRoutePropertyFilter() {
 
 const state = reactive({
   loading: true,
+  eventsLoading: false,
   saving: false,
   columnSaving: false,
   error: "",
@@ -211,6 +212,8 @@ const state = reactive({
 
 let resizeCleanup = null;
 let detailRequestSeq = 0;
+let topicEventsRequestSeq = 0;
+let workspaceSelectionRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
 let relatedPreviewRequestSeq = 0;
@@ -688,7 +691,7 @@ function buildRouteSelectionSpec() {
   const eventId = parseRouteNumber("event");
   const routeTopicId = parseRouteNumber("topic");
   const mode = parseRouteMode();
-  const event = eventId ? timelineStore.state.eventsIndex.find((item) => item.id === eventId) || null : null;
+  const event = eventId ? timelineStore.eventById(eventId) || null : null;
   const topicId = event?.topicId || routeTopicId || null;
   const openMindmap = event?.noteType === "mindmap";
   return {
@@ -724,8 +727,79 @@ function routeSelectionMatchesState(spec) {
   );
 }
 
+async function ensureTopicEventsReady(topicId, { force = false, throwOnError = false } = {}) {
+  const id = Number(topicId);
+  if (!id) return true;
+  if (timelineStore.isTopicEventsLoaded(id) && !force) {
+    if (state.activeTopicId === id) syncActiveTopicFromStore();
+    return true;
+  }
+  const seq = ++topicEventsRequestSeq;
+  state.eventsLoading = true;
+  try {
+    await timelineStore.ensureTopicEvents(id, { force });
+    if (state.activeTopicId === id) syncActiveTopicFromStore();
+    state.error = "";
+    return true;
+  } catch (error) {
+    const message = error.message || "事件加载失败";
+    if (state.activeTopicId === id) state.error = message;
+    if (throwOnError) throw error;
+    pushToast(`事件加载失败：${message}`, "error");
+    return false;
+  } finally {
+    if (seq === topicEventsRequestSeq) state.eventsLoading = false;
+  }
+}
+
+async function ensureGlobalIndexReady() {
+  if (timelineStore.state.indexLoaded) return true;
+  const seq = ++topicEventsRequestSeq;
+  state.eventsLoading = true;
+  try {
+    await timelineStore.loadIndex();
+    syncActiveTopicFromStore();
+    state.error = "";
+    return true;
+  } catch (error) {
+    const message = error.message || "索引加载失败";
+    state.error = message;
+    pushToast(`索引加载失败：${message}`, "error");
+    return false;
+  } finally {
+    if (seq === topicEventsRequestSeq) state.eventsLoading = false;
+  }
+}
+
+async function applyWorkspaceSelectionWithEvents(options = {}, loadOptions = {}) {
+  const seq = ++workspaceSelectionRequestSeq;
+  applyWorkspaceSelection(options);
+  const topicId = state.activeTopicId;
+  if (!topicId) return seq === workspaceSelectionRequestSeq;
+  const ok = await ensureTopicEventsReady(topicId, loadOptions);
+  if (!ok || seq !== workspaceSelectionRequestSeq || state.activeTopicId !== topicId) return false;
+  if (ok) applyWorkspaceSelection(options);
+  return ok;
+}
+
+async function ensureRouteSelectionData() {
+  const routeTopicId = parseRouteNumber("topic");
+  const routeEventId = parseRouteNumber("event");
+  if (routeTopicId) return ensureTopicEventsReady(routeTopicId);
+  if (!routeEventId || timelineStore.eventById(routeEventId)) return true;
+  try {
+    await timelineStore.ensureEventDetail(routeEventId);
+    return true;
+  } catch (error) {
+    pushToast(`详情加载失败：${error.message}`, "error");
+    return false;
+  }
+}
+
 async function applyRouteSelectionFromQuery() {
-  if (!timelineStore.state.indexLoaded || !state.topics.length) return;
+  if (!timelineStore.state.topicsLoaded || !state.topics.length) return;
+  const routeReady = await ensureRouteSelectionData();
+  if (!routeReady) return;
   const spec = buildRouteSelectionSpec();
   if (routeSelectionMatchesState(spec)) return;
 
@@ -738,7 +812,7 @@ async function applyRouteSelectionFromQuery() {
     state.searchQuery = "";
   }
 
-  applyWorkspaceSelection({
+  await applyWorkspaceSelectionWithEvents({
     preferredEventId: spec.eventId,
     preferredMode: spec.mode,
     preferredTopicId: spec.topicId,
@@ -824,7 +898,11 @@ async function loadWorkspace(options = {}) {
   state.locateDate = parseRouteString("date");
 
   try {
-    const [config, bookshelves] = await Promise.all([api.getConfig(), api.listBookshelves(), timelineStore.loadIndex()]);
+    const [config, bookshelves] = await Promise.all([
+      api.getConfig(),
+      api.listBookshelves(),
+      timelineStore.loadTopics({ force: options.force === true }),
+    ]);
     state.config = {
       ...state.config,
       ...config,
@@ -836,7 +914,7 @@ async function loadWorkspace(options = {}) {
     // Mirror the cross-device truth into localStorage so the next load paints the
     // correct sidebar edge on frame 1 instead of flashing the default and swapping.
     writeStorage(NAV_POSITION_KEY, state.config.navPosition);
-    applyWorkspaceSelection(options);
+    await applyWorkspaceSelectionWithEvents(options, { throwOnError: true });
     await applyRouteSelectionFromQuery();
   } catch (error) {
     state.error = error.message || "加载失败";
@@ -868,11 +946,14 @@ function exitGlobalFavoritesMode({ reselect = true } = {}) {
 }
 
 function handleSidebarRibbon(ribbon) {
+  if (ribbon === "tags") void ensureGlobalIndexReady();
   if (ribbon !== "star") exitGlobalFavoritesMode();
 }
 
 function openGlobalFavorites() {
   runOrConfirm(async () => {
+    const ready = await ensureGlobalIndexReady();
+    if (!ready) return;
     state.collectionMode = "favorites";
     closeMindmap();
     state.favoriteScope = { kind: "all" };
@@ -974,7 +1055,6 @@ function selectCommandEvent(result) {
   const topicId = Number(result?.topicId);
   const eventId = Number(result?.id);
   if (!topicId || !eventId) return;
-  const isMindmap = timelineStore.state.eventsIndex.find((item) => item.id === eventId)?.noteType === "mindmap";
   runOrConfirm(async () => {
     closeCommandPalette();
     state.collectionMode = "";
@@ -983,15 +1063,21 @@ function selectCommandEvent(result) {
     state.activeEra = "";
     state.locateDate = "";
     state.searchQuery = "";
-    applyWorkspaceSelection({
+    const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: topicId,
       preferredEventId: eventId,
       preferredMode: "view",
-      openDetail: !isMindmap,
+      openDetail: false,
     });
+    if (!ready) return;
+    const event = timelineStore.eventById(eventId);
+    if (!event) {
+      pushToast("未找到目标笔记", "error");
+      return;
+    }
     closeMobileSidebar();
     // A mindmap opens its own center canvas, never the markdown detail pane.
-    if (isMindmap) {
+    if (event.noteType === "mindmap") {
       await openMindmap(eventId);
       return;
     }
@@ -1019,12 +1105,13 @@ function selectCommandTopic(topic) {
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
-    applyWorkspaceSelection({
+    const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: topicId,
       preferredEventId: null,
       preferredMode: "view",
       openDetail: false,
     });
+    if (!ready) return;
     state.rightOpen = false;
     closeMobileSidebar();
     await syncRouteState({ topicId, eventId: null, propertyFilter: { key: "", value: "" }, era: "", mode: "view" });
@@ -1077,7 +1164,15 @@ function saveAndContinue() {
 
 async function applyEventSelection(eventId) {
   const id = Number(eventId);
-  const event = timelineStore.state.eventsIndex.find((item) => item.id === id);
+  let event = timelineStore.eventById(id);
+  if (!event) {
+    try {
+      event = await timelineStore.ensureEventDetail(id);
+    } catch (error) {
+      pushToast(`详情加载失败：${error.message}`, "error");
+      return;
+    }
+  }
   // A mindmap opens its own center canvas (D-2), never the markdown detail pane.
   // Bring its notebook to the front first if it lives in another one.
   if (event?.noteType === "mindmap") {
@@ -1088,7 +1183,13 @@ async function applyEventSelection(eventId) {
       state.activeEra = "";
       state.locateDate = "";
       state.searchQuery = "";
-      applyWorkspaceSelection({ preferredTopicId: event.topicId, preferredEventId: id, preferredMode: "view", openDetail: false });
+      const ready = await applyWorkspaceSelectionWithEvents({
+        preferredTopicId: event.topicId,
+        preferredEventId: id,
+        preferredMode: "view",
+        openDetail: false,
+      });
+      if (!ready) return;
     }
     await openMindmap(id);
     return;
@@ -1100,12 +1201,13 @@ async function applyEventSelection(eventId) {
     state.activeEra = "";
     state.locateDate = "";
     state.searchQuery = "";
-    applyWorkspaceSelection({
+    const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: event.topicId,
       preferredEventId: event.id,
       preferredMode: "view",
       openDetail: true,
     });
+    if (!ready) return;
     state.detailError = "";
     state.rightOpen = true;
     closeMobileSidebar();
@@ -1165,12 +1267,13 @@ function createMindmapNote(topicId = state.activeTopicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      applyWorkspaceSelection({
+      const ready = await applyWorkspaceSelectionWithEvents({
         preferredTopicId: targetTopicId,
         preferredEventId: null,
         preferredMode: "view",
         openDetail: false,
       });
+      if (!ready) return;
     }
     closeMobileSidebar();
     try {
@@ -1371,12 +1474,13 @@ function createEventInTopic(topicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      applyWorkspaceSelection({
+      const ready = await applyWorkspaceSelectionWithEvents({
         preferredTopicId: topicId,
         preferredEventId: null,
         preferredMode: "view",
         openDetail: false,
       });
+      if (!ready) return;
     }
     closeMobileSidebar();
     state.mobileSearchOpen = false;
@@ -1448,12 +1552,13 @@ async function selectTopic(topicId) {
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
-    applyWorkspaceSelection({
+    const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: topicId,
       preferredEventId: null,
       preferredMode: "view",
       openDetail: false,
     });
+    if (!ready) return;
     state.rightOpen = false;
     closeMobileSidebar();
     await syncRouteState({ topicId, eventId: null, propertyFilter: { key: "", value: "" }, era: "", mode: "view" });
@@ -1472,12 +1577,13 @@ async function createTopic(input) {
     const created = await api.createTopic(topicName, request.bookshelfId);
     timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
-    applyWorkspaceSelection({
+    const ready = await applyWorkspaceSelectionWithEvents({
       preferredTopicId: created.id,
       preferredEventId: null,
       preferredMode: "view",
       openDetail: false,
     });
+    if (!ready) return;
     pushToast(`已创建笔记本：${topicName}`);
     state.rightOpen = false;
     closeMobileSidebar();
@@ -1909,7 +2015,12 @@ async function confirmDeleteTopicNow() {
     // mid-loop failure never leaves the card open over already-deleted notebooks.
     state.confirmDeleteTopics = null;
     if (deleted) {
-      applyWorkspaceSelection({ preferredTopicId: state.topics[0]?.id ?? null, preferredEventId: null, preferredMode: "view", openDetail: false });
+      await applyWorkspaceSelectionWithEvents({
+        preferredTopicId: state.topics[0]?.id ?? null,
+        preferredEventId: null,
+        preferredMode: "view",
+        openDetail: false,
+      });
       state.rightOpen = false;
       await syncRouteState({ topicId: state.activeTopicId, eventId: null });
     }
@@ -2234,6 +2345,7 @@ watch(
       :favorites-panel="favoritesPanel"
       :columns="topicColumns"
       :property-filter="state.propertyFilter"
+      :property-data-ready="timelineStore.state.indexLoaded"
       :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
@@ -2279,7 +2391,7 @@ watch(
 
     <TimelineFeed
       v-else
-      :loading="state.loading"
+      :loading="state.loading || state.eventsLoading"
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"
       :topic-title="feedTitle"

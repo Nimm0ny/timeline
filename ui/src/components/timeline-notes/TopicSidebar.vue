@@ -83,6 +83,10 @@ const props = defineProps({
     type: Object,
     default: () => ({ key: "", value: "" }),
   },
+  propertyDataReady: {
+    type: Boolean,
+    default: true,
+  },
   activeEra: {
     type: String,
     default: "",
@@ -795,6 +799,7 @@ function onTypeMenuKeydown(event) {
 }
 
 const topicPropertyUsage = computed(() => {
+  if (state.ribbon !== "tags" || !props.propertyDataReady) return new Map();
   const usage = new Map();
   for (const topic of props.topics || []) {
     const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
@@ -891,6 +896,7 @@ const quickFilters = computed(() => [
 ]);
 
 const liveEventsByTopic = computed(() => {
+  if (state.ribbon !== "tags" || !props.propertyDataReady) return new Map();
   const grouped = new Map();
   for (const event of props.allEvents || []) {
     if (!event || event.deletedAt) continue;
@@ -901,16 +907,17 @@ const liveEventsByTopic = computed(() => {
   return grouped;
 });
 
-const propertyTopics = computed(() =>
-  props.topics.map((topic) => {
+const propertyTopics = computed(() => {
+  if (state.ribbon !== "tags" || !props.propertyDataReady) return [];
+  return props.topics.map((topic) => {
     const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
     return {
       topic,
       active: topic.id === props.activeTopicId,
       properties: buildPropertyRows(topic.columns, topicEvents),
     };
-  })
-);
+  });
+});
 
 function isOptionActive(key, value) {
   return props.propertyFilter?.key === key && props.propertyFilter?.value === value;
@@ -1521,7 +1528,8 @@ watch(typeMenu, (value) => {
         </div>
 
         <div v-if="panelHas('properties')" class="prop-panel">
-          <p v-if="!props.topics.length" class="sidebar-copy">暂无笔记本。</p>
+          <p v-if="!props.propertyDataReady" class="sidebar-copy">正在加载属性数据...</p>
+          <p v-else-if="!props.topics.length" class="sidebar-copy">暂无笔记本。</p>
           <template v-else>
             <section
               v-for="entry in propertyTopics"
