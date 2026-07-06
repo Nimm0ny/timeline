@@ -297,8 +297,13 @@ test("buildEventPreview and search can bridge mindmap bodyJson text", () => {
 test("eventHasDate/formatEventDate handle undated notes explicitly", () => {
   const undated = { hasDate: false, dateKey: null, dateParts: { year: null, month: null, day: null } };
   assert.equal(eventHasDate(undated), false);
-  assert.equal(formatEventDate(undated), "未定时间");
+  assert.equal(formatEventDate(undated), "");
   assert.equal(formatEventDisplayDate(undated), "未定时间");
+});
+
+test("eventColumnValue falls back to era before using undated display text for title", () => {
+  const row = { headline: "", era: "第一章", displayLabel: "未定时间" };
+  assert.equal(eventColumnValue(row, { key: "title" }), "第一章");
 });
 
 test("resolvePropertyChips maps option ids to labels and colors, keeping unknown ids", () => {

@@ -22,7 +22,6 @@ DEFAULT_SORT = [{"field": "time", "dir": 1}]
 DEFAULT_GROUP_BY = "era"
 DEFAULT_DISPLAY_STYLE = "outline"
 DEFAULT_NOTE_TYPE = "entry"
-UNDATED_LABEL = "未定时间"
 SEARCH_INDEX_TABLE = "timeline_events_fts"
 
 
@@ -51,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topic-name", default="纲要", help="Topic stable name")
     parser.add_argument("--topic-title", default="纲要", help="Topic title")
     parser.add_argument("--topic-id", type=int, help="Existing topic id to target explicitly")
+    parser.add_argument(
+        "--split-by",
+        choices=("section", "chapter"),
+        default="section",
+        help="How to split the book into notes: section = one note per level-2 heading, chapter = one note per level-1 heading",
+    )
     parser.add_argument(
         "--topic-subtitle",
         default="《习近平新时代中国特色社会主义思想学习纲要》按一级章节整理",
@@ -146,8 +151,13 @@ def read_docx_title(docx_path: Path) -> str:
     return docx_path.stem
 
 
-def section_to_markdown(section: Section, *, source_title: str) -> str:
-    lines: list[str] = [f"> 来源：{source_title}", ""]
+def join_paragraphs(paragraphs: list[str]) -> str:
+    clean = [normalize_spaces(paragraph) for paragraph in paragraphs if normalize_spaces(paragraph)]
+    return "\n\n".join(clean).strip()
+
+
+def chapter_to_markdown(section: Section) -> str:
+    lines: list[str] = []
     if section.intro:
         lines.extend(section.intro)
         lines.append("")
@@ -328,7 +338,7 @@ def insert_note(conn: sqlite3.Connection, *, topic_id: int, headline: str, era: 
         """,
         (
             topic_id,
-            UNDATED_LABEL,
+            headline,
             0.0,
             None,
             None,
@@ -350,30 +360,91 @@ def insert_note(conn: sqlite3.Connection, *, topic_id: int, headline: str, era: 
             None,
         ),
     )
-    event_id = int(cursor.lastrowid)
-    conn.execute(
-        f"""
-        INSERT INTO {SEARCH_INDEX_TABLE} (event_id, topic_id, headline, body, era, extra)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (event_id, topic_id, headline, markdown_plain_text(body_markdown), era, ""),
-    )
-    return event_id
+    return int(cursor.lastrowid)
 
 
-def build_import_payload(docx_path: Path) -> list[dict]:
+def build_section_import_payload(docx_path: Path) -> list[dict]:
     sections = read_docx_sections(docx_path)
-    source_title = read_docx_title(docx_path)
     payload = []
     for section in sections:
-        payload.append(
-            {
-                "headline": section.title,
-                "era": section.title,
-                "bodyMarkdown": section_to_markdown(section, source_title=source_title),
-            }
-        )
+        if not section.subsections:
+            payload.append({"headline": section.title, "era": section.title, "bodyMarkdown": join_paragraphs(section.intro)})
+            continue
+        for index, subsection in enumerate(section.subsections):
+            paragraphs = []
+            if index == 0 and section.intro:
+                paragraphs.extend(section.intro)
+            paragraphs.extend(subsection.paragraphs)
+            payload.append(
+                {
+                    "headline": subsection.title,
+                    "era": section.title,
+                    "bodyMarkdown": join_paragraphs(paragraphs),
+                }
+            )
     return payload
+
+
+def build_chapter_import_payload(docx_path: Path) -> list[dict]:
+    sections = read_docx_sections(docx_path)
+    payload = []
+    for section in sections:
+        payload.append({"headline": section.title, "era": section.title, "bodyMarkdown": chapter_to_markdown(section)})
+    return payload
+
+
+def build_import_payload(docx_path: Path, *, split_by: str) -> list[dict]:
+    if split_by == "chapter":
+        return build_chapter_import_payload(docx_path)
+    if split_by == "section":
+        return build_section_import_payload(docx_path)
+    raise ValueError(f"Unsupported split mode: {split_by}")
+
+
+def rewrite_topic_rows(conn: sqlite3.Connection, *, topic_id: int, notes: list[dict]) -> None:
+    rows = list(conn.execute("SELECT id FROM timeline_events WHERE topic_id = ? ORDER BY id", (topic_id,)))
+    if len(rows) != len(notes):
+        raise RuntimeError(f"Expected {len(notes)} rows for topic {topic_id}, found {len(rows)} after insert")
+    conn.execute(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE topic_id = ?", (topic_id,))
+    now = utcnow_iso()
+    for row, note in zip(rows, notes):
+        headline = str(note["headline"]).strip()
+        era = str(note["era"]).strip()
+        body_markdown = str(note["bodyMarkdown"]).strip()
+        conn.execute(
+            """
+            UPDATE timeline_events
+            SET year = ?, sort_key = ?, date_key = ?, date_year = ?, date_month = ?, date_day = ?,
+                headline = ?, era = ?, note_type = ?, body_markdown = ?, body_json = ?, extra_json = ?,
+                attachments_json = ?, related_event_ids_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                headline,
+                0.0,
+                None,
+                None,
+                None,
+                None,
+                headline,
+                era,
+                DEFAULT_NOTE_TYPE,
+                body_markdown,
+                None,
+                "{}",
+                "[]",
+                "[]",
+                now,
+                row["id"],
+            ),
+        )
+        conn.execute(
+            f"""
+            INSERT INTO {SEARCH_INDEX_TABLE} (event_id, topic_id, headline, body, era, extra)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (row["id"], topic_id, headline, markdown_plain_text(body_markdown), era, ""),
+        )
 
 
 def print_outline(notes: list[dict]) -> None:
@@ -393,7 +464,7 @@ def main() -> int:
     if not db_path.exists():
         raise FileNotFoundError(f"Missing database: {db_path}")
 
-    notes = build_import_payload(docx_path)
+    notes = build_import_payload(docx_path, split_by=args.split_by)
     print_outline(notes)
     if args.dry_run:
         return 0
@@ -428,6 +499,7 @@ def main() -> int:
                     era=note["era"],
                     body_markdown=note["bodyMarkdown"],
                 )
+            rewrite_topic_rows(conn, topic_id=topic_id, notes=notes)
     finally:
         conn.close()
 

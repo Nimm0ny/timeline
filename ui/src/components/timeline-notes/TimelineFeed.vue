@@ -16,6 +16,7 @@ import {
   dateKeyFromLocator,
   DISPLAY_VIEW_META,
   eventColumnValue,
+  eventHasDate,
   isCheckboxChecked,
   isDefaultSort,
   isOptionColumn,
@@ -1267,7 +1268,7 @@ onBeforeUnmount(() => {
               <b class="bd-card-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
               <span class="bd-card-sum"><HighlightedText :text="buildEventPreview(event, 70)" :query="props.searchQuery" /></span>
               <span class="bd-card-foot">
-                <span class="bd-card-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+                <span class="bd-card-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
                 <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
                   <TimelineLucideIcon name="star" :stroke-width="1.5" />
                 </span>
@@ -1328,7 +1329,7 @@ onBeforeUnmount(() => {
                 >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
               >
             </span>
-            <span class="gl-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+            <span class="gl-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
           </span>
           <span
             v-if="!selectMode"
@@ -1373,7 +1374,7 @@ onBeforeUnmount(() => {
             >
               <span class="ol-bullet" aria-hidden="true"></span>
               <b class="ol-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
-              <span class="ol-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+              <span class="ol-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
               <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
                 <TimelineLucideIcon name="star" :stroke-width="1.5" />
               </span>
@@ -1427,7 +1428,7 @@ onBeforeUnmount(() => {
               >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
             >
           </span>
-          <span class="lv-date">{{ eventColumnValue(event, { key: 'time' }) }}</span>
+          <span class="lv-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
           <span
             v-if="!selectMode"
             class="lv-del"

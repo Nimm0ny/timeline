@@ -244,7 +244,7 @@ function formatYearLabel(year) {
 // dates (e.g. 1927-08-01 南昌起义) keep their full date: month-precision data is
 // stored the same way and can't be told apart, so we never coarsen a real day.
 export function formatEventDate(event) {
-  if (!eventHasDate(event)) return event?.displayLabel || "未定时间";
+  if (!eventHasDate(event)) return "";
   const parts = event?.dateParts;
   if (parts && parts.year != null) {
     if (parts.month === 1 && parts.day === 1) return formatYearLabel(parts.year);
@@ -933,7 +933,7 @@ function pushSampleValue(samples, value) {
 export function eventColumnValue(event, column) {
   if (!column) return "—";
   if (column.key === "time") return formatEventDate(event);
-  if (column.key === "title") return event?.headline || event?.displayLabel || "未命名事件";
+  if (column.key === "title") return event?.headline || event?.era || event?.displayLabel || "未命名事件";
   if (isOptionColumn(column)) {
     const chips = resolvePropertyChips(event, column);
     return chips.length ? chips.map((chip) => chip.label).join("、") : "—";
