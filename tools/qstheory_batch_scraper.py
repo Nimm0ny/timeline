@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from lxml import html
 
@@ -73,6 +74,10 @@ EXTRA_COLUMNS = [
     {"key": "source_url", "label": "原文链接", "type": "url", "width": 220, "order": 7, "visible": True},
     {"key": "keywords", "label": "关键词", "type": "text", "width": 200, "order": 8, "visible": False},
 ]
+
+
+class SkipArticle(RuntimeError):
+    """Known upstream non-article pages (expired, redirect stubs, site-info links)."""
 
 
 @dataclass(frozen=True)
@@ -147,6 +152,8 @@ def canonical_url(url: str) -> str:
     parts = urlsplit(str(url or "").strip())
     scheme = "https" if parts.scheme in {"http", "https", ""} else parts.scheme
     netloc = parts.netloc or "www.qstheory.cn"
+    if netloc == "qstheory.cn":
+        netloc = "www.qstheory.cn"
     path = parts.path or "/"
     return urlunsplit((scheme, netloc, path, "", ""))
 
@@ -248,6 +255,23 @@ def detail_root(document):
     return fallbacks[0] if fallbacks else None
 
 
+def should_skip_article_page(article_url: str, document) -> bool:
+    title = clean_text("".join(document.xpath("//title//text()")))
+    body = clean_text(" ".join(document.xpath("//body//text()")))
+    if "已删除或过期的稿件" in title or "已删除或过期的稿件" in body:
+        return True
+    if title == "找不到页面了" or "秒之后将返回首页" in body:
+        return True
+    refresh = " ".join(document.xpath("//meta[@http-equiv='refresh' or @http-equiv='Refresh']/@content"))
+    if "url=http://www.qstheory.cn" in refresh or "url=https://www.qstheory.cn" in refresh:
+        return True
+    if title == "求是网" and not clean_text("".join(document.xpath("//h1//text()"))) and not detail_root(document):
+        return True
+    if "/qssyggw/" in urlsplit(article_url).path:
+        return True
+    return False
+
+
 def filtered_image_urls(node, article_url: str) -> list[str]:
     results: list[str] = []
     for src in node.xpath(".//img/@src"):
@@ -323,6 +347,8 @@ def infer_channel(title: str, fallback: str) -> str:
 
 
 def article_payload(seed: Seed, article_url: str, document, *, listed_title: str = "") -> dict:
+    if should_skip_article_page(article_url, document):
+        raise SkipArticle(f"Skip non-article page: {article_url}")
     title = clean_text("".join(document.xpath("//h1//text()")))
     subtitle = clean_text("".join(document.xpath("//h2//text()")))
     publish_date = meta_content(document, "publishdate")
@@ -529,6 +555,8 @@ def extract_qishi_issue_article_links(issue_url: str, document) -> list[tuple[st
         article_url = article_url_from_href(issue_url, node.get("href", "").strip())
         if article_url is None or article_url in seen:
             continue
+        if "/qssyggw/" in urlsplit(article_url).path:
+            continue
         label = clean_text("".join(node.xpath(".//text()")))
         if not label or label in blocked_labels:
             continue
@@ -623,6 +651,12 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict[str, dict], dic
                     payload = qishi_issue_payload(issue_label, listed_title, article_url, article_doc)
                     issue_events[issue_label].append(payload)
                     issue_channels[issue_label].add(payload["extra"]["channel"])
+                except SkipArticle:
+                    continue
+                except HTTPError as exc:  # pragma: no cover - network variance
+                    if exc.code == 404:
+                        continue
+                    failures.append(f"{article_url} :: {exc}")
                 except Exception as exc:  # pragma: no cover - network variance
                     failures.append(f"{article_url} :: {exc}")
     if not issue_events:
