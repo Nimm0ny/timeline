@@ -64,13 +64,14 @@ CHANNEL_ALIASES = {
 }
 EXTRA_COLUMNS = [
     {"key": "channel", "label": "栏目", "type": "text", "width": 110, "order": 0, "visible": True},
-    {"key": "subtitle", "label": "副题", "type": "text", "width": 200, "order": 1, "visible": True},
-    {"key": "display_source", "label": "来源", "type": "text", "width": 140, "order": 2, "visible": True},
-    {"key": "meta_source", "label": "站点来源", "type": "text", "width": 140, "order": 3, "visible": False},
-    {"key": "author_name", "label": "作者", "type": "text", "width": 110, "order": 4, "visible": True},
-    {"key": "publish_time", "label": "发布时间", "type": "text", "width": 140, "order": 5, "visible": True},
-    {"key": "source_url", "label": "原文链接", "type": "url", "width": 220, "order": 6, "visible": True},
-    {"key": "keywords", "label": "关键词", "type": "text", "width": 200, "order": 7, "visible": False},
+    {"key": "issue_label", "label": "期号", "type": "text", "width": 120, "order": 1, "visible": True},
+    {"key": "subtitle", "label": "副题", "type": "text", "width": 200, "order": 2, "visible": True},
+    {"key": "display_source", "label": "来源", "type": "text", "width": 140, "order": 3, "visible": True},
+    {"key": "meta_source", "label": "站点来源", "type": "text", "width": 140, "order": 4, "visible": False},
+    {"key": "author_name", "label": "作者", "type": "text", "width": 110, "order": 5, "visible": True},
+    {"key": "publish_time", "label": "发布时间", "type": "text", "width": 140, "order": 6, "visible": True},
+    {"key": "source_url", "label": "原文链接", "type": "url", "width": 220, "order": 7, "visible": True},
+    {"key": "keywords", "label": "关键词", "type": "text", "width": 200, "order": 8, "visible": False},
 ]
 
 
@@ -79,6 +80,7 @@ class Seed:
     topic: str
     channel: str
     url: str
+    mode: str = "page"
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,6 +94,12 @@ def parse_args() -> argparse.Namespace:
         help="Repeatable TOPIC/CHANNEL=URL seed. CHANNEL=URL also works and uses CHANNEL as topic.",
     )
     parser.add_argument("--topic", action="append", default=[], help="Only crawl the named default topic group.")
+    parser.add_argument(
+        "--magazine-year",
+        action="append",
+        default=[],
+        help="Restrict 求是杂志 crawling to specific years like 2026. Repeatable.",
+    )
     parser.add_argument("--subtitle", default="", help="Optional subtitle written to every generated topic JSON.")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory for grouped topic JSON files.")
     parser.add_argument("--title-prefix", default="", help="Optional prefix added before each topic title.")
@@ -292,7 +300,7 @@ def publish_parts(publish_date: str, publish_time: str) -> tuple[int, int, int]:
 
 def infer_channel(title: str, fallback: str) -> str:
     text = clean_text(title)
-    for separator in (" | ", "｜", "|"):
+    for separator in (" | ", " │ ", "│", "｜", "|"):
         if separator in text:
             prefix = clean_text(text.split(separator, 1)[0])
             if prefix:
@@ -432,6 +440,169 @@ def ordered_topics(seeds: list[Seed]) -> list[str]:
     return topics
 
 
+def should_crawl_magazine(raw_specs: list[str], topic_filters: list[str]) -> bool:
+    if raw_specs:
+        return False
+    allowed = {clean_text(item) for item in topic_filters if clean_text(item)}
+    return not allowed or "求是杂志" in allowed
+
+
+def issue_year_filters(values: list[str]) -> set[str]:
+    return {clean_text(value).removesuffix("年") for value in values if clean_text(value)}
+
+
+def extract_qishi_year_links(document, archive_url: str, allowed_years: set[str]) -> list[tuple[str, str]]:
+    years: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for node in document.xpath("//a[@href]"):
+        text = clean_text("".join(node.xpath(".//text()")))
+        if not re.fullmatch(r"\d{4}年", text):
+            continue
+        year = text[:-1]
+        if allowed_years and year not in allowed_years:
+            continue
+        url = canonical_url(urljoin(archive_url, node.get("href", "").strip()))
+        if url in seen:
+            continue
+        years.append((year, url))
+        seen.add(url)
+    return years
+
+
+def extract_qishi_issue_links(document, year_page_url: str, year: str) -> list[tuple[str, str]]:
+    issues: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    pattern = re.compile(rf"《求是》{re.escape(year)}年第(\d+)期")
+    for node in document.xpath("//a[@href]"):
+        text = clean_text("".join(node.xpath(".//text()")))
+        match = pattern.fullmatch(text)
+        if not match:
+            continue
+        url = canonical_url(urljoin(year_page_url, node.get("href", "").strip()))
+        if url in seen:
+            continue
+        issues.append((f"{year}年第{match.group(1)}期", url))
+        seen.add(url)
+    return issues
+
+
+def extract_qishi_issue_article_links(issue_url: str, document) -> list[tuple[str, str]]:
+    root = detail_root(document)
+    if root is None:
+        return []
+    links: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for node in root.xpath(".//a[@href]"):
+        article_url = article_url_from_href(issue_url, node.get("href", "").strip())
+        if article_url is None or article_url in seen:
+            continue
+        label = clean_text("".join(node.xpath(".//text()")))
+        if not label or label in {"理论资源导航", "【网站声明】"}:
+            continue
+        links.append((article_url, label))
+        seen.add(article_url)
+    return links
+
+
+def qishi_issue_payload(issue_label: str, listed_title: str, article_url: str, document) -> dict:
+    payload = article_payload(
+        Seed(topic="求是杂志", channel="求是杂志", url=article_url),
+        article_url,
+        document,
+        listed_title=listed_title,
+    )
+    payload["era"] = issue_label
+    payload["extra"]["issue_label"] = issue_label
+    return payload
+
+
+def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict | None, dict]:
+    archive_url = "https://www.qstheory.cn/qs/mulu.htm"
+    failures: list[str] = []
+    issue_events: list[dict] = []
+    seen_by_issue: set[tuple[str, str]] = set()
+    channels: set[str] = set()
+    year_filters = issue_year_filters(args.magazine_year)
+    try:
+        archive_doc = parse_html(
+            fetch_bytes(
+                archive_url,
+                timeout=args.timeout,
+                retries=args.retries,
+                delay=args.delay,
+                verbose=args.verbose,
+            )
+        )
+    except Exception as exc:  # pragma: no cover - network variance
+        failures.append(f"{archive_url} :: {exc}")
+        return None, {"errors": failures, "issueCount": 0, "articleCount": 0}
+
+    year_links = extract_qishi_year_links(archive_doc, archive_url, year_filters)
+    issue_count = 0
+    for year, year_url in year_links:
+        try:
+            year_doc = parse_html(
+                fetch_bytes(
+                    year_url,
+                    timeout=args.timeout,
+                    retries=args.retries,
+                    delay=args.delay,
+                    verbose=args.verbose,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - network variance
+            failures.append(f"{year_url} :: {exc}")
+            continue
+        issue_links = extract_qishi_issue_links(year_doc, year_url, year)
+        for issue_label, issue_url in issue_links:
+            issue_count += 1
+            try:
+                issue_doc = parse_html(
+                    fetch_bytes(
+                        issue_url,
+                        timeout=args.timeout,
+                        retries=args.retries,
+                        delay=args.delay,
+                        verbose=args.verbose,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - network variance
+                failures.append(f"{issue_url} :: {exc}")
+                continue
+            issue_links = extract_qishi_issue_article_links(issue_url, issue_doc)
+            if args.per_seed_limit > 0:
+                issue_links = issue_links[: args.per_seed_limit]
+            for article_url, listed_title in issue_links:
+                key = (issue_label, article_url)
+                if key in seen_by_issue:
+                    continue
+                seen_by_issue.add(key)
+                try:
+                    article_doc = parse_html(
+                        fetch_bytes(
+                            article_url,
+                            timeout=args.timeout,
+                            retries=args.retries,
+                            delay=args.delay,
+                            verbose=args.verbose,
+                        )
+                    )
+                    payload = qishi_issue_payload(issue_label, listed_title, article_url, article_doc)
+                    issue_events.append(payload)
+                    channels.add(payload["extra"]["channel"])
+                except Exception as exc:  # pragma: no cover - network variance
+                    failures.append(f"{article_url} :: {exc}")
+    if not issue_events:
+        return None, {"errors": failures, "issueCount": issue_count, "articleCount": 0, "channels": channels}
+    payload = build_topic_payload("求是杂志", args.subtitle, issue_events)
+    return payload, {
+        "errors": failures,
+        "issueCount": issue_count,
+        "articleCount": len(issue_events),
+        "channels": channels,
+    }
+
+
 def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
     events_by_topic: dict[str, list[dict]] = defaultdict(list)
     event_count_by_topic: dict[str, int] = defaultdict(int)
@@ -494,6 +665,16 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
         "eventCountByTopic": dict(event_count_by_topic),
         "channelsByTopic": channels_by_topic,
     }
+    if should_crawl_magazine(args.seed, args.topic):
+        magazine_payload, magazine_stats = crawl_qishi_magazine(args)
+        stats["errors"].extend(magazine_stats["errors"])
+        stats["linkCount"] += magazine_stats["articleCount"]
+        if magazine_payload is not None:
+            payloads["求是杂志"] = magazine_payload
+            if "求是杂志" not in stats["topicOrder"]:
+                stats["topicOrder"].append("求是杂志")
+            stats["eventCountByTopic"]["求是杂志"] = len(magazine_payload["events"])
+            stats["channelsByTopic"]["求是杂志"] = magazine_stats["channels"] or {"求是杂志"}
     return payloads, stats
 
 
