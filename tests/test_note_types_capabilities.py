@@ -317,6 +317,61 @@ def test_mindmap_tree_text_flows_into_index_preview_and_search(client, seeded_to
     assert result["isoDate"] is None
 
 
+def test_canvas_note_round_trips_note_type_and_snapshot(client, seeded_topic):
+    """W3: canvas is a third note_type storing a free-board X6 snapshot in body_json,
+    undated like a mindmap. note_type + body_json must survive the round-trip intact."""
+    snapshot = {
+        "_fmt": "x6-canvas-v1",
+        "cells": [
+            {"id": "n1", "shape": "rect", "data": {"text": "想法卡片"}, "attrs": {"label": {"text": "想法卡片"}}},
+            {"id": "n2", "shape": "rect", "data": {"text": "另一张"}, "attrs": {"label": {"text": "另一张"}}},
+            {"id": "e1", "shape": "edge", "source": {"cell": "n1"}, "target": {"cell": "n2"}, "data": {"_isCanvasEdge": True}},
+        ],
+        "background": "",
+        "view": {"tx": 0, "ty": 0, "zoom": 1},
+    }
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "画布笔记", "noteType": "canvas", "bodyJson": snapshot},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["noteType"] == "canvas"
+    assert body["hasDate"] is False
+
+    detail = client.get(f"/api/events/{body['id']}").json()
+    assert detail["noteType"] == "canvas"
+    assert detail["bodyJson"] == snapshot
+
+
+def test_x6_snapshot_text_flows_into_search(client, seeded_topic):
+    """Preview/search text is walked out of the X6 snapshot node cells — the shape the
+    front end actually persists. Guards canvas search AND closes the mindmap gap where a
+    snapshot body used to index as empty (only the legacy tree shape was walked)."""
+    snapshot = {
+        "_fmt": "x6-canvas-v1",
+        "cells": [
+            {"id": "n1", "shape": "rect", "data": {"text": "海报灵感"}, "attrs": {"label": {"text": "海报灵感"}}},
+            {"id": "n2", "shape": "rect", "data": {"text": "配色方案", "note": "偏冷色"}, "attrs": {"label": {"text": "配色方案"}}},
+            {"id": "e1", "shape": "edge", "source": {"cell": "n1"}, "target": {"cell": "n2"}},
+        ],
+    }
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "画布检索", "noteType": "canvas", "bodyJson": snapshot},
+    )
+    event_id = created.json()["id"]
+
+    indexed = client.get("/api/index").json()["events"]
+    row = next(item for item in indexed if item["id"] == event_id)
+    assert "海报灵感" in row["searchText"]
+    assert "配色方案" in row["searchText"]
+    assert "偏冷色" in row["searchText"]
+
+    matched = client.get("/api/search", params={"q": "配色方案"})
+    assert any(item["id"] == event_id for item in matched.json())
+
+
 def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_topic):
     """The gallery view (W3) reads the index DTO, so an event's primary image must
     ride it (thumb preferred for the grid). Imageless events keep null image fields."""

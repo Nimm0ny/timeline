@@ -15,6 +15,7 @@ import { useViewport } from "@/composables/useViewport";
 import {
   buildX6SeedSnapshot,
 } from "@/utils/mindmapX6.js";
+import { buildCanvasSeedSnapshot } from "@/utils/canvasX6.js";
 import {
   buildFavoriteFacetRows,
   buildOptionId,
@@ -42,6 +43,7 @@ import {
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/timeline-notes/CommandPalette.vue"));
 const MindmapSurface = defineAsyncComponent(() => import("@/components/timeline-notes/MindmapSurface.vue"));
+const CanvasSurface = defineAsyncComponent(() => import("@/components/timeline-notes/CanvasSurface.vue"));
 const SettingsModal = defineAsyncComponent(() => import("@/components/settings/SettingsModal.vue"));
 
 const route = useRoute();
@@ -49,6 +51,7 @@ const router = useRouter();
 const detailPaneRef = ref(null);
 const feedPaneRef = ref(null);
 const mindmapSurfaceRef = ref(null);
+const canvasSurfaceRef = ref(null);
 const mobileFeedScrollTop = ref(0);
 const timelineStore = useTimelineStore();
 const { isMobile, isCompactDesktop } = useViewport();
@@ -658,11 +661,20 @@ const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.de
 // topic+selection guard auto-hides a stale canvas after any context change (switch
 // notebook / filter / select another note) so the center can't get stuck showing an
 // old mindmap over the new feed — no per-navigation closeMindmap() needed.
+// mindmapOpenId is the single "structured note open in the center column" id — it
+// drives BOTH the mindmap and the canvas surface (they only differ in how the snapshot
+// renders). The two computeds discriminate by note_type so the right surface mounts.
 const mindmapNote = computed(() => {
   if (!state.mindmapOpenId) return null;
   const note = timelineStore.detailById(state.mindmapOpenId);
   if (!note || note.topicId !== state.activeTopicId || state.selectedEventId !== state.mindmapOpenId) return null;
-  return note;
+  return note.noteType === "mindmap" ? note : null;
+});
+const canvasNote = computed(() => {
+  if (!state.mindmapOpenId) return null;
+  const note = timelineStore.detailById(state.mindmapOpenId);
+  if (!note || note.topicId !== state.activeTopicId || state.selectedEventId !== state.mindmapOpenId) return null;
+  return note.noteType === "canvas" ? note : null;
 });
 
 function eventCreatedDate(event) {
@@ -845,13 +857,19 @@ function setDefaultSelection(preferredEventId = null) {
   state.selectedEventId = items[0]?.id ?? null;
 }
 
+// mindmap and canvas notes both open their own center-column surface (never the
+// markdown detail pane); everything else uses the detail pane.
+function opensInCenterColumn(event) {
+  return event?.noteType === "mindmap" || event?.noteType === "canvas";
+}
+
 function buildRouteSelectionSpec() {
   const eventId = parseRouteNumber("event");
   const routeTopicId = parseRouteNumber("topic");
   const mode = parseRouteMode();
   const event = eventId ? timelineStore.eventById(eventId) || null : null;
   const topicId = event?.topicId || routeTopicId || null;
-  const openMindmap = event?.noteType === "mindmap";
+  const openMindmap = opensInCenterColumn(event);
   return {
     event,
     eventId,
@@ -1281,8 +1299,8 @@ function selectCommandEvent(result) {
       return;
     }
     closeMobileSidebar();
-    // A mindmap opens its own center canvas, never the markdown detail pane.
-    if (event.noteType === "mindmap") {
+    // A mindmap or canvas opens its own center surface, never the markdown detail pane.
+    if (opensInCenterColumn(event)) {
       await openMindmap(eventId);
       return;
     }
@@ -1379,9 +1397,9 @@ async function applyEventSelection(eventId) {
       return;
     }
   }
-  // A mindmap opens its own center canvas (D-2), never the markdown detail pane.
-  // Bring its notebook to the front first if it lives in another one.
-  if (event?.noteType === "mindmap") {
+  // A mindmap or canvas opens its own center surface (D-2), never the markdown detail
+  // pane. Bring its notebook to the front first if it lives in another one.
+  if (opensInCenterColumn(event)) {
     if (event.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
       exitGlobalFavoritesMode({ reselect: false });
       state.sidebarFilter = "all";
@@ -1440,9 +1458,10 @@ function selectEvent(eventId) {
   runOrConfirm(() => applyEventSelection(eventId));
 }
 
-// Open a mindmap note's canvas in the center column (no markdown detail pane).
-// Context (notebook switch) is handled by the caller; here we just load the full
-// detail (for bodyJson) and flip the center surface.
+// Open a structured note's surface in the center column (no markdown detail pane).
+// Type-agnostic: drives both mindmap and canvas (mindmapNote/canvasNote discriminate
+// which surface mounts). Context (notebook switch) is handled by the caller; here we
+// just load the full detail (for bodyJson) and flip the center surface.
 async function openMindmap(eventId) {
   const id = Number(eventId);
   state.selectedEventId = id;
@@ -1498,6 +1517,45 @@ function createMindmapNote(topicId = state.activeTopicId) {
   });
 }
 
+// Create a canvas note seeded with one starter card, then open its board. Canvases are
+// undated free-form boards; persistCanvasSnapshot autosaves the X6 snapshot.
+function createCanvasNote(topicId = state.activeTopicId) {
+  const targetTopicId = Number(topicId || state.activeTopicId);
+  if (!targetTopicId) {
+    pushToast("请先选择一个笔记本", "error");
+    return;
+  }
+  runOrConfirm(async () => {
+    exitGlobalFavoritesMode({ reselect: false });
+    if (targetTopicId !== state.activeTopicId) {
+      state.propertyFilter = { key: "", value: "" };
+      state.activeEra = "";
+      state.searchQuery = "";
+      const ready = await applyWorkspaceSelectionWithEvents({
+        preferredTopicId: targetTopicId,
+        preferredEventId: null,
+        preferredMode: "view",
+        openDetail: false,
+      });
+      if (!ready) return;
+    }
+    closeMobileSidebar();
+    try {
+      const result = await api.createTopicEvent(targetTopicId, {
+        headline: "未命名画布",
+        noteType: "canvas",
+        bodyJson: buildCanvasSeedSnapshot(),
+      });
+      timelineStore.upsertEvent(result);
+      syncActiveTopicFromStore();
+      await openMindmap(result.id);
+      pushToast("已创建画布");
+    } catch (error) {
+      pushToast(`创建失败：${error.message}`, "error");
+    }
+  });
+}
+
 // Legacy snapshots may store rich-text HTML in node text; the note headline stays
 // plain text, so decode tags + entities before tracking the root label.
 function htmlToPlainText(html) {
@@ -1534,6 +1592,48 @@ async function persistMindmapTree({ id, tree } = {}) {
       extra: note.extra || {},
       // updateEvent is a full replace — forward the note's existing attachments and
       // related links so a tree autosave can't blank them.
+      attachments: note.attachments || [],
+      relatedEventIds: note.relatedEventIds || [],
+    };
+    if (note.hasDate && note.dateParts?.year != null) {
+      payload.dateYear = note.dateParts.year;
+      payload.dateMonth = note.dateParts.month;
+      payload.dateDay = note.dateParts.day;
+    }
+    const result = await api.updateEvent(id, payload);
+    timelineStore.upsertEvent(result);
+    syncActiveTopicFromStore();
+  } catch (error) {
+    pushToast(`保存失败：${error.message}`, "error");
+  } finally {
+    state.mindmapSaving = false;
+  }
+}
+
+// Canvas autosave, mirroring the mindmap save chain (serialized so debounced snapshot
+// bursts can't land out of order; the bound note id keeps a late flush on the right
+// note). The headline tracks the first card so the note's title reflects its board.
+let canvasSaveChain = Promise.resolve();
+function saveCanvasSnapshot(payload) {
+  canvasSaveChain = canvasSaveChain.then(() => persistCanvasSnapshot(payload));
+  return canvasSaveChain;
+}
+
+async function persistCanvasSnapshot({ id, tree } = {}) {
+  const note = id ? timelineStore.detailById(id) : null;
+  if (!note || note.deletedAt) return;
+  state.mindmapSaving = true;
+  try {
+    const firstCard = (tree?.cells || []).find((cell) => cell && cell.shape !== "edge");
+    const headline = htmlToPlainText(firstCard?.data?.text) || note.headline || "未命名画布";
+    const payload = {
+      headline,
+      era: note.era || "",
+      noteType: "canvas",
+      bodyJson: tree,
+      extra: note.extra || {},
+      // updateEvent is a full replace — forward existing attachments/links so a board
+      // autosave can't blank them.
       attachments: note.attachments || [],
       relatedEventIds: note.relatedEventIds || [],
     };
@@ -2007,17 +2107,27 @@ async function permanentlyDeleteEvent(event) {
   }
 }
 
-async function trashMindmapNote(event) {
-  mindmapSurfaceRef.value?.flushAutosave?.();
-  mindmapSurfaceRef.value?.pauseAutosave?.();
+// The center surface open right now (mindmap or canvas — never both). Its trash/restore
+// flow is identical, so both surfaces share these handlers.
+function activeCenterSurface() {
+  return mindmapSurfaceRef.value || canvasSurfaceRef.value || null;
+}
+async function settleCenterSaves() {
   await mindmapSaveChain.catch(() => null);
+  await canvasSaveChain.catch(() => null);
+}
+
+async function trashMindmapNote(event) {
+  activeCenterSurface()?.flushAutosave?.();
+  activeCenterSurface()?.pauseAutosave?.();
+  await settleCenterSaves();
   const ok = await moveEventToTrash(event);
   if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
     closeMindmap();
     setDefaultSelection();
   }
   if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    mindmapSurfaceRef.value?.resumeAutosave?.();
+    activeCenterSurface()?.resumeAutosave?.();
   }
 }
 
@@ -2030,16 +2140,16 @@ async function restoreMindmapNote(event) {
 }
 
 async function permanentlyDeleteMindmapNote(event) {
-  mindmapSurfaceRef.value?.flushAutosave?.();
-  mindmapSurfaceRef.value?.pauseAutosave?.();
-  await mindmapSaveChain.catch(() => null);
+  activeCenterSurface()?.flushAutosave?.();
+  activeCenterSurface()?.pauseAutosave?.();
+  await settleCenterSaves();
   const ok = await permanentlyDeleteEvent(event);
   if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
     closeMindmap();
     setDefaultSelection();
   }
   if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    mindmapSurfaceRef.value?.resumeAutosave?.();
+    activeCenterSurface()?.resumeAutosave?.();
   }
 }
 
@@ -2719,6 +2829,7 @@ watch(
       @open-drawer="openMobileSidebar"
       @create-event="startCreateEvent"
       @create-mindmap="createMindmapNote"
+      @create-canvas="createCanvasNote"
       @update:searchQuery="updateSearchQuery"
       @update:search-open="state.mobileSearchOpen = $event"
     />
@@ -2750,6 +2861,7 @@ watch(
       @create-event="startCreateEvent"
       @create-event-in-topic="createEventInTopic"
       @create-mindmap-in-topic="createMindmapNote"
+      @create-canvas-in-topic="createCanvasNote"
       @create-topic="createTopic"
       @rename-bookshelf="renameBookshelf"
       @rename-topic="renameTopic"
@@ -2780,6 +2892,19 @@ watch(
       :saving="state.mindmapSaving"
       @back="closeMindmap"
       @save="saveMindmapTree"
+      @toggle-favorite="toggleFavorite"
+      @move-to-trash="trashMindmapNote"
+      @restore="restoreMindmapNote"
+      @permanent-delete="permanentlyDeleteMindmapNote"
+    />
+
+    <CanvasSurface
+      v-else-if="canvasNote"
+      ref="canvasSurfaceRef"
+      :note="canvasNote"
+      :saving="state.mindmapSaving"
+      @back="closeMindmap"
+      @save="saveCanvasSnapshot"
       @toggle-favorite="toggleFavorite"
       @move-to-trash="trashMindmapNote"
       @restore="restoreMindmapNote"
@@ -2848,6 +2973,7 @@ watch(
       @open-command-palette="openCommandPalette"
       @clear-context-filter="clearFavoriteScope"
       @create-mindmap="createMindmapNote"
+      @create-canvas="createCanvasNote"
       @load-more="loadMoreActiveTopicEvents($event || { auto: false })"
       @pane-drag-start="paneSwap.onPaneDragStart"
     />

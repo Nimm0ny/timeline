@@ -205,6 +205,7 @@ const props = defineProps({
 const emit = defineEmits([
   "create-event",
   "create-mindmap",
+  "create-canvas",
   "select-event",
   "update:searchQuery",
   "locate-date",
@@ -326,10 +327,10 @@ function pickView(view) {
 }
 
 // 新建 = note-type picker (hard requirement): entry runs the current create flow,
-// mindmap creates + opens a canvas. The page owns both handlers.
+// mindmap / canvas create + open their own center surface. The page owns the handlers.
 function pickNoteType(type) {
   activePopover.value = "";
-  emit(type === "mindmap" ? "create-mindmap" : "create-event");
+  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-event");
 }
 
 function flatEvents() {
@@ -358,6 +359,7 @@ function buildProjectedEvent(event, columns, { previewLength = 0 } = {}) {
     rowChips: aggregateOptionChips(event, props.columns, props.emptyColumnKeys),
     hasAttachment: Boolean(event.attachments?.length || event.attachmentCount),
     isMindmap: event.noteType === "mindmap",
+    isCanvas: event.noteType === "canvas",
     thumbUrl: eventThumb(event),
   };
 }
@@ -1418,6 +1420,10 @@ defineExpose({
             <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
             <span class="pop-item-label">思维导图</span>
           </button>
+          <button type="button" class="pop-item" @click="pickNoteType('canvas')">
+            <TimelineLucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
+            <span class="pop-item-label">画布</span>
+          </button>
         </template>
       </div>
     </div>
@@ -1529,6 +1535,9 @@ defineExpose({
                   <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
                   <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
                     <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+                  </span>
+                  <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
+                    <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
                   </span>
                   <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
                     <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
@@ -1645,6 +1654,9 @@ defineExpose({
               <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
               <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
                 <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+              </span>
+              <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
+                <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
               </span>
               <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
                 <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
@@ -1769,6 +1781,9 @@ defineExpose({
               <span v-else-if="projected.isMindmap" class="gl-badge" title="思维导图">
                 <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
               </span>
+              <span v-else-if="projected.isCanvas" class="gl-badge" title="画布">
+                <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
+              </span>
             </span>
             <span class="gl-meta">
               <b class="gl-name"><HighlightedText :text="projected.titleText" :query="props.searchQuery" /></b>
@@ -1867,6 +1882,9 @@ defineExpose({
             <b class="lv-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
             <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
               <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+            </span>
+            <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
+              <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
             </span>
             <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
               <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />

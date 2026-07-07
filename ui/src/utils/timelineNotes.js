@@ -1,6 +1,7 @@
 import { CONTENT_LIMITS } from "../constants/contentLimits.js";
 import { plainTextFromMarkdown } from "./markdownPreview.js";
 import { x6SnapshotToTree } from "./mindmapX6.js";
+import { canvasSnapshotText, isX6CanvasSnapshot } from "./canvasX6.js";
 
 // Unified property model: every column is a property. Only the two structural
 // columns (date + headline) are reserved; type/tags are ordinary, deletable
@@ -500,6 +501,11 @@ export function mindmapRootData(value) {
 }
 
 export function mindmapPlainText(value) {
+  // A canvas is a flat card graph, not a tree — pull its card text directly. Both
+  // structured note types (mindmap + canvas) flow through here for the feed preview and
+  // client-side search, so a canvas keeps its text after an in-session upsert (else the
+  // optimistic index row would blank it until the next backend reload).
+  if (isX6CanvasSnapshot(value)) return canvasSnapshotText(value);
   const root = mindmapRootData(value);
   if (!root) return "";
   const parts = [];

@@ -46,8 +46,9 @@ OPTION_COLUMN_TYPES = {"select", "multiselect"}
 CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 
 # Note kinds (axis 2). "entry" = markdown body + display-style views; "mindmap" =
-# node tree stored in body_json. See docs/note-types-and-views-design.md.
-NOTE_TYPES = {"entry", "mindmap"}
+# node tree and "canvas" = free-form board, both stored as an X6 snapshot in body_json.
+# See docs/note-types-and-views-design.md.
+NOTE_TYPES = {"entry", "mindmap", "canvas"}
 DEFAULT_NOTE_TYPE = "entry"
 UNDATED_LABEL = "未定时间"
 # Upper bound on a structured body (mindmap tree) so a single note can't store an
@@ -205,6 +206,40 @@ def collect_mindmap_text(value) -> str:
 
     visit(root)
     return " ".join(parts)
+
+
+def collect_x6_snapshot_text(value) -> str:
+    """Pull the text out of an X6 snapshot (mindmap or canvas): what the front end
+    actually persists is `{ _fmt, cells: [...] }`, where each node cell carries its
+    label under `data.text` (mirrored into `attrs.label.text`). Walk the node cells
+    and concatenate. Edges have no text. Returns "" for a non-snapshot value."""
+    cells = value.get("cells") if isinstance(value, dict) else value
+    if not isinstance(cells, list):
+        return ""
+    parts: list[str] = []
+    for cell in cells:
+        if not isinstance(cell, dict) or cell.get("shape") == "edge":
+            continue
+        data = cell.get("data") if isinstance(cell.get("data"), dict) else {}
+        label = cell.get("attrs", {}).get("label", {}) if isinstance(cell.get("attrs"), dict) else {}
+        text = normalize_html_text(data.get("text")) or normalize_html_text(label.get("text") if isinstance(label, dict) else None)
+        note = normalize_html_text(data.get("note"))
+        tags = " ".join(str(item or "").strip() for item in (data.get("tag") or []) if str(item or "").strip())
+        link = normalize_html_text(data.get("hyperlink"))
+        parts.extend(part for part in (text, note, tags, link) if part)
+    return " ".join(parts)
+
+
+def collect_structured_text(value) -> str:
+    """Text of any structured (non-entry) body for preview/search. The live shape is
+    an X6 snapshot (cells); a legacy shape is a mindmap tree (root/children). Handle
+    both so search works for FE-authored notes (which store snapshots) as well as the
+    tree contract older payloads/tests use."""
+    if isinstance(value, dict) and isinstance(value.get("cells"), list):
+        return collect_x6_snapshot_text(value)
+    if isinstance(value, list):
+        return collect_x6_snapshot_text(value)
+    return collect_mindmap_text(value)
 
 
 def topic_capability_signals(columns: list | None, *, event_count: int, has_dated: bool, has_image: bool) -> dict:
@@ -837,7 +872,7 @@ def derive_event_text_fields(
     topic: Topic | None,
 ) -> tuple[str, str]:
     if note_type != DEFAULT_NOTE_TYPE:
-        plain_body = collect_mindmap_text(body_json)
+        plain_body = collect_structured_text(body_json)
     else:
         plain_body = markdown_plain_text(body_markdown or default_body_markdown(items))
 
@@ -914,7 +949,7 @@ def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: 
         "body": " ".join(
             part
             for part in [
-                collect_mindmap_text(body_json) if note_type != DEFAULT_NOTE_TYPE else markdown_plain_text(str(body_markdown or "")),
+                collect_structured_text(body_json) if note_type != DEFAULT_NOTE_TYPE else markdown_plain_text(str(body_markdown or "")),
                 *[str(item.get("text", "")) for item in items if isinstance(item, dict)],
             ]
             if part

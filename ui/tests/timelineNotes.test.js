@@ -982,3 +982,17 @@ test("classifyEventDateInput: a partially filled date is rejected", () => {
   assert.deepEqual(classifyEventDateInput("2026", "6", ""), { status: "partial", dateFields: {} });
   assert.deepEqual(classifyEventDateInput("2026", "abc", "30"), { status: "partial", dateFields: {} });
 });
+
+test("mindmapPlainText extracts canvas card text so an in-session upsert keeps search/preview", () => {
+  const canvas = {
+    _fmt: "x6-canvas-v1",
+    cells: [
+      { id: "n1", shape: "rect", data: { text: "预算 100 万" }, attrs: { label: { text: "预算 100 万" } } },
+      { id: "n2", shape: "rect", data: { text: "招聘计划" }, attrs: { label: { text: "招聘计划" } } },
+      { id: "e1", shape: "edge", data: { _isCanvasEdge: true } },
+    ],
+  };
+  assert.equal(mindmapPlainText(canvas), "预算 100 万 招聘计划");
+  // A mindmap tree still resolves through the legacy path.
+  assert.equal(mindmapPlainText({ data: { text: "根" }, children: [{ data: { text: "枝" }, children: [] }] }), "根 枝");
+});

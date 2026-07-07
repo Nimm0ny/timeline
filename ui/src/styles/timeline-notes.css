@@ -5841,6 +5841,18 @@ button.prop-row-type.open .timeline-lucide-icon {
   overflow: hidden;
 }
 
+/* Canvas (free-board) connect ports: magnetic handles on each card, revealed only when
+   the card is hovered so the board stays uncluttered. They keep pointer-events at rest,
+   so they're still grabbable the moment they appear. */
+.cv-canvas .x6-port circle {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cv-canvas .x6-node:hover .x6-port circle,
+.cv-canvas .x6-port:hover circle {
+  opacity: 1;
+}
+
 .mm-loading {
   position: absolute;
   inset: 0;

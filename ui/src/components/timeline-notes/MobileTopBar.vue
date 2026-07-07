@@ -21,7 +21,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-event", "create-mindmap"]);
+const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-event", "create-mindmap", "create-canvas"]);
 
 const searchInputRef = ref(null);
 const createMenuOpen = ref(false);
@@ -46,7 +46,7 @@ function toggleCreateMenu() {
 
 function pickNoteType(type) {
   createMenuOpen.value = false;
-  emit(type === "mindmap" ? "create-mindmap" : "create-event");
+  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-event");
 }
 
 watch(
@@ -97,6 +97,10 @@ watch(
         <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
           <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
           <span class="pop-item-label">思维导图</span>
+        </button>
+        <button type="button" class="pop-item" @click="pickNoteType('canvas')">
+          <TimelineLucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
+          <span class="pop-item-label">画布</span>
         </button>
       </div>
     </div>

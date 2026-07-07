@@ -116,6 +116,7 @@ const emit = defineEmits([
   "create-event",
   "create-event-in-topic",
   "create-mindmap-in-topic",
+  "create-canvas-in-topic",
   "create-bookshelf",
   "create-topic",
   "rename-bookshelf",
@@ -346,10 +347,11 @@ function onPaneScroll() {
   if (editing.value) closePropertyPopover();
 }
 
+const CREATE_IN_TOPIC_EMIT = { mindmap: "create-mindmap-in-topic", canvas: "create-canvas-in-topic" };
 function createInTopic(topicId, noteType = "entry") {
   closeTopicMenu();
   closeCreateTopicMenu();
-  emit(noteType === "mindmap" ? "create-mindmap-in-topic" : "create-event-in-topic", topicId);
+  emit(CREATE_IN_TOPIC_EMIT[noteType] || "create-event-in-topic", topicId);
 }
 
 // Inline rename reuses the borderless create-row field (one list-edit grammar):
@@ -1382,11 +1384,11 @@ watch(typeMenu, (value) => {
                   @click="openFavoriteEvent(item.id)"
                 >
                   <span class="fav-recent-ic">
-                    <TimelineLucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : 'note'" :stroke-width="1.5" />
+                    <TimelineLucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : item.noteType === 'canvas' ? 'canvas' : 'note'" :stroke-width="1.5" />
                   </span>
                   <span class="fav-recent-main">
                     <span class="fav-recent-title">{{ item.headline || item.displayLabel || "未命名笔记" }}</span>
-                    <span class="fav-recent-meta">{{ favoriteEventTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : "") }}</span>
+                    <span class="fav-recent-meta">{{ favoriteEventTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : item.noteType === "canvas" ? " · 画布" : "") }}</span>
                   </span>
                   <TimelineLucideIcon name="arrowRight" :stroke-width="1.5" />
                 </button>
@@ -1763,6 +1765,10 @@ watch(typeMenu, (value) => {
         <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'mindmap')">
           <TimelineLucideIcon name="mindmap" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">思维导图</span>
+        </button>
+        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'canvas')">
+          <TimelineLucideIcon name="canvas" :stroke-width="1.5" class="pop-item-ic" />
+          <span class="lbl">画布</span>
         </button>
       </div>
     </div>
