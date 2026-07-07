@@ -169,7 +169,7 @@ source: 用户 2026-07-07 会话（中栏优先、右栏其次、移动端最后
   - 线性视图移动 `8`
   - gallery 行桌面 `6`
   - gallery 行移动 `4`
-  - board 单列卡片桌面 `8`
+  - board 单列卡片桌面 `4`
 - load-more 触发：
   - 剩余虚拟项数 `<= 12` 时触发
   - 仅在 `hasMore && !loading && !loadingMore` 时生效

@@ -9,7 +9,7 @@ export const FEED_LINEAR_DESKTOP_OVERSCAN = 12;
 export const FEED_LINEAR_MOBILE_OVERSCAN = 8;
 export const FEED_GALLERY_DESKTOP_OVERSCAN = 6;
 export const FEED_GALLERY_MOBILE_OVERSCAN = 4;
-export const FEED_BOARD_COLUMN_OVERSCAN = 8;
+export const FEED_BOARD_COLUMN_OVERSCAN = 4;
 export const FEED_LOAD_MORE_REMAINING = 12;
 
 function clampCount(count) {

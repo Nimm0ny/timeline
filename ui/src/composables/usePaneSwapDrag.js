@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref } from "vue";
+import { getCurrentInstance, onBeforeUnmount, ref } from "vue";
 
 // Mouse-only drag to rearrange the three columns by grabbing the empty area of a
 // column's toolbar, then releasing past a threshold. Each column maps to one layout
@@ -203,9 +203,13 @@ export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) 
     };
   }
 
-  // Tear down any in-flight drag if the host unmounts mid-gesture, so window
-  // listeners and a pending rAF can never outlive the component.
-  onBeforeUnmount(reset);
+  // Pure-function tests instantiate this composable outside component setup; skip
+  // lifecycle registration there so Vue doesn't warn while preserving runtime cleanup.
+  if (getCurrentInstance()) {
+    // Tear down any in-flight drag if the host unmounts mid-gesture, so window
+    // listeners and a pending rAF can never outlive the component.
+    onBeforeUnmount(reset);
+  }
 
   return { dragging, draggedPane, armed, targetRect, onPaneDragStart };
 }
