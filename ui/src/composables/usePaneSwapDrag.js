@@ -1,60 +1,86 @@
 import { onBeforeUnmount, ref } from "vue";
 
-// Mouse-only drag to swap the feed and detail panes by grabbing the empty area of
-// either column's toolbar. This is the third entry point for the detailPosition
-// toggle (settings segmented control + detail ⋮ menu being the other two); it owns
-// no persisted state and commits through the same updateDetailPosition().
-// Full design: docs/pane-swap-drag-design.md.
+// Mouse-only drag to rearrange the three columns by grabbing the empty area of a
+// column's toolbar, then releasing past a threshold. Each column maps to one layout
+// knob (docs/pane-swap-drag-design.md):
+//   - sidebar → toggles navPosition (moves the function bar to the opposite edge)
+//   - feed / detail → toggles detailPosition (swaps the list and the detail pane)
+// The composable owns no persisted state; it commits through the page's
+// updateNavPosition / updateDetailPosition, the same handlers the settings control
+// and the ⋮ menu use.
 
 export const DEAD_ZONE = 6; // px of travel below which a press is a click, not a drag
 export const GHOST_OFFSET = 14; // px the ghost chip trails the pointer by (both axes)
+// Feed/detail are adjacent, so committing means dragging INTO the target pane by this
+// much — capped so a wide target (the feed) doesn't demand an arm's-length drag.
+export const COMMIT_PENETRATION = 200;
 
-// Horizontal [lo, hi] span each pane paints at, for the active nav/detail combo.
+// Horizontal [lo, hi] span each column paints at, for the active nav/detail combo.
 // Mirrors the grid-template-columns + `order` rules in timeline-notes.css and the
-// resizer math (docs/layout-swap-design.md §1/§7, pane-swap-drag-design.md §3.1).
-// W = viewport width, L = painted sidebar width, R = painted detail width.
-export function paneSpans({ W, L, R, navRight, detailCenter }) {
+// resizer math (docs/layout-swap-design.md §1/§7). W = viewport width, L = painted
+// sidebar width, R = painted detail width; a closed detail collapses to zero width.
+export function paneSpans({ W, L, R, navRight, detailCenter, rightOpen = true }) {
+  const Rd = rightOpen ? R : 0;
   if (!detailCenter && !navRight) {
-    return { feed: { lo: L, hi: W - R }, detail: { lo: W - R, hi: W } };
+    return { sidebar: { lo: 0, hi: L }, feed: { lo: L, hi: W - Rd }, detail: { lo: W - Rd, hi: W } };
   }
   if (!detailCenter && navRight) {
-    return { detail: { lo: 0, hi: R }, feed: { lo: R, hi: W - L } };
+    return { detail: { lo: 0, hi: Rd }, feed: { lo: Rd, hi: W - L }, sidebar: { lo: W - L, hi: W } };
   }
   if (detailCenter && !navRight) {
-    return { detail: { lo: L, hi: L + R }, feed: { lo: L + R, hi: W } };
+    return { sidebar: { lo: 0, hi: L }, detail: { lo: L, hi: L + Rd }, feed: { lo: L + Rd, hi: W } };
   }
-  return { feed: { lo: 0, hi: W - L - R }, detail: { lo: W - L - R, hi: W - L } };
+  return { feed: { lo: 0, hi: W - L - Rd }, detail: { lo: W - L - Rd, hi: W - L }, sidebar: { lo: W - L, hi: W } };
 }
 
-// Classify the first move past the dead zone: a mostly-vertical move is treated as
-// a scroll/other gesture and aborts the drag (pane-swap-drag-design.md §4 line 2).
-// A 45° tie counts as horizontal so a diagonal intent still swaps.
+// The slot the dragged column moves into, and the pane whose knob its release
+// toggles. The sidebar always lands on the opposite outer edge (a strip of its own
+// width); feed and detail swap into each other's slot.
+export function swapTarget(pane, spans, { W, L, navRight }) {
+  if (pane === "sidebar") {
+    const span = navRight ? { lo: 0, hi: L } : { lo: W - L, hi: W };
+    return { span, knob: "nav" };
+  }
+  const otherPane = pane === "feed" ? "detail" : "feed";
+  return { span: spans[otherPane], knob: "detail" };
+}
+
+// Classify the first move past the dead zone: a mostly-vertical move is treated as a
+// scroll/other gesture and aborts. A 45° tie counts as horizontal so a diagonal
+// intent still swaps.
 export function dragIntent(dx, dy, deadZone = DEAD_ZONE) {
   if (Math.hypot(dx, dy) < deadZone) return "pending";
   return Math.abs(dx) >= Math.abs(dy) ? "drag" : "abort";
 }
 
-// How far the pointer has entered the target pane past their shared boundary (0 if
-// it has not crossed yet). The dragged and target panes are always adjacent, so the
-// boundary is the target edge facing the dragged pane.
+// How far the pointer has entered the target span past the boundary facing the
+// dragged pane (0 if it has not crossed yet).
 export function penetration(x, targetSpan, targetIsRight) {
   return targetIsRight
     ? Math.max(0, x - targetSpan.lo)
     : Math.max(0, targetSpan.hi - x);
 }
 
-// Commit rule: the pointer must cross the *midline* of the target pane, not merely
-// touch the boundary. Overshooting past the far edge keeps it armed (intent is
-// obvious); retreating back before the midline disarms it (reversible).
-export function isArmed(x, draggedSpan, targetSpan) {
+// Commit rule, per gesture:
+//   - sidebar: the pointer crosses the viewport centre toward the opposite edge —
+//     "drag the bar past the middle and it flips sides".
+//   - feed/detail: the pointer enters the adjacent target pane by min(half its
+//     width, COMMIT_PENETRATION) — never arms while still over the dragged pane,
+//     and a wide target doesn't force a long drag.
+// Overshoot past the far edge stays armed; retreating disarms (reversible).
+export function isArmed(pane, x, draggedSpan, targetSpan, viewportW) {
   const targetIsRight = targetSpan.lo + targetSpan.hi > draggedSpan.lo + draggedSpan.hi;
-  const width = targetSpan.hi - targetSpan.lo;
-  return penetration(x, targetSpan, targetIsRight) > width / 2;
+  if (pane === "sidebar") {
+    const mid = viewportW / 2;
+    return targetIsRight ? x >= mid : x <= mid;
+  }
+  const need = Math.min((targetSpan.hi - targetSpan.lo) / 2, COMMIT_PENETRATION);
+  return penetration(x, targetSpan, targetIsRight) > need;
 }
 
 export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) {
   const dragging = ref(false);
-  const draggedPane = ref(null); // "feed" | "detail"
+  const draggedPane = ref(null); // "sidebar" | "feed" | "detail"
   const armed = ref(false);
   const targetRect = ref({ left: 0, width: 0 });
 
@@ -66,8 +92,9 @@ export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) 
   let lastY = 0;
   let draggedSpan = null;
   let targetSpan = null;
-  let rafId = 0;
+  let viewportW = 0;
   let cleanup = null;
+  let rafId = 0;
 
   function applyGhostTransform() {
     const el = getGhostEl();
@@ -81,16 +108,19 @@ export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) 
     rafId = requestAnimationFrame(() => {
       rafId = 0;
       applyGhostTransform();
-      const next = isArmed(lastX, draggedSpan, targetSpan);
+      const next = isArmed(draggedPane.value, lastX, draggedSpan, targetSpan, viewportW);
       if (next !== armed.value) armed.value = next;
     });
   }
 
   function beginDrag() {
     phase = "dragging";
-    const spans = paneSpans(getLayout());
-    draggedSpan = draggedPane.value === "feed" ? spans.feed : spans.detail;
-    targetSpan = draggedPane.value === "feed" ? spans.detail : spans.feed;
+    const layout = getLayout();
+    const spans = paneSpans(layout);
+    const target = swapTarget(draggedPane.value, spans, layout);
+    draggedSpan = spans[draggedPane.value];
+    targetSpan = target.span;
+    viewportW = layout.W;
     targetRect.value = { left: targetSpan.lo, width: targetSpan.hi - targetSpan.lo };
     armed.value = false;
     dragging.value = true;
@@ -131,9 +161,10 @@ export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) 
   }
 
   function onUp() {
+    const pane = draggedPane.value;
     const shouldCommit = phase === "dragging" && armed.value;
     reset();
-    if (shouldCommit) onCommit();
+    if (shouldCommit) onCommit(pane);
   }
 
   function onKey(event) {
@@ -145,7 +176,7 @@ export function usePaneSwapDrag({ isEnabled, getLayout, getGhostEl, onCommit }) 
 
   function onPaneDragStart({ pane, x, y, pointerType, button }) {
     if (phase !== "idle") return;
-    if (!isEnabled()) return;
+    if (!isEnabled(pane)) return;
     if (pointerType && pointerType !== "mouse") return;
     if (button != null && button !== 0) return;
 

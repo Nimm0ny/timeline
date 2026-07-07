@@ -314,11 +314,14 @@ button {
   left: calc(100% - var(--left-w) - var(--right-w));
 }
 
-/* Pane-swap drag (docs/pane-swap-drag-design.md §2): grab the empty area of either
-   toolbar to swap the feed and detail panes. The spacer advertises the affordance
-   only while the gesture is usable (desktop + detail open). */
+/* Pane-swap drag (docs/pane-swap-drag-design.md §2): grab the empty area of a
+   column's toolbar to move that column. The feed/detail spacers advertise the
+   affordance only while the detail is open (there must be something to swap with);
+   the sidebar's pane-head/title works whether or not the detail is open. */
 .timeline-workspace:not(.is-mobile):not(.right-closed) .tl-bar .spacer,
-.timeline-workspace:not(.is-mobile):not(.right-closed) .actionbar .spacer {
+.timeline-workspace:not(.is-mobile):not(.right-closed) .actionbar .spacer,
+.timeline-workspace:not(.is-mobile) .pane-head,
+.timeline-workspace:not(.is-mobile) .ph-title {
   cursor: grab;
 }
 

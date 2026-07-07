@@ -119,6 +119,7 @@
 | 右栏操作收纳（详情 actionbar ⋮ 菜单：附件/关联/回收站）| moreVertical | MoreVertical |（2026-06-28 右栏按钮收纳，§7.1）
 | 排序 / 全部折叠 | arrowUpDown / fold | ArrowUpDown, ChevronsDownUp |
 | 布局互换（右栏 ⋮ 菜单：详情居中/贴边） | swap | ArrowLeftRight |（2026-07-07 中栏右栏互换，`docs/layout-swap-design.md` §7）
+| 拖拽互换 ghost（左栏「功能栏」纸片） | panelLeft | PanelLeft |（2026-07-07 三栏拖拽互换手势，`docs/pane-swap-drag-design.md`）
 | 展开折叠箭头 | chevronDown / chevronRight | ChevronDown, ChevronRight |
 | 收藏/置顶/回收/保存 | star/pin/trash/save | Star, Pin, Trash2, Save |
 | 阅读⇄编辑 | pencil / eye | SquarePen / Eye |

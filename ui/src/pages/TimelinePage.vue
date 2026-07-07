@@ -274,20 +274,34 @@ function paintedRightWidth() {
 // third entry point for detailPosition (docs/pane-swap-drag-design.md). Commits
 // through the same updateDetailPosition() as the settings control and ⋮ menu.
 const paneDragGhostEl = ref(null);
+const PANE_GHOST = {
+  sidebar: { icon: "panelLeft", label: "功能栏" },
+  feed: { icon: "list", label: "笔记列表" },
+  detail: { icon: "note", label: "笔记详情" },
+};
 const paneSwap = usePaneSwapDrag({
-  isEnabled: () => !isMobile.value && state.rightOpen,
+  // The sidebar swap (navPosition) works whether or not the detail is open; the
+  // feed↔detail swap needs an open detail pane to trade places with.
+  isEnabled: (pane) => !isMobile.value && (pane === "sidebar" || state.rightOpen),
   getLayout: () => ({
     W: typeof window === "undefined" ? 1920 : window.innerWidth,
     L: paintedLeftWidth(),
     R: paintedRightWidth(),
     navRight: state.config.navPosition === "right",
     detailCenter: state.config.detailPosition === "center",
+    rightOpen: state.rightOpen,
   }),
   getGhostEl: () => paneDragGhostEl.value,
-  onCommit: () => updateDetailPosition(state.config.detailPosition === "center" ? "edge" : "center"),
+  onCommit: (pane) => {
+    if (pane === "sidebar") {
+      updateNavPosition(state.config.navPosition === "right" ? "left" : "right");
+    } else {
+      updateDetailPosition(state.config.detailPosition === "center" ? "edge" : "center");
+    }
+  },
 });
-const paneDragGhostIcon = computed(() => (paneSwap.draggedPane.value === "feed" ? "list" : "note"));
-const paneDragGhostLabel = computed(() => (paneSwap.draggedPane.value === "feed" ? "笔记列表" : "笔记详情"));
+const paneDragGhostIcon = computed(() => PANE_GHOST[paneSwap.draggedPane.value]?.icon || "note");
+const paneDragGhostLabel = computed(() => PANE_GHOST[paneSwap.draggedPane.value]?.label || "");
 
 const bookshelfTree = computed(() => state.bookshelfTree);
 // Presentational re-order of the sidebar tree (shelves + notebooks) by the saved
@@ -2389,7 +2403,10 @@ function startResize(side, event) {
   const onMove = (moveEvent) => {
     if (side === "left") {
       const width = navRight ? window.innerWidth - moveEvent.clientX : moveEvent.clientX;
-      state.leftWidth = clamp(width, 220, 360);
+      // On compact desktops the sidebar paints clamped to 220–240, so cap the stored
+      // value there too — otherwise the resizer drags past where the column renders.
+      const leftMax = isCompactDesktop.value ? 240 : 360;
+      state.leftWidth = clamp(width, 220, leftMax);
       writeStorage(LEFT_WIDTH_KEY, state.leftWidth);
     } else {
       let width;
@@ -2399,9 +2416,12 @@ function startResize(side, event) {
       } else {
         width = navRight ? moveEvent.clientX : window.innerWidth - moveEvent.clientX;
       }
-      // Cap grows with the viewport (keeps the feed ≥480px usable) but never drops
-      // below the legacy 560 so small windows don't lose range they had before.
-      const maxRight = Math.max(560, Math.min(960, window.innerWidth - paintedLeft() - 480));
+      // On compact desktops the detail paints clamped to 360–380; match that so the
+      // stored value can't exceed the painted width. On roomier desktops the cap grows
+      // with the viewport (feed stays ≥480px) but never below the legacy 560.
+      const maxRight = isCompactDesktop.value
+        ? 380
+        : Math.max(560, Math.min(960, window.innerWidth - paintedLeft() - 480));
       state.rightWidth = clamp(width, 360, maxRight);
       writeStorage(RIGHT_WIDTH_KEY, state.rightWidth);
     }
@@ -2600,6 +2620,7 @@ watch(
       @update:filter="updateSidebarFilter"
       @update:property-filter="updatePropertyFilter"
       @update:sidebar-sort="updateSidebarSort"
+      @pane-drag-start="paneSwap.onPaneDragStart"
     />
 
     <MindmapSurface

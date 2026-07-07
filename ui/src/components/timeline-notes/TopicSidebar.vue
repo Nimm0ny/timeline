@@ -138,7 +138,26 @@ const emit = defineEmits([
   "toggle-bookshelf",
   "set-all-bookshelves-collapsed",
   "update:sidebar-sort",
+  "pane-drag-start",
 ]);
+
+// Pane-swap drag entry point (parallel to the feed/detail toolbars): grab the empty
+// pane-head area or its title — a non-interactive label acting as the sidebar's title
+// bar — to drag the function bar to the opposite edge (pane-swap-drag-design.md §4).
+// The buttons (sort/collapse/multi-select) are excluded by the whitelist.
+function onPaneHeadPointerDown(event) {
+  const target = event.target;
+  if (target !== event.currentTarget && !target.classList?.contains("ph-title")) return;
+  if (event.button !== 0 || event.pointerType !== "mouse") return;
+  event.preventDefault();
+  emit("pane-drag-start", {
+    pane: "sidebar",
+    x: event.clientX,
+    y: event.clientY,
+    pointerType: event.pointerType,
+    button: event.button,
+  });
+}
 
 const state = reactive({
   ribbon: "files",
@@ -1232,7 +1251,7 @@ watch(typeMenu, (value) => {
     </div>
 
     <div class="pane">
-      <div class="pane-head">
+      <div class="pane-head" @pointerdown="onPaneHeadPointerDown">
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
           <button v-if="!selectMode" type="button" class="iconbtn" :class="{ on: !!sortMenu }" title="排序" @click="openSortMenu($event)">
