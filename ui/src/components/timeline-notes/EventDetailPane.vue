@@ -9,6 +9,7 @@ import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.v
 import {
   buildEditorDraft,
   buildReadableDetailGroups,
+  classifyEventDateInput,
   formatEventDate,
   formatEventDisplayDate,
   isCheckboxChecked,
@@ -636,9 +637,11 @@ function submit() {
   if (bodyEditorRef.value?.getMarkdown) {
     draft.bodyMarkdown = bodyEditorRef.value.getMarkdown();
   }
-  const dateYear = Number.parseInt(draft.dateYear, 10);
-  const dateMonth = Number.parseInt(draft.dateMonth, 10);
-  const dateDay = Number.parseInt(draft.dateDay, 10);
+  const { status: dateStatus, dateFields } = classifyEventDateInput(
+    draft.dateYear,
+    draft.dateMonth,
+    draft.dateDay
+  );
   const headline = String(draft.headline || "").trim().slice(0, CONTENT_LIMITS.cardTitle);
   const era = String(draft.era || "").trim().slice(0, CONTENT_LIMITS.eraLabel);
   const bodyMarkdown = String(draft.bodyMarkdown || "").trim().slice(0, CONTENT_LIMITS.bodyMarkdown);
@@ -655,17 +658,26 @@ function submit() {
   }));
   const extra = normalizeEventExtra(draft.extra, topicColumns.value);
 
-  if (!Number.isInteger(dateYear) || !Number.isInteger(dateMonth) || !Number.isInteger(dateDay) || !headline || !era || !bodyMarkdown) {
-    pushToast("请补全日期、标题、分组和正文", "error");
+  // De-temporalized authoring: a note needs a title + body, but the date is optional.
+  // All three date fields blank → an undated note; a partial date is rejected; era is a
+  // timeline bucket, so it's required only once the note is actually dated.
+  if (!headline || !bodyMarkdown) {
+    pushToast("请补全标题和正文", "error");
+    return false;
+  }
+  if (dateStatus === "partial") {
+    pushToast("日期请填完整的年月日，或整体留空表示无日期", "error");
+    return false;
+  }
+  if (dateStatus === "dated" && !era) {
+    pushToast("有日期的笔记需要选择分组", "error");
     return false;
   }
 
   emit("save", {
     id: draft.id,
     data: {
-      dateYear,
-      dateMonth,
-      dateDay,
+      ...dateFields,
       headline,
       era,
       image: draft.image || null,

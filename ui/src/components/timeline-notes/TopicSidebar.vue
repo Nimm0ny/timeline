@@ -9,7 +9,10 @@ import {
   buildPropertyKey,
   buildPropertyRows,
   canChangePropertyType,
+  CONTAINER_TYPES,
+  containerTypeIcon,
   editablePropertyTypeChoices,
+  normalizeContainerType,
   normalizeTopicColumns,
   PROPERTY_TYPE_LABELS,
   propertyTypeIcon,
@@ -121,6 +124,7 @@ const emit = defineEmits([
   "create-topic",
   "rename-bookshelf",
   "rename-topic",
+  "change-container-type",
   "select-topic",
   "select-era",
   "update:filter",
@@ -424,6 +428,15 @@ function deleteBookshelfFromMenu(bookshelf) {
 function deleteFromMenu(topic) {
   closeTopicMenu();
   emit("delete-topic", topic.id);
+}
+
+// Convert a container's type (笔记本/书籍/相册) from its ⋯ menu; the page re-gates
+// the view set and persists. No-op when the type is unchanged.
+function pickContainerType(topic, type) {
+  closeTopicMenu();
+  if (topic?.id && normalizeContainerType(topic.containerType) !== type) {
+    emit("change-container-type", { id: topic.id, containerType: type });
+  }
 }
 
 function onMenuKeydown(event) {
@@ -1068,12 +1081,8 @@ function toggleTopic(topicId) {
     toggleTopicSelection(topicId);
     return;
   }
-  if (topicId === props.activeTopicId) {
-    state.topicCollapsed[topicId] = isTopicExpanded(topicId);
-  } else {
-    state.topicCollapsed[topicId] = false;
-    allCollapsed.value = false;
-  }
+  // Containers are leaves now (数字图书馆: notes live in the center, not the tree),
+  // so a click just selects — no era sub-level to expand/collapse.
   emit("select-topic", topicId);
 }
 
@@ -1501,7 +1510,6 @@ watch(typeMenu, (value) => {
                           :class="{
                             active: !selectMode && entry.topic.id === props.activeTopicId,
                             selected: selectMode && isTopicSelected(entry.topic.id),
-                            collapsed: !isTopicExpanded(entry.topic.id),
                             'menu-open':
                               (topicMenu && topicMenu.topic.id === entry.topic.id) ||
                               (topicCreateMenu && topicCreateMenu.topicId === entry.topic.id),
@@ -1512,8 +1520,8 @@ watch(typeMenu, (value) => {
                           <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(entry.topic.id) }">
                             <TimelineLucideIcon v-if="isTopicSelected(entry.topic.id)" name="check" :stroke-width="2.4" />
                           </span>
-                          <span v-else class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
-                          <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                          <span v-else class="ti-chev"></span>
+                          <span class="ti-ic"><TimelineLucideIcon :name="containerTypeIcon(entry.topic.containerType)" :stroke-width="1.5" /></span>
                           <span class="ti-name">{{ entry.topic.title || entry.topic.name }}</span>
                           <span class="ti-cnt">{{ entry.topic.eventCount || 0 }}</span>
                           <span v-if="!selectMode" class="ti-acts">
@@ -1525,26 +1533,6 @@ watch(typeMenu, (value) => {
                             </span>
                           </span>
                         </button>
-                        <Transition name="topic-kids-stack">
-                          <div v-if="isTopicExpanded(entry.topic.id)" class="ti-kids-shell">
-                            <div class="ti-kids" :style="{ '--pdepth': 1 }">
-                              <button
-                                v-for="(era, index) in entry.eras"
-                                :key="era.era"
-                                type="button"
-                                class="ti leaf"
-                                :class="{ active: era.era === props.activeEra }"
-                                :style="{ '--depth': 2, '--stack-index': index }"
-                                @click="emit('select-era', era.era === props.activeEra ? '' : era.era)"
-                              >
-                                <span class="ti-chev"></span>
-                                <span class="ti-ic"><TimelineLucideIcon name="timeline" :stroke-width="1.5" /></span>
-                                <span class="ti-name">{{ era.era }}</span>
-                                <span class="ti-cnt">{{ era.count }}</span>
-                              </button>
-                            </div>
-                          </div>
-                        </Transition>
                       </div>
 
                       <div v-if="isCreatingTopicInShelf(bookshelf)" :ref="(el) => registerTopicCreateRef(bookshelf.name, el)" class="ti folder ti-create" :style="{ '--depth': 1 }">
@@ -1754,6 +1742,24 @@ watch(typeMenu, (value) => {
         <button type="button" class="pop-item" @click="startRenameTopic(topicMenu.topic)">
           <TimelineLucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">重命名</span>
+        </button>
+        <div class="pop-title">类型</div>
+        <button
+          v-for="ct in CONTAINER_TYPES"
+          :key="ct.key"
+          type="button"
+          class="pop-item"
+          :class="{ 'is-active': ct.key === normalizeContainerType(topicMenu.topic.containerType) }"
+          @click="pickContainerType(topicMenu.topic, ct.key)"
+        >
+          <TimelineLucideIcon :name="ct.icon" :stroke-width="1.5" class="pop-item-ic" />
+          <span class="pop-item-label">{{ ct.label }}</span>
+          <TimelineLucideIcon
+            v-if="ct.key === normalizeContainerType(topicMenu.topic.containerType)"
+            name="check"
+            :stroke-width="2"
+            class="pop-item-check"
+          />
         </button>
         <button type="button" class="pop-item danger" @click="deleteFromMenu(topicMenu.topic)">
           <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />

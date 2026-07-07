@@ -6,6 +6,8 @@ idempotent ALTER migration that brings an existing SQLite DB up to schema.
 See docs/note-types-and-views-design.md.
 """
 
+import json
+
 from sqlalchemy import create_engine, inspect, text
 
 from backend.app.models.entities import ImageAsset, TimelineEvent
@@ -98,6 +100,46 @@ def test_create_topic_defaults_display_style_and_capabilities(client):
     assert set(body["capabilities"]) == {"timeline", "table", "list", "board"}
 
 
+def test_meta_exposes_container_type_and_views(client, seeded_topic):
+    body = client.get(f"/api/topics/{seeded_topic.id}/meta").json()
+    # Existing notebooks default to the 'notebook' container type.
+    assert body["containerType"] == "notebook"
+    assert body["views"] == ["timeline", "list", "outline", "table", "board"]
+    assert body["defaultView"] == "timeline"
+
+
+def test_new_topic_defaults_to_notebook_container(client):
+    body = client.post("/api/topics", json={"name": "shelfbook"}).json()
+    assert body["containerType"] == "notebook"
+    assert body["defaultView"] == "timeline"
+
+
+def test_update_container_type_clamps_display_style_into_the_type_view_set(client, seeded_topic):
+    tid = seeded_topic.id
+    # A display style outside the (not-yet-typed) notebook set still persists —
+    # existing notebooks keep any of the 6 views until they explicitly pick a type.
+    assert client.put(f"/api/topics/{tid}/meta", json={"displayStyle": "table"}).json()["displayStyle"] == "table"
+
+    # Switching to 'album' (gallery/board) re-gates the set → 'table' clamps to the
+    # type's default view (gallery).
+    album = client.put(f"/api/topics/{tid}/meta", json={"containerType": "album"}).json()
+    assert album["containerType"] == "album"
+    assert album["views"] == ["gallery", "board"]
+    assert album["displayStyle"] == "gallery"
+
+    # 'gallery' is also in a book's set, so switching to 'book' keeps the view.
+    book = client.put(f"/api/topics/{tid}/meta", json={"containerType": "book"}).json()
+    assert book["containerType"] == "book"
+    assert book["displayStyle"] == "gallery"
+
+    # Back to 'notebook' (no gallery) clamps to the notebook default (timeline);
+    # persisted across a fresh read. Unknown types fall back to 'notebook'.
+    home = client.put(f"/api/topics/{tid}/meta", json={"containerType": "scrapbook"}).json()
+    assert home["containerType"] == "notebook"
+    assert home["displayStyle"] == "timeline"
+    assert client.get(f"/api/topics/{tid}/meta").json()["displayStyle"] == "timeline"
+
+
 def test_update_display_style_persists_and_normalizes(client, seeded_topic):
     updated = client.put(f"/api/topics/{seeded_topic.id}/meta", json={"displayStyle": "table"}).json()
     assert updated["displayStyle"] == "table"
@@ -176,7 +218,8 @@ def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
 
 def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     """A mindmap's content is its tree (body_json); it needs neither markdown items
-    nor an era nor a date. Entries still require body + date."""
+    nor an era nor a date. Entries still require a body — but the date is now optional
+    for them too (de-temporalization; see test_entry_can_be_undated)."""
     tree = {"data": {"text": "中心主题"}, "children": []}
     created = client.post(
         f"/api/topics/{seeded_topic.id}/events",
@@ -196,12 +239,45 @@ def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     assert body["dateKey"] is None
     assert body["displayLabel"] == "未定时间"
 
-    # An entry with no body still fails — the relaxation is mindmap-only.
+    # An entry with no body still fails — de-temporalization frees the date, not the
+    # content: an entry is a body, so it must carry one.
     entry = client.post(
         f"/api/topics/{seeded_topic.id}/events",
         json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "空条目", "era": "Modern China"},
     )
     assert entry.status_code == 400
+
+
+def test_entry_can_be_undated(client, seeded_topic):
+    """De-temporalization: an entry/doc may omit the date entirely and still save — it
+    becomes a first-class undated note (dateKey=None) that sinks to the undated tail.
+    A body is still required (content is not optional), and era is only a timeline
+    bucket, so an undated note may omit it."""
+    created = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "无日期随想", "bodyMarkdown": "just a thought", "noteType": "entry"},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["noteType"] == "entry"
+    assert body["hasDate"] is False
+    assert body["dateKey"] is None
+    assert body["displayLabel"] == "未定时间"
+
+    # A *partial* date is still rejected — you can't half-date a note (era is supplied
+    # here so the failure is the incomplete date, not the missing bucket).
+    partial = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "半个日期", "bodyMarkdown": "x", "era": "Modern China", "dateYear": 2026},
+    )
+    assert partial.status_code == 400
+
+    # The relaxation frees the date, not the body: an undated entry with no body fails.
+    empty = client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "空", "noteType": "entry"},
+    )
+    assert empty.status_code == 400
 
 
 def test_mindmap_body_json_size_guard(client, seeded_topic):
@@ -321,22 +397,77 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
 
     inspector = inspect(test_engine)
     topic_cols = {column["name"] for column in inspector.get_columns("topics")}
-    assert {"display_style", "sort_json", "group_by"}.issubset(topic_cols)
+    assert {"display_style", "container_type", "sort_json", "group_by"}.issubset(topic_cols)
     event_cols = {column["name"] for column in inspector.get_columns("timeline_events")}
     assert {"note_type", "body_json", "preview_text", "search_text"}.issubset(event_cols)
     assert "ix_timeline_events_live_topic_date" in {index["name"] for index in inspector.get_indexes("timeline_events")}
 
     # Existing rows backfill to defaults (zero-break migration).
     with test_engine.begin() as conn:
-        display_style, sort_json, group_by = conn.execute(
-            text("SELECT display_style, sort_json, group_by FROM topics WHERE id=1")
+        display_style, container_type, sort_json, group_by = conn.execute(
+            text("SELECT display_style, container_type, sort_json, group_by FROM topics WHERE id=1")
         ).one()
         note_type, body_json, preview_text, search_text = conn.execute(
             text("SELECT note_type, body_json, preview_text, search_text FROM timeline_events WHERE id=1")
         ).one()
-    assert (display_style, sort_json, group_by) == ("timeline", "[]", "era")
+    assert (display_style, container_type, sort_json, group_by) == ("timeline", "notebook", "[]", "era")
     assert note_type == "entry"
     assert body_json is None
     assert preview_text == ""
     assert search_text == ""
     test_engine.dispose()
+
+
+def test_export_import_round_trips_dated_entry(client, seeded_topic):
+    """A dated entry must survive an export→import cycle (backup / restore / duplicate).
+    The export nests the date under `dateParts` and emits no top-level dateYear, so import
+    has to lift it back — otherwise the de-temporalization relaxation would silently
+    re-import every dated entry as undated (dateKey=None). Guards that regression."""
+    client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={
+            "dateYear": 1842,
+            "dateMonth": 8,
+            "dateDay": 29,
+            "headline": "南京条约",
+            "era": "Modern China",
+            "bodyMarkdown": "content",
+        },
+    )
+
+    exported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
+    sample = next(e for e in exported["events"] if e["headline"] == "南京条约")
+    # The export shape is the round-trip trap: date is nested, not a top-level key.
+    assert "dateYear" not in sample
+    assert sample["dateParts"]["year"] == 1842
+
+    res = client.post(
+        f"/api/topics/{seeded_topic.id}/import",
+        files={"file": ("export.json", json.dumps(exported).encode("utf-8"), "application/json")},
+    )
+    assert res.status_code == 200
+
+    reexported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
+    restored = next(e for e in reexported["events"] if e["headline"] == "南京条约")
+    assert restored["hasDate"] is True
+    assert restored["dateKey"] == 18420829
+    assert restored["dateParts"] == {"year": 1842, "month": 8, "day": 29}
+
+
+def test_export_import_keeps_undated_note_undated(client, seeded_topic):
+    """The mirror of the round-trip guard: a genuinely undated note (all-null dateParts)
+    must NOT be resurrected with a bogus date by the import lift — it stays undated."""
+    client.post(
+        f"/api/topics/{seeded_topic.id}/events",
+        json={"headline": "无日期随想", "bodyMarkdown": "just a thought"},
+    )
+    exported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
+    res = client.post(
+        f"/api/topics/{seeded_topic.id}/import",
+        files={"file": ("export.json", json.dumps(exported).encode("utf-8"), "application/json")},
+    )
+    assert res.status_code == 200
+    reexported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
+    restored = next(e for e in reexported["events"] if e["headline"] == "无日期随想")
+    assert restored["hasDate"] is False
+    assert restored["dateKey"] is None

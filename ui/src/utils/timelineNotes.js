@@ -540,6 +540,34 @@ export const MINDMAP_LAYOUTS = [
   { key: "organizationStructure", label: "组织结构" },
 ];
 
+// Container types (axis 0, "数字图书馆"): each presets an ORDERED view set (first =
+// default) and a left-tree icon. Mirrors backend CONTAINER_TYPE_VIEWS
+// (services/timeline.py); the FE keeps a copy for optimistic type switches.
+export const CONTAINER_TYPES = [
+  { key: "notebook", label: "笔记本", icon: "notebook" },
+  { key: "book", label: "书籍", icon: "book" },
+  { key: "album", label: "相册", icon: "image" },
+];
+const CONTAINER_TYPE_MAP = new Map(CONTAINER_TYPES.map((item) => [item.key, item]));
+export const CONTAINER_TYPE_VIEWS = {
+  notebook: ["timeline", "list", "outline", "table", "board"],
+  book: ["outline", "table", "list", "timeline", "gallery"],
+  album: ["gallery", "board"],
+};
+
+export function normalizeContainerType(type) {
+  const key = String(type || "").trim();
+  return CONTAINER_TYPE_MAP.has(key) ? key : "notebook";
+}
+
+export function containerTypeIcon(type) {
+  return CONTAINER_TYPE_MAP.get(normalizeContainerType(type)).icon;
+}
+
+export function containerTypeViews(type) {
+  return [...CONTAINER_TYPE_VIEWS[normalizeContainerType(type)]];
+}
+
 // Implemented views for the switcher, each flagged enabled per the backend
 // capability set. Unknown/empty capabilities → all enabled (backward compatible
 // with payloads predating the capability field).
@@ -1247,6 +1275,23 @@ export function buildEditorDraft(event, columns = []) {
     })),
     extra,
   };
+}
+
+// Classify the three raw date inputs of the note editor into the de-temporalized
+// contract, mirroring the backend normalize_event_payload branches:
+//   - all three parse to integers  → "dated"   (carries dateFields for the payload)
+//   - all three blank              → "undated" (no date keys; note sinks to the tail)
+//   - anything in between          → "partial" (a half-typed date; the editor rejects it)
+// Range validity (month 1-12, day 1-31, real calendar dates) stays a backend guard —
+// this only decides dated / undated / partial so the editor can shape the payload.
+export function classifyEventDateInput(rawYear, rawMonth, rawDay) {
+  const raws = [rawYear, rawMonth, rawDay].map((part) => String(part ?? "").trim());
+  if (raws.every((part) => part === "")) return { status: "undated", dateFields: {} };
+  const [year, month, day] = raws.map((part) => Number.parseInt(part, 10));
+  if (![year, month, day].every((part) => Number.isInteger(part))) {
+    return { status: "partial", dateFields: {} };
+  }
+  return { status: "dated", dateFields: { dateYear: year, dateMonth: month, dateDay: day } };
 }
 
 export function dateKeyFromLocator(value) {

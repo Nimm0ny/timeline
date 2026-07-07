@@ -13,6 +13,7 @@ import {
   buildPropertyRows,
   buildRecentFavoriteEvents,
   canChangePropertyType,
+  classifyEventDateInput,
   editablePropertyTypeChoices,
   buildReadableDetailGroups,
   buildSearchHighlightSegments,
@@ -954,4 +955,30 @@ test("sortBookshelfTree leaves the source tree and era lists untouched", () => {
   assert.deepEqual(topicTitles(tree[0]), topicSnapshot);
   const beta = result.find((shelf) => shelf.title === "Beta");
   assert.deepEqual(beta.topics.find((entry) => entry.topic.title === "Cat").eras, [{ era: "e", count: 2 }]);
+});
+
+test("classifyEventDateInput: full valid triple is dated and carries the fields", () => {
+  assert.deepEqual(classifyEventDateInput("2026", "6", "30"), {
+    status: "dated",
+    dateFields: { dateYear: 2026, dateMonth: 6, dateDay: 30 },
+  });
+  // Numbers, negatives (BCE), and padded strings all parse the same way.
+  assert.deepEqual(classifyEventDateInput(-221, 1, 1), {
+    status: "dated",
+    dateFields: { dateYear: -221, dateMonth: 1, dateDay: 1 },
+  });
+});
+
+test("classifyEventDateInput: all-blank is undated with no date fields", () => {
+  for (const blank of [["", "", ""], [null, undefined, "  "], [undefined, undefined, undefined]]) {
+    assert.deepEqual(classifyEventDateInput(...blank), { status: "undated", dateFields: {} });
+  }
+});
+
+test("classifyEventDateInput: a partially filled date is rejected", () => {
+  // Any non-empty part without a full valid triple → partial (the editor blocks it,
+  // and no date keys leak into the payload).
+  assert.deepEqual(classifyEventDateInput("2026", "", ""), { status: "partial", dateFields: {} });
+  assert.deepEqual(classifyEventDateInput("2026", "6", ""), { status: "partial", dateFields: {} });
+  assert.deepEqual(classifyEventDateInput("2026", "abc", "30"), { status: "partial", dateFields: {} });
 });

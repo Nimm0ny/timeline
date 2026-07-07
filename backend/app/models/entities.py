@@ -36,6 +36,9 @@ class Topic(Base):
     # Default display style for the notebook's "entry" notes; one of
     # timeline/table/board/gallery/list/outline (see note-types-and-views-design.md).
     display_style: Mapped[str] = mapped_column(String(32), default="timeline", nullable=False)
+    # Container type ("数字图书馆" axis-0): notebook/book/album. Presets the offered
+    # view set + default view (see docs/notes-app-pivot-design.md §4).
+    container_type: Mapped[str] = mapped_column(String(32), default="notebook", nullable=False)
     # Center-column sort levels ([{field,dir},…]) and the timeline grouping
     # dimension (era/year/month), persisted per notebook for cross-device sync
     # (see docs/center-sort-design.md §12).

@@ -21,6 +21,7 @@ import {
   buildRecentFavoriteEvents,
   buildGlobalFavoriteEvents,
   clampSortForView,
+  containerTypeViews,
   findBookshelfByName,
   compareEventsBySort,
   DEFAULT_SORT,
@@ -470,6 +471,10 @@ const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColu
 const feedDisplayStyle = computed(() => state.activeTopicMeta?.displayStyle || "timeline");
 const feedCapabilities = computed(() => {
   if (isGlobalFavoritesMode.value) return [];
+  // Container type (数字图书馆) presets the offered view set. Fall back to the legacy
+  // data-derived gate only for meta predating container types (no `views`).
+  const views = state.activeTopicMeta?.views;
+  if (Array.isArray(views) && views.length) return [...views];
   const enabled = new Set(["list", "table", feedDisplayStyle.value]);
   const columns = normalizeTopicColumns(state.activeTopicMeta?.columns);
   const events = state.events || [];
@@ -2343,6 +2348,44 @@ async function changeDisplayStyle(style) {
   return columnSaveChain;
 }
 
+// Switch a container's type (数字图书馆). The backend re-gates the view set and clamps
+// displayStyle into it; mirror that optimistically so the switcher + feed don't flash,
+// then reconcile with the server truth through the shared meta-save chain.
+async function changeContainerType({ id, containerType } = {}) {
+  const topicId = Number(id);
+  if (!topicId || !containerType) return;
+  const topicMeta =
+    timelineStore.topicById(topicId) || (topicId === state.activeTopicId ? state.activeTopicMeta : null);
+  if (!topicMeta || topicMeta.containerType === containerType) return;
+  const views = containerTypeViews(containerType);
+  const nextDisplay = views.includes(topicMeta.displayStyle) ? topicMeta.displayStyle : views[0];
+  timelineStore.upsertTopic({
+    ...topicMeta,
+    containerType,
+    views,
+    defaultView: views[0],
+    displayStyle: nextDisplay,
+  });
+  if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+  const task = async () => {
+    try {
+      const meta = await api.updateTopicMeta(topicId, { containerType });
+      timelineStore.upsertTopic(meta);
+      if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+    } catch (error) {
+      try {
+        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        if (state.activeTopicId === topicId) syncActiveTopicFromStore();
+      } catch {
+        // Best-effort rollback to server truth; keep the error toast.
+      }
+      pushToast(`容器类型切换失败：${error.message}`, "error");
+    }
+  };
+  columnSaveChain = columnSaveChain.then(task, task);
+  return columnSaveChain;
+}
+
 async function resizeTopicColumn(payload) {
   const key = String(payload?.key || "").trim();
   if (!state.activeTopicId || !key) return;
@@ -2720,6 +2763,7 @@ watch(
       @create-topic="createTopic"
       @rename-bookshelf="renameBookshelf"
       @rename-topic="renameTopic"
+      @change-container-type="changeContainerType"
       @delete-bookshelf="requestDeleteBookshelf"
       @delete-topic="requestDeleteTopic"
       @batch-delete-topics="requestBatchDeleteTopics"

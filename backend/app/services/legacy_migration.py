@@ -99,6 +99,8 @@ def ensure_timeline_event_schema():
             topic_statements.append("ALTER TABLE topics ADD COLUMN columns_json TEXT DEFAULT '[]'")
         if "display_style" not in topic_columns:
             topic_statements.append("ALTER TABLE topics ADD COLUMN display_style VARCHAR(32) DEFAULT 'timeline'")
+        if "container_type" not in topic_columns:
+            topic_statements.append("ALTER TABLE topics ADD COLUMN container_type VARCHAR(32) DEFAULT 'notebook'")
         if "sort_json" not in topic_columns:
             topic_statements.append("ALTER TABLE topics ADD COLUMN sort_json TEXT DEFAULT '[]'")
         if "group_by" not in topic_columns:

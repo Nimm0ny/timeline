@@ -57,6 +57,16 @@ MAX_BODY_JSON_BYTES = 5_000_000
 # Display styles for "entry" notes (axis 1); unlocked per data capability.
 DISPLAY_STYLES = {"timeline", "table", "board", "gallery", "list", "outline"}
 DEFAULT_DISPLAY_STYLE = "timeline"
+# Container type (axis 0, "数字图书馆"): each type presets an ORDERED view set (first =
+# default view). This is the container-level view gate replacing the data-capability
+# gate on the FE (see docs/notes-app-pivot-design.md §4).
+CONTAINER_TYPES = {"notebook", "book", "album"}
+DEFAULT_CONTAINER_TYPE = "notebook"
+CONTAINER_TYPE_VIEWS = {
+    "notebook": ["timeline", "list", "outline", "table", "board"],
+    "book": ["outline", "table", "list", "timeline", "gallery"],
+    "album": ["gallery", "board"],
+}
 # Center-column sort/grouping persisted per notebook (docs/center-sort-design.md §12).
 GROUP_BY_DIMENSIONS = {"era", "year", "month"}
 DEFAULT_GROUP_BY = "era"
@@ -88,6 +98,20 @@ def default_topic_columns_json() -> str:
 def normalize_display_style(value: str | None) -> str:
     candidate = str(value or "").strip()
     return candidate if candidate in DISPLAY_STYLES else DEFAULT_DISPLAY_STYLE
+
+
+def normalize_container_type(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate in CONTAINER_TYPES else DEFAULT_CONTAINER_TYPE
+
+
+def container_type_views(container_type: str | None) -> list[str]:
+    """Ordered view set a container of this type offers; first entry is the default."""
+    return list(CONTAINER_TYPE_VIEWS[normalize_container_type(container_type)])
+
+
+def container_default_view(container_type: str | None) -> str:
+    return container_type_views(container_type)[0]
 
 
 def normalize_group_by(value: str | None) -> str:
@@ -343,6 +367,7 @@ def resolve_topic_bookshelf(db: Session, bookshelf_id=None) -> Bookshelf:
 
 
 def topic_to_dict(topic: Topic) -> dict:
+    container_type = normalize_container_type(topic.container_type)
     return {
         "id": topic.id,
         "name": topic.name,
@@ -351,6 +376,9 @@ def topic_to_dict(topic: Topic) -> dict:
         **topic_bookshelf_fields(topic),
         "columns": deserialize_json_list(topic.columns_json),
         "displayStyle": normalize_display_style(topic.display_style),
+        "containerType": container_type,
+        "views": container_type_views(container_type),
+        "defaultView": container_default_view(container_type),
         "sort": normalize_sort_levels(topic.sort_json),
         "groupBy": normalize_group_by(topic.group_by),
         "updatedAt": topic.updated_at.isoformat() if topic.updated_at else None,
@@ -1653,6 +1681,14 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
         topic.bookshelf = resolve_topic_bookshelf(db, normalize_bookshelf_id(payload.get("bookshelfId")))
     if "displayStyle" in payload:
         topic.display_style = normalize_display_style(payload.get("displayStyle"))
+    if "containerType" in payload:
+        topic.container_type = normalize_container_type(payload.get("containerType"))
+        # Changing the container type re-gates the view set, so clamp the active view
+        # into the new set (fall to the type's default). Only on an explicit type
+        # change — existing notebooks keep any of the 6 views until they pick a type.
+        views = container_type_views(topic.container_type)
+        if normalize_display_style(topic.display_style) not in views:
+            topic.display_style = views[0]
     if "sort" in payload:
         topic.sort_json = json.dumps(normalize_sort_levels(payload.get("sort")), ensure_ascii=False)
     if "groupBy" in payload:
@@ -1927,10 +1963,14 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     note_type = normalize_note_type(payload.get("noteType"))
     body_json = normalize_body_json(payload.get("bodyJson"), note_type)
     era = str(payload.get("era", "")).strip()
-    # Era is the timeline's grouping spine for entries; a mindmap is authored on its
-    # own canvas and may be undated/un-grouped, so it may omit era (falls into the
-    # "未分组" bucket if it surfaces in an entry view).
-    if not era and note_type == DEFAULT_NOTE_TYPE:
+    # A note is "dated" only when a date part actually carries a value — a present-but-null
+    # key counts as undated, matching the front end (a blank date field → undated note).
+    has_date_parts = any(payload.get(key) is not None for key in {"dateYear", "dateMonth", "dateDay"})
+    uses_structured_contract = bool({"headline", "dateYear", "dateMonth", "dateDay"} & set(payload.keys()))
+    # Era is the timeline's grouping spine for *dated* entries. An undated note — a
+    # mindmap on its own canvas, or a de-temporalized doc — carries no time bucket, so
+    # it may omit era (it sinks to the "未分组"/undated tail if a timeline view surfaces it).
+    if not era and note_type == DEFAULT_NOTE_TYPE and has_date_parts:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()
     items = normalize_event_items(payload, body_markdown, note_type=note_type)
@@ -1943,10 +1983,11 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     if "deletedAt" in payload:
         state["deletedAt"] = parse_optional_datetime(payload.get("deletedAt"))
 
-    has_date_parts = any(key in payload for key in {"dateYear", "dateMonth", "dateDay"})
-    uses_structured_contract = bool({"headline", "dateYear", "dateMonth", "dateDay"} & set(payload.keys()))
     headline = str(payload.get("headline", "")).strip()
-    if uses_structured_contract and (note_type == DEFAULT_NOTE_TYPE or has_date_parts):
+    # A note is dated only when it actually carries date parts — otherwise it's undated
+    # (dateKey=None), whatever its note type. This is what lets an entry/doc be
+    # de-temporalized: omit the date parts and it becomes a first-class undated note.
+    if uses_structured_contract and has_date_parts:
         try:
             year = int(payload.get("dateYear"))
             month = int(payload.get("dateMonth"))
@@ -1978,7 +2019,9 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
             **state,
         }
 
-    if uses_structured_contract and note_type != DEFAULT_NOTE_TYPE:
+    if uses_structured_contract:
+        # No date parts → undated note (any type). dateKey stays None and sortKey 0.0,
+        # so it sinks to the undated tail of every time-ordered view.
         if not headline:
             raise HTTPException(status_code=400, detail="Headline is required")
         return {
@@ -2128,6 +2171,26 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
     return {"ok": True}
 
 
+def lift_import_date_parts(item):
+    """Reshape one exported event so its date round-trips through import.
+
+    The export nests the date under `dateParts` (see event_date_payload) and emits no
+    top-level dateYear/dateMonth/dateDay — the exact keys normalize_event_payload keys
+    on. Lift them back before normalizing so a dated note re-imports dated instead of
+    silently becoming undated (dateKey=None). A payload that already carries top-level
+    date keys, or whose dateParts is all-null (a genuinely undated note), is left as-is.
+    """
+    if not isinstance(item, dict) or any(key in item for key in ("dateYear", "dateMonth", "dateDay")):
+        return item
+    parts = item.get("dateParts")
+    if not isinstance(parts, dict):
+        return item
+    year, month, day = parts.get("year"), parts.get("month"), parts.get("day")
+    if year is None and month is None and day is None:
+        return item
+    return {**item, "dateYear": year, "dateMonth": month, "dateDay": day}
+
+
 def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
     topic = get_topic_or_404(db, topic_id)
     if isinstance(parsed, dict):
@@ -2144,7 +2207,7 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
         raise ValueError("JSON must be an array or object with events")
 
     topic.columns_json = json.dumps(normalize_topic_columns(columns), ensure_ascii=False)
-    normalized_events = [normalize_event_payload(item, topic=topic) for item in raw_events]
+    normalized_events = [normalize_event_payload(lift_import_date_parts(item), topic=topic) for item in raw_events]
 
     existing_events = db.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
     old_image_ids = {event.image_id for event in existing_events if event.image_id}
