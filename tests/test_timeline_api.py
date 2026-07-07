@@ -306,7 +306,16 @@ def test_media_upload_transcodes_thumbnails_dedupes_and_serves_immutable_cache(d
     content = make_image_bytes("JPEG")
 
     with make_media_client(db_session) as client:
-        assert client.get("/api/config").json()["media"]["compress"] is True
+        initial_config = client.get("/api/config").json()
+        assert initial_config["media"]["compress"] is True
+        # Desktop layout knobs ship defaults so a fresh device paints the right
+        # column order before any user save (docs/layout-swap-design.md §3/§7).
+        assert initial_config["navPosition"] == "left"
+        assert initial_config["detailPosition"] == "edge"
+        swapped = client.put("/api/config", json={"detailPosition": "center"})
+        assert swapped.status_code == 200
+        assert swapped.json()["detailPosition"] == "center"
+        client.put("/api/config", json={"detailPosition": "edge"})
         config = client.put(
             "/api/config",
             json={"media": {"compress": True, "keepOriginal": False, "quality": 72, "maxEdge": 800, "thumbEdge": 200}},

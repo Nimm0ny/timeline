@@ -202,6 +202,7 @@ const emit = defineEmits([
   "change-view",
   "clear-context-filter",
   "load-more",
+  "pane-drag-start",
 ]);
 
 // Single mutually-exclusive popover layer for the toolbar (spec §2.1).
@@ -573,6 +574,24 @@ function openSearch() {
 
 // The fixed search icon toggles the field: open+focus when closed; when open it
 // refocuses if there is a query, or collapses when empty.
+// Pane-swap drag entry point: only the toolbar's own empty area (the bar itself or
+// its flex spacer) starts a drag — a whitelist so buttons/search/popovers are never
+// hijacked, and any button added later is safe by default (pane-swap-drag-design.md §4).
+// TimelinePage owns the state machine; this only reports the press.
+function onBarPointerDown(event) {
+  const target = event.target;
+  if (target !== event.currentTarget && !target.classList?.contains("spacer")) return;
+  if (event.button !== 0 || event.pointerType !== "mouse") return;
+  event.preventDefault(); // suppress text selection / focus jitter on the bar
+  emit("pane-drag-start", {
+    pane: "feed",
+    x: event.clientX,
+    y: event.clientY,
+    pointerType: event.pointerType,
+    button: event.button,
+  });
+}
+
 function toggleSearch() {
   if (props.commandSearch) {
     activePopover.value = "";
@@ -796,7 +815,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="col timeline" :class="{ 'preview-off': !props.showPreview, 'source-on': props.showSource }">
-    <div class="tl-bar">
+    <div class="tl-bar" @pointerdown="onBarPointerDown">
       <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
         <span class="tl-count">· 共 {{ props.eventCount }} 条</span>
@@ -816,89 +835,98 @@ onBeforeUnmount(() => {
       <span class="spacer"></span>
 
       <div class="tl-actions">
-        <div class="searchbox" :class="{ open: searchOpen }" id="searchbox">
-          <input
-            ref="searchInputRef"
-            :value="props.searchQuery"
-            type="search"
-            :placeholder="props.searchPlaceholder"
-            @input="emit('update:searchQuery', $event.target.value)"
-            @blur="closeSearchIfEmpty"
-          />
-          <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">
-            <TimelineLucideIcon name="search" :stroke-width="1.5" />
+        <!-- 查找组：搜索 + 时间定位 -->
+        <div class="tl-group" role="group" aria-label="查找">
+          <div class="searchbox" :class="{ open: searchOpen }" id="searchbox">
+            <input
+              ref="searchInputRef"
+              :value="props.searchQuery"
+              type="search"
+              :placeholder="props.searchPlaceholder"
+              @input="emit('update:searchQuery', $event.target.value)"
+              @blur="closeSearchIfEmpty"
+            />
+            <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">
+              <TimelineLucideIcon name="search" :stroke-width="1.5" />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            class="iconbtn lg"
+            data-popover-anchor="locator"
+            :class="{ on: activePopover === 'locator' }"
+            title="时间定位"
+            @click.stop="togglePopover('locator')"
+          >
+            <TimelineLucideIcon name="calendarSearch" :stroke-width="1.5" />
           </button>
         </div>
 
-        <button
-          type="button"
-          class="iconbtn lg"
-          data-popover-anchor="locator"
-          :class="{ on: activePopover === 'locator' }"
-          title="时间定位"
-          @click.stop="togglePopover('locator')"
-        >
-          <TimelineLucideIcon name="calendarSearch" :stroke-width="1.5" />
-        </button>
+        <!-- 视图组：视图切换 + 排序 + 列设置 + 显示预览（决定「怎么看」） -->
+        <div class="tl-group" role="group" aria-label="视图">
+          <button
+            v-if="props.showViewSwitcher"
+            type="button"
+            class="iconbtn lg"
+            data-popover-anchor="views"
+            :class="{ on: activePopover === 'views' }"
+            title="切换视图"
+            @click.stop="togglePopover('views')"
+          >
+            <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.5" />
+          </button>
 
-        <button
-          v-if="props.showColumnControls"
-          id="colBtn"
-          type="button"
-          class="iconbtn lg"
-          data-popover-anchor="columns"
-          :class="{ on: activePopover === 'columns' }"
-          title="列设置"
-          @click.stop="togglePopover('columns')"
-        >
-          <TimelineLucideIcon name="columns" :stroke-width="1.5" />
-        </button>
+          <button
+            v-if="!props.mobile"
+            type="button"
+            class="iconbtn lg"
+            data-popover-anchor="sort"
+            :class="{ on: activePopover === 'sort' || !isDefaultSort(props.sort) }"
+            title="排序"
+            @click.stop="togglePopover('sort')"
+          >
+            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
+          </button>
 
-        <button
-          v-if="effectiveView() === 'timeline'"
-          id="previewBtn"
-          type="button"
-          class="iconbtn lg"
-          :class="{ on: props.showPreview }"
-          title="显示预览"
-          @click="emit('toggle-preview')"
-        >
-          <TimelineLucideIcon name="alignLeft" :stroke-width="1.5" />
-        </button>
+          <button
+            v-if="props.showColumnControls"
+            id="colBtn"
+            type="button"
+            class="iconbtn lg"
+            data-popover-anchor="columns"
+            :class="{ on: activePopover === 'columns' }"
+            title="列设置"
+            @click.stop="togglePopover('columns')"
+          >
+            <TimelineLucideIcon name="columns" :stroke-width="1.5" />
+          </button>
 
-        <button
-          type="button"
-          class="iconbtn lg"
-          :class="{ on: selectMode }"
-          :title="selectMode ? '退出多选' : '多选'"
-          @click.stop="toggleSelectMode"
-        >
-          <TimelineLucideIcon name="listChecks" :stroke-width="1.5" />
-        </button>
+          <button
+            v-if="effectiveView() === 'timeline'"
+            id="previewBtn"
+            type="button"
+            class="iconbtn lg"
+            :class="{ on: props.showPreview }"
+            title="显示预览"
+            @click="emit('toggle-preview')"
+          >
+            <TimelineLucideIcon name="alignLeft" :stroke-width="1.5" />
+          </button>
+        </div>
 
-        <button
-          v-if="!props.mobile"
-          type="button"
-          class="iconbtn lg"
-          data-popover-anchor="sort"
-          :class="{ on: activePopover === 'sort' || !isDefaultSort(props.sort) }"
-          title="排序"
-          @click.stop="togglePopover('sort')"
-        >
-          <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
-        </button>
-
-        <button
-          v-if="props.showViewSwitcher"
-          type="button"
-          class="iconbtn lg"
-          data-popover-anchor="views"
-          :class="{ on: activePopover === 'views' }"
-          title="切换视图"
-          @click.stop="togglePopover('views')"
-        >
-          <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.5" />
-        </button>
+        <!-- 选择组：多选（批量操作入口） -->
+        <div class="tl-group" role="group" aria-label="选择">
+          <button
+            type="button"
+            class="iconbtn lg"
+            :class="{ on: selectMode }"
+            :title="selectMode ? '退出多选' : '多选'"
+            @click.stop="toggleSelectMode"
+          >
+            <TimelineLucideIcon name="listChecks" :stroke-width="1.5" />
+          </button>
+        </div>
       </div>
 
       <span class="tl-divider" aria-hidden="true"></span>

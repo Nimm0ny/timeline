@@ -131,6 +131,52 @@ button {
   order: 2;
 }
 
+/* Detail pane in the CENTER track (docs/layout-swap-design.md §7): the feed and the
+   detail swap places — the detail keeps its dragged width (--right-w) next to the
+   sidebar and the feed becomes the flexible outer column. Collapse still animates
+   px↔px on the middle track; composes with .nav-right for the full 2×2. */
+.timeline-workspace.app.detail-center {
+  grid-template-columns: var(--left-w) var(--right-w) minmax(0, 1fr);
+}
+
+.timeline-workspace.app.detail-center.right-closed {
+  grid-template-columns: var(--left-w) 0 minmax(0, 1fr);
+}
+
+.timeline-workspace.app.detail-center .col.sidebar {
+  order: 0;
+}
+
+.timeline-workspace.app.detail-center .col.detail {
+  order: 1;
+}
+
+.timeline-workspace.app.detail-center .col.timeline,
+.timeline-workspace.app.detail-center .col.mm-surface {
+  order: 2;
+}
+
+.timeline-workspace.app.nav-right.detail-center {
+  grid-template-columns: minmax(0, 1fr) var(--right-w) var(--left-w);
+}
+
+.timeline-workspace.app.nav-right.detail-center.right-closed {
+  grid-template-columns: minmax(0, 1fr) 0 var(--left-w);
+}
+
+.timeline-workspace.app.nav-right.detail-center .col.timeline,
+.timeline-workspace.app.nav-right.detail-center .col.mm-surface {
+  order: 0;
+}
+
+.timeline-workspace.app.nav-right.detail-center .col.detail {
+  order: 1;
+}
+
+.timeline-workspace.app.nav-right.detail-center .col.sidebar {
+  order: 2;
+}
+
 .col {
   min-width: 0;
   min-height: 0;
@@ -256,6 +302,83 @@ button {
 
 .nav-right #rzRight {
   left: var(--right-w);
+}
+
+/* detail-center: the detail boundary is offset from the sidebar edge instead of
+   the viewport edge (startResize subtracts the painted sidebar width to match). */
+.detail-center #rzRight {
+  left: calc(var(--left-w) + var(--right-w));
+}
+
+.nav-right.detail-center #rzRight {
+  left: calc(100% - var(--left-w) - var(--right-w));
+}
+
+/* Pane-swap drag (docs/pane-swap-drag-design.md §2): grab the empty area of either
+   toolbar to swap the feed and detail panes. The spacer advertises the affordance
+   only while the gesture is usable (desktop + detail open). */
+.timeline-workspace:not(.is-mobile):not(.right-closed) .tl-bar .spacer,
+.timeline-workspace:not(.is-mobile):not(.right-closed) .actionbar .spacer {
+  cursor: grab;
+}
+
+.timeline-workspace.pane-dragging,
+.timeline-workspace.pane-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* Ghost chip trailing the pointer — reuses the popover shell tokens (§2.1). Stays
+   mounted but display:none until dragging, so no persistent compositor layer and no
+   mount-time flash. Its transform is written imperatively (compositor-only). */
+.pane-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  background: var(--bg-detail);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.96;
+}
+
+.pane-dragging .pane-drag-ghost {
+  display: inline-flex;
+  will-change: transform;
+}
+
+.pane-drag-ghost .timeline-lucide-icon {
+  width: var(--icon-menu);
+  height: var(--icon-menu);
+  color: var(--text-faint);
+}
+
+/* Target-slot highlight: the track the dragged pane will occupy once past the
+   midline. Fades in only when armed = "release now to swap" is literally visible. */
+.pane-swap-target {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 79;
+  pointer-events: none;
+  background: var(--accent-soft-2);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+  opacity: 0;
+  transition: opacity var(--motion-base) var(--ease);
+}
+
+.pane-swap-target.armed {
+  opacity: 1;
 }
 
 .sidebar {
@@ -829,6 +952,18 @@ button {
   border-right: 1px solid var(--border);
 }
 
+/* detail-center with the sidebar on the left: the feed moves to the outer right
+   edge, so its separator flips to face the detail pane. While the detail is
+   collapsed the sidebar's own border is the only divider (no doubled 2px line).
+   nav-right.detail-center keeps the default border-right (it faces the detail). */
+.detail-center:not(.nav-right) .timeline {
+  border-right: 0;
+}
+
+.detail-center:not(.nav-right):not(.right-closed) .timeline {
+  border-left: 1px solid var(--border);
+}
+
 .tl-bar {
   position: relative;
   height: 52px;
@@ -896,12 +1031,24 @@ button {
   flex: 1;
 }
 
-/* Query/view controls cluster tightly; the primary action sits past a divider. */
+/* Toolbar buttons chunk into semantic groups (查找 / 视图 / 选择): tight inside a
+   group, a wider gutter between groups, and the primary action past the divider. */
 .tl-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   flex: none;
+}
+
+.tl-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* A group whose conditional buttons all v-if away must not leave a stray gutter. */
+.tl-group:empty {
+  display: none;
 }
 
 .tl-divider {

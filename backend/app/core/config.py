@@ -32,6 +32,10 @@ DEFAULT_CONFIG = {
     # ("left" | "right"). feed stays centered; the detail pane takes the opposite
     # outer edge (docs/layout-swap-design.md). Global (not per-notebook), cross-device.
     "navPosition": "left",
+    # Whether the detail pane sits on an outer edge ("edge", default) or swaps with
+    # the feed into the center track ("center") — docs/layout-swap-design.md §7.
+    # Global, cross-device; the frontend normalizes invalid values back to "edge".
+    "detailPosition": "edge",
     # The cross-notebook favorites view has no owning notebook, so its sort levels
     # live in app config (cross-device synced) rather than a Topic column. Default =
     # most-recently-favorited first (docs/center-sort-design.md §12).

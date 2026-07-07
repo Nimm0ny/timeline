@@ -10,6 +10,7 @@ import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { useTimelineStore } from "@/composables/useTimelineStore";
+import { usePaneSwapDrag } from "@/composables/usePaneSwapDrag";
 import { useViewport } from "@/composables/useViewport";
 import {
   buildX6SeedSnapshot,
@@ -55,6 +56,7 @@ const LEFT_WIDTH_KEY = "chronicle-left-width";
 const RIGHT_WIDTH_KEY = "chronicle-right-width";
 const PREVIEW_KEY = "chronicle-show-preview";
 const NAV_POSITION_KEY = "chronicle-nav-position";
+const DETAIL_POSITION_KEY = "chronicle-detail-position";
 const SIDEBAR_SORT_KEY = "chronicle-sidebar-sort";
 const BOOKSHELF_COLLAPSE_KEY = "chronicle-bookshelf-collapsed";
 const FAVORITE_SCOPE_KINDS = new Set(["all", "current-topic", "recent", "topic", "type", "tag"]);
@@ -104,6 +106,12 @@ function normalizeNavPosition(value) {
   return value === "right" ? "right" : "left";
 }
 
+// Same two-value coercion for the detail pane slot ("edge" = outer edge, "center" =
+// swapped with the feed into the middle track) — docs/layout-swap-design.md §7.
+function normalizeDetailPosition(value) {
+  return value === "center" ? "center" : "edge";
+}
+
 function normalizeSidebarSort(value) {
   return SIDEBAR_SORT_MODES.includes(value) ? value : "default";
 }
@@ -147,6 +155,7 @@ const state = reactive({
     // Seeded from localStorage so the correct sidebar edge paints on frame 1;
     // loadWorkspace() reconciles with the cross-device app_config truth on load.
     navPosition: normalizeNavPosition(readStorage(NAV_POSITION_KEY, "left")),
+    detailPosition: normalizeDetailPosition(readStorage(DETAIL_POSITION_KEY, "edge")),
     // Left-tree sort seeded the same way so the saved order paints on frame 1.
     sidebarSort: normalizeSidebarSort(readStorage(SIDEBAR_SORT_KEY, "default")),
     media: {
@@ -251,6 +260,34 @@ const workspaceStyle = computed(() => ({
   "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
   "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
 }));
+
+// Painted column widths (workspaceStyle clamps them on compact desktops); the drag
+// geometry must use the same values the grid actually renders at.
+function paintedLeftWidth() {
+  return isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth;
+}
+function paintedRightWidth() {
+  return isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth;
+}
+
+// Drag-to-swap the feed and detail panes from either toolbar's empty area — the
+// third entry point for detailPosition (docs/pane-swap-drag-design.md). Commits
+// through the same updateDetailPosition() as the settings control and ⋮ menu.
+const paneDragGhostEl = ref(null);
+const paneSwap = usePaneSwapDrag({
+  isEnabled: () => !isMobile.value && state.rightOpen,
+  getLayout: () => ({
+    W: typeof window === "undefined" ? 1920 : window.innerWidth,
+    L: paintedLeftWidth(),
+    R: paintedRightWidth(),
+    navRight: state.config.navPosition === "right",
+    detailCenter: state.config.detailPosition === "center",
+  }),
+  getGhostEl: () => paneDragGhostEl.value,
+  onCommit: () => updateDetailPosition(state.config.detailPosition === "center" ? "edge" : "center"),
+});
+const paneDragGhostIcon = computed(() => (paneSwap.draggedPane.value === "feed" ? "list" : "note"));
+const paneDragGhostLabel = computed(() => (paneSwap.draggedPane.value === "feed" ? "笔记列表" : "笔记详情"));
 
 const bookshelfTree = computed(() => state.bookshelfTree);
 // Presentational re-order of the sidebar tree (shelves + notebooks) by the saved
@@ -1018,12 +1055,14 @@ async function loadWorkspace(options = {}) {
       ...config,
       brandName: "编年",
       navPosition: normalizeNavPosition(config?.navPosition),
+      detailPosition: normalizeDetailPosition(config?.detailPosition),
       sidebarSort: normalizeSidebarSort(config?.sidebarSort),
       media: normalizeMediaConfig(config?.media),
     };
     // Mirror the cross-device truth into localStorage so the next load paints the
     // correct sidebar edge on frame 1 instead of flashing the default and swapping.
     writeStorage(NAV_POSITION_KEY, state.config.navPosition);
+    writeStorage(DETAIL_POSITION_KEY, state.config.detailPosition);
     writeStorage(SIDEBAR_SORT_KEY, state.config.sidebarSort);
     await applyWorkspaceSelectionWithEvents(options, { throwOnError: true });
     await applyRouteSelectionFromQuery();
@@ -1467,11 +1506,22 @@ function relatedPreviewPosition(anchor) {
   const margin = 12;
   const viewportWidth = window.innerWidth || 1920;
   const viewportHeight = window.innerHeight || 1080;
+  // Fallback anchor = the detail pane's horizontal span, which depends on which of
+  // the four nav/detail layout combos is active (docs/layout-swap-design.md §7).
+  const navRight = state.config.navPosition === "right";
+  const detailCenter = state.config.detailPosition === "center";
+  const paintedLeft = isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth;
+  let detailLeft;
+  if (detailCenter) {
+    detailLeft = navRight ? viewportWidth - paintedLeft - state.rightWidth : paintedLeft;
+  } else {
+    detailLeft = navRight ? 0 : viewportWidth - state.rightWidth;
+  }
   const target = anchor || {
     top: viewportHeight * 0.35,
     bottom: viewportHeight * 0.35 + 40,
-    left: viewportWidth - state.rightWidth,
-    right: viewportWidth - margin,
+    left: detailLeft,
+    right: detailLeft + state.rightWidth - margin,
     height: 40,
   };
   const canPlaceLeft = target.left - width - gap >= margin;
@@ -2288,6 +2338,26 @@ async function updateNavPosition(position) {
   }
 }
 
+// Which grid track the detail pane occupies ("edge" | "center"), i.e. the 中栏/右栏
+// swap (docs/layout-swap-design.md §7). Same optimistic + rollback + localStorage
+// first-frame mirror path as navPosition.
+async function updateDetailPosition(position) {
+  const next = normalizeDetailPosition(position);
+  const previous = normalizeDetailPosition(state.config.detailPosition);
+  if (next === previous) return;
+  state.config.detailPosition = next;
+  writeStorage(DETAIL_POSITION_KEY, next);
+  try {
+    const updated = await api.updateConfig({ detailPosition: next });
+    state.config.detailPosition = normalizeDetailPosition(updated?.detailPosition);
+    writeStorage(DETAIL_POSITION_KEY, state.config.detailPosition);
+  } catch (error) {
+    state.config.detailPosition = previous;
+    writeStorage(DETAIL_POSITION_KEY, previous);
+    pushToast(`布局设置保存失败：${error.message}`, "error");
+  }
+}
+
 // Global left-tree sort (bookshelves + notebooks). Same optimistic + rollback +
 // localStorage-mirror path as navPosition; the reorder itself is a pure computed.
 async function updateSidebarSort(mode) {
@@ -2309,16 +2379,30 @@ async function updateSidebarSort(mode) {
 
 function startResize(side, event) {
   // When the sidebar is on the right, both handles mirror: the sidebar boundary is
-  // measured from the right edge and the detail boundary from the left.
+  // measured from the right edge and the detail boundary from the left. With the
+  // detail pane in the center track its boundary is offset by the sidebar width
+  // (docs/layout-swap-design.md §7).
   const navRight = state.config.navPosition === "right";
+  const detailCenter = state.config.detailPosition === "center";
+  // Width the sidebar actually paints at (workspaceStyle clamps it on compact desktops).
+  const paintedLeft = () => (isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth);
   const onMove = (moveEvent) => {
     if (side === "left") {
       const width = navRight ? window.innerWidth - moveEvent.clientX : moveEvent.clientX;
       state.leftWidth = clamp(width, 220, 360);
       writeStorage(LEFT_WIDTH_KEY, state.leftWidth);
     } else {
-      const width = navRight ? moveEvent.clientX : window.innerWidth - moveEvent.clientX;
-      state.rightWidth = clamp(width, 360, 560);
+      let width;
+      if (detailCenter) {
+        const inner = navRight ? window.innerWidth - moveEvent.clientX : moveEvent.clientX;
+        width = inner - paintedLeft();
+      } else {
+        width = navRight ? moveEvent.clientX : window.innerWidth - moveEvent.clientX;
+      }
+      // Cap grows with the viewport (keeps the feed ≥480px usable) but never drops
+      // below the legacy 560 so small windows don't lose range they had before.
+      const maxRight = Math.max(560, Math.min(960, window.innerWidth - paintedLeft() - 480));
+      state.rightWidth = clamp(width, 360, maxRight);
       writeStorage(RIGHT_WIDTH_KEY, state.rightWidth);
     }
   };
@@ -2447,6 +2531,8 @@ watch(
     :class="{
       'right-closed': !state.rightOpen,
       'nav-right': !isMobile && state.config.navPosition === 'right',
+      'detail-center': !isMobile && state.config.detailPosition === 'center',
+      'pane-dragging': paneSwap.dragging.value,
       'is-mobile': isMobile,
       'mobile-drawer-open': state.mobileSidebarOpen,
       'mobile-detail-open': isMobile && state.rightOpen,
@@ -2591,6 +2677,7 @@ watch(
       @clear-context-filter="clearFavoriteScope"
       @create-mindmap="createMindmapNote"
       @load-more="loadMoreActiveTopicEvents($event || { auto: false })"
+      @pane-drag-start="paneSwap.onPaneDragStart"
     />
 
     <EventDetailPane
@@ -2605,6 +2692,9 @@ watch(
       :mode="state.detailMode"
       :saving="state.saving"
       :mobile="isMobile"
+      :detail-position="state.config.detailPosition"
+      @update-detail-position="updateDetailPosition"
+      @pane-drag-start="paneSwap.onPaneDragStart"
       @cancel="cancelDetailEdit"
       @close="closeDetailPane"
       @edit="startEditSelectedEvent"
@@ -2635,6 +2725,23 @@ watch(
 
     <div v-if="!isMobile" id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
     <div v-if="!isMobile && state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
+
+    <!-- Pane-swap drag overlays (docs/pane-swap-drag-design.md §2). The target
+         highlight marks where the dragged pane lands once past the midline; the
+         ghost trails the pointer. Both are fixed, pointer-events:none leaf nodes so
+         the drag stays compositor-only. The ghost stays mounted (hidden via CSS
+         until .pane-dragging) so its transform can be written without a mount flash. -->
+    <div
+      v-if="paneSwap.dragging.value"
+      class="pane-swap-target"
+      :class="{ armed: paneSwap.armed.value }"
+      :style="{ left: `${paneSwap.targetRect.value.left}px`, width: `${paneSwap.targetRect.value.width}px` }"
+      aria-hidden="true"
+    ></div>
+    <div ref="paneDragGhostEl" class="pane-drag-ghost" aria-hidden="true">
+      <TimelineLucideIcon :name="paneDragGhostIcon" :stroke-width="1.5" />
+      <span>{{ paneDragGhostLabel }}</span>
+    </div>
 
     <div v-if="state.menuEvent" class="timeline-menu-backdrop" @click="closeEventMenu">
       <div class="popover timeline-action-menu" @click.stop>
@@ -2710,12 +2817,14 @@ watch(
       :brand-name="state.config.brandName"
       :media-config="state.config.media"
       :nav-position="state.config.navPosition"
+      :detail-position="state.config.detailPosition"
       :active-topic-title="activeTopicTitle"
       :has-topic="Boolean(state.activeTopicId)"
       @close="state.settingsOpen = false"
       @export-data="exportCurrentTopic"
       @update-media="updateMediaConfig"
       @update-nav-position="updateNavPosition"
+      @update-detail-position="updateDetailPosition"
     />
 
     <CommandPalette

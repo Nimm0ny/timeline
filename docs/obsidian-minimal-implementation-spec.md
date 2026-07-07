@@ -92,7 +92,8 @@
 
 - 外层 `position:fixed;inset:0`，`display:grid; grid-template-columns: var(--left-w) minmax(0,1fr) var(--right-w);`，`transition:grid-template-columns .22s var(--ease)`（**展开/收起动画，保留**）。
 - **默认两栏**：根容器带 `right-closed` 类 → 第三列宽度置 0，右栏内容裁切隐藏。点击中栏行 → 去掉该类（右栏展开）；右栏「关闭」按钮 → 加回该类（收起）。
-- **拖拽**：左右各一根绝对定位 resizer（`#rzLeft left:var(--left-w)`；`#rzRight left:calc(100% - var(--right-w))`，`right-closed` 时隐藏）。拖动改写 `--left-w`/`--right-w`，**带 min/max**：左 `220–360`、右 `360–560`。
+- **拖拽**：左右各一根绝对定位 resizer（`#rzLeft left:var(--left-w)`；`#rzRight left:calc(100% - var(--right-w))`，`right-closed` 时隐藏）。拖动改写 `--left-w`/`--right-w`，**带 min/max**：左 `220–360`、右 min `360`、max 随视口 `max(560, min(960, 视口宽 - 左栏宽 - 480))`（feed 保底 480px；2026-07-07 拍板放宽，见 `docs/layout-swap-design.md` §7）。
+- **栏序 2×2**：`navPosition`（功能栏靠左/靠右）× `detailPosition`（详情贴边/居中，即中栏右栏互换）两个正交旋钮，CSS `order` + grid 变体实现，详见 `docs/layout-swap-design.md` §1/§7。
 - 中栏内容 `max-width:1180px` 居中。
 - 生产建议把 `--left-w/--right-w/right-open` 存 localStorage，刷新保持；窗口缩放只改内部滚动区高度。
 
@@ -117,6 +118,7 @@
 | 行更多操作（行 ⋯ 菜单：重命名/删除等）| more | MoreHorizontal |（2026-06-26 列表行悬停操作组，§2.1）
 | 右栏操作收纳（详情 actionbar ⋮ 菜单：附件/关联/回收站）| moreVertical | MoreVertical |（2026-06-28 右栏按钮收纳，§7.1）
 | 排序 / 全部折叠 | arrowUpDown / fold | ArrowUpDown, ChevronsDownUp |
+| 布局互换（右栏 ⋮ 菜单：详情居中/贴边） | swap | ArrowLeftRight |（2026-07-07 中栏右栏互换，`docs/layout-swap-design.md` §7）
 | 展开折叠箭头 | chevronDown / chevronRight | ChevronDown, ChevronRight |
 | 收藏/置顶/回收/保存 | star/pin/trash/save | Star, Pin, Trash2, Save |
 | 阅读⇄编辑 | pencil / eye | SquarePen / Eye |
@@ -162,7 +164,7 @@
 ## 6. 中栏：列表 + 关联时间线（重写 `TimelineFeed.vue`，弃用卡片 `TimelineEventCard.vue` 改为行）
 
 ### 6.1 工具条
-左：**单行**标题 `{专题} · 共 N 条`（去掉「时间线」前缀；窄栏标题先省略，不挤压按钮）。右纯图标**分组**：查询/视图组（搜索(展开输入)、时间定位、列设置、显示预览(默认 on)）+ 细分隔线 `.tl-divider` + 主操作 新建时间点(强调色实心)。
+左：**单行**标题 `{专题} · 共 N 条`（去掉「时间线」前缀；窄栏标题先省略，不挤压按钮）。右纯图标**分组**（2026-07-07 细化为 `.tl-group` 语义分组：组内 gap 2px、组间 gap 10px）：查找组（搜索(展开输入)、时间定位）· 视图组（切换视图、排序、列设置、显示预览(默认 on)）· 选择组（多选）+ 细分隔线 `.tl-divider` + 主操作 新建笔记(强调色实心)。
 
 - **主筛选（全部/今天/本周/收藏/回收站）只在左栏视图区，中栏不重复**——二者绑定同一 `sidebarFilter`，中栏曾经的「筛选」弹层是重复，已移除。
 - **列设置**：单按钮（`columns` 图标）开单一锚点·互斥弹层（§2.1）。列表式：每列 = 类型图标 + 名称 + 右侧眼睛显隐；**必选列（时间/事件）为不可点灰色眼睛**；内置类型/标签可显隐；自定义列的编辑/删除悬停该行才浮现、点编辑渐进展开字段；底部「新建列」，右上角安静的 ✓ 保存到当前专题。

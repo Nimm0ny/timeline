@@ -8,11 +8,12 @@ const props = defineProps({
   brandName: { type: String, default: "编年" },
   mediaConfig: { type: Object, default: () => ({}) },
   navPosition: { type: String, default: "left" },
+  detailPosition: { type: String, default: "edge" },
   activeTopicTitle: { type: String, default: "" },
   hasTopic: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "export-data", "update-media", "update-nav-position"]);
+const emit = defineEmits(["close", "export-data", "update-media", "update-nav-position", "update-detail-position"]);
 
 const section = ref("appearance");
 
@@ -113,7 +114,30 @@ onBeforeUnmount(() => {
               </span>
             </span>
           </div>
-          <p class="settings-note">功能栏贴左或贴右外缘；列表居中，详情在对侧弹出。仅桌面端。</p>
+          <div class="settings-row">
+            <span class="settings-row-label">详情位置</span>
+            <span class="settings-row-control">
+              <span class="settings-seg" role="group" aria-label="详情位置">
+                <button
+                  type="button"
+                  class="settings-seg-btn"
+                  :class="{ active: props.detailPosition !== 'center' }"
+                  @click="emit('update-detail-position', 'edge')"
+                >
+                  贴边
+                </button>
+                <button
+                  type="button"
+                  class="settings-seg-btn"
+                  :class="{ active: props.detailPosition === 'center' }"
+                  @click="emit('update-detail-position', 'center')"
+                >
+                  居中
+                </button>
+              </span>
+            </span>
+          </div>
+          <p class="settings-note">功能栏贴左或贴右外缘。详情「贴边」= 列表居中、详情在功能栏对侧弹出；「居中」= 详情与列表互换，详情居中、列表贴外缘。仅桌面端。</p>
         </div>
         <AppearanceSettings />
       </section>

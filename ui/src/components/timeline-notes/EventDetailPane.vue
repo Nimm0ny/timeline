@@ -66,6 +66,12 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // "edge" | "center" — which grid track this pane occupies (desktop layout swap,
+  // docs/layout-swap-design.md §7). Drives the kebab quick-toggle label only.
+  detailPosition: {
+    type: String,
+    default: "edge",
+  },
 });
 
 const emit = defineEmits([
@@ -82,7 +88,26 @@ const emit = defineEmits([
   "dirty-change",
   "preview-change",
   "create-option",
+  "update-detail-position",
+  "pane-drag-start",
 ]);
+
+// Pane-swap drag entry point (mirror of TimelineFeed): only the actionbar's own
+// empty area or its flex spacer starts a drag, so the action buttons are never
+// hijacked (pane-swap-drag-design.md §4). TimelinePage owns the state machine.
+function onActionbarPointerDown(event) {
+  const target = event.target;
+  if (target !== event.currentTarget && !target.classList?.contains("spacer")) return;
+  if (event.button !== 0 || event.pointerType !== "mouse") return;
+  event.preventDefault();
+  emit("pane-drag-start", {
+    pane: "detail",
+    x: event.clientX,
+    y: event.clientY,
+    pointerType: event.pointerType,
+    button: event.button,
+  });
+}
 
 // Keep the CM6 editor in its own lazy chunk, but expose the loader so we can warm
 // it while the user is still reading (see onMounted) — otherwise entering edit
@@ -751,7 +776,7 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else>
-      <div class="actionbar">
+      <div class="actionbar" @pointerdown="onActionbarPointerDown">
         <button v-if="props.mobile" type="button" class="iconbtn" title="返回列表" @click="emit('close')">
           <TimelineLucideIcon name="arrowLeft" :stroke-width="1.5" />
         </button>
@@ -800,6 +825,15 @@ onBeforeUnmount(() => {
                 <span class="lbl">关联事件</span>
               </button>
             </template>
+            <button
+              v-if="!props.mobile"
+              type="button"
+              class="pop-item"
+              @click="emit('update-detail-position', props.detailPosition === 'center' ? 'edge' : 'center'); closeKebab()"
+            >
+              <TimelineLucideIcon class="pop-item-ic" name="swap" :stroke-width="1.5" />
+              <span class="lbl">{{ props.detailPosition === "center" ? "详情贴边显示" : "详情居中显示" }}</span>
+            </button>
             <button type="button" class="pop-item trash-item" :class="{ danger: trashArmed }" @click.stop="onTrashClick">
               <TimelineLucideIcon class="pop-item-ic" name="trash" :stroke-width="1.5" />
               <span class="lbl">{{ !isDeleted && trashArmed ? "移入回收站" : "回收站" }}</span>
