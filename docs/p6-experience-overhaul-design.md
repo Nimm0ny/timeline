@@ -1,15 +1,17 @@
 # P6 · 编年 Chronicle 性能与体验重构 — 实现设计
 
 > 本文是「性能 / 存储 / 跨本视图 / 搜索 / 编辑器」一轮重构的实现基准，供执行代理（含 Codex）**逐阶段**落地。
-> 优先级：在本文涵盖范围内，本文为权威设计；与旧文档冲突时，以 **用户当前要求 → 本文 → AGENTS.md §9 硬约束 → 当前代码实际契约（§1）** 为准。
+> 优先级：本文只在其与当前仓库基准一致的范围内提供历史背景与阶段设计；发生冲突时，以 **用户当前要求 → AGENTS.md → 当前有效基准文档（含 spec / mobile / hardness / 专项文档）→ 本文 → 当前代码实际契约** 为准。
 > 性质：数据契约 + 跨模块 + 视觉基准 + 新依赖 → **强制触发 review gate**。必须分阶段、逐阶段对照验收，禁止带病推进。
+>
+> **更新（2026-07-07）**：当前“中栏 / 右栏 / 移动端加载性能专项”已拆分为独立文档 [loading-performance-design.md](loading-performance-design.md)。凡涉及 feed 虚拟化、详情请求取消 / LRU、移动端滚动恢复、性能门槛与专项验收，以该文档为准。本文中关于旧加载链的背景描述仅作历史上下文，不再作为当前加载优化的 SSOT；尤其是 `GET /api/events/{id}`、topic 分页、移动端壳等判断，应以当前代码和该专项文档为准。
 
 ## 执行须知（每阶段开工前必读）
 1. 读 `AGENTS.md`（尤其 §9 前端硬约束：令牌/图标纪律、右栏阅读↔编辑零位移、自适应无 scale、全局禁滚动条、行高固定）。
 2. 读本文对应阶段 + §1「现状契约」+ §11「自检」。
 3. 视觉阶段另读 `docs/obsidian-minimal-implementation-spec.md`、`prototypes/timeline-obsidian-minimal.html`、`docs/agent-frontend-hardness.md`。
 4. 按 §2 阶段顺序，**P6-A 必须先落地**（其余多依赖它）。每阶段独立可验收、可提交。
-5. 不臆造字段/数据；不顺手重构无关代码；不新增除 Pillow(后端)/CodeMirror6(前端编辑器阶段)外的依赖。
+5. 不臆造字段/数据；不顺手重构无关代码；不新增除 Pillow(后端)/CodeMirror6(前端编辑器阶段)外的依赖。若进入 `loading-performance-design.md` 专项并采用 `@tanstack/vue-virtual`，必须先完成依赖例外登记，再进入代码实现。
 
 ---
 
@@ -249,6 +251,6 @@
 - [ ] 数据契约前后端 + 测试同步；新端点（`/api/index`、`/api/events/{id}`、`/api/search`）有 pytest。
 - [ ] 既有不变量零回归：右栏零位移、自适应无 scale、全局禁滚动条、行高固定、令牌/图标纪律。
 - [ ] 媒体迁移前备份 `data/`；去重/缓存头/设置生效有测试。
-- [ ] 新依赖仅 Pillow(后端) / CM6(前端编辑器阶段)；不动其它依赖、不动 `package-lock.json`（除非确有依赖变更）。
+- [ ] 新依赖仅 Pillow(后端) / CM6(前端编辑器阶段)；加载性能专项如需 `@tanstack/vue-virtual`，已先完成依赖例外登记；不动其它依赖、不动 `package-lock.json`（除非确有依赖变更）。
 - [ ] 不顺手重构无关代码；文件所有权清晰（关联 modal 与外观修复串行改 `EventDetailPane.vue`）。
 - [ ] 阶段顺序：P6-A 先行；C/D/E 依赖 A。
