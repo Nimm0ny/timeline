@@ -1330,6 +1330,30 @@ button {
   border-color: var(--accent);
 }
 
+.feed-virtual-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+
+.tlv-era-group::before {
+  top: 22px;
+}
+
+.tlv-era-row::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--rail);
+  transform: translateX(-50%);
+}
+
+.tlv-era-row.is-last::before {
+  bottom: 18px;
+}
+
 .row.active::after {
   display: none;
 }
@@ -5311,7 +5335,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 /* Board owns its own scroll (horizontal columns + vertical overflow), so opt out
    of the .scroll vertical-only container. */
 .feed-x {
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* Top padding must stay 0: .view-board is the scroll container, so any padding-top
@@ -5321,13 +5345,12 @@ button.prop-row-type.open .timeline-lucide-icon {
    flush under the toolbar. Column breathing room lives in .bd-col-head's padding. */
 .view-board {
   max-width: none;
-  height: 100%;
+  min-height: 100%;
   margin: 0;
   padding: 0 26px 24px;
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  overflow: auto;
 }
 
 .bd-col {
@@ -5379,7 +5402,6 @@ button.prop-row-type.open .timeline-lucide-icon {
 .bd-col-body {
   display: flex;
   flex-direction: column;
-  gap: 7px;
 }
 
 .bd-card {
@@ -5395,6 +5417,7 @@ button.prop-row-type.open .timeline-lucide-icon {
   background: var(--bg-surface);
   cursor: pointer;
   transition: border-color var(--motion-base) var(--ease), background var(--motion-base) var(--ease);
+  margin-bottom: 7px;
 }
 
 .bd-card:hover {
@@ -5462,10 +5485,19 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 .view-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
   padding: 12px 26px 80px;
+}
+
+.gl-row {
+  display: grid;
+  grid-template-columns: repeat(var(--gallery-cols, 1), minmax(0, 1fr));
+  gap: 14px;
+}
+
+.gl-row + .gl-row {
+  margin-top: 14px;
 }
 
 .gl-card {

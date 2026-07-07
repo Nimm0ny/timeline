@@ -1080,6 +1080,8 @@ export function buildReadableDetailGroups(event) {
 export function matchesEventSearch(event, query, columns = []) {
   const normalized = String(query || "").trim().toLowerCase();
   if (!normalized) return true;
+  const indexedText = String(event?.searchText || "").trim().toLowerCase();
+  if (indexedText) return indexedText.includes(normalized);
   const propertyText = normalizeTopicColumns(columns)
     .flatMap((column) => {
       if (isOptionColumn(column)) {

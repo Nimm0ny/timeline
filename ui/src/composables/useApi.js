@@ -63,8 +63,8 @@ export const api = {
     if (params.limit) search.set("limit", String(params.limit));
     return request(`/api/search?${search.toString()}`);
   },
-  getEvent(id) {
-    return request(`/api/events/${encodeURIComponent(id)}`);
+  getEvent(id, options = {}) {
+    return request(`/api/events/${encodeURIComponent(id)}`, options);
   },
   createTopic(name, bookshelfId = null) {
     return request("/api/topics", {

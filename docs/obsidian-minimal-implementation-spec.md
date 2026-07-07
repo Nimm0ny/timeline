@@ -327,7 +327,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 - [ ] 中栏行高固定，「显示预览」开关不改变行高；列设置增删列后列头与行对齐。
 - [ ] 自定义列：未定义键被后端丢弃；无值显示 `—`；无臆造数据。
 - [ ] 数据契约改动**前后端字段名一致 + 测试同步**；未改既有接口语义。
-- [ ] 未引入除 CodeMirror 外的新依赖；未动 `package-lock.json`（除非确有依赖变更）；未做无关重构/格式化。
+- [ ] 未引入除 CodeMirror / X6 / `@tanstack/vue-virtual` 外的新依赖；未动 `package-lock.json`（除非确有依赖变更）；未做无关重构/格式化。
 - [ ] 中文文案文件 **UTF-8 正常无乱码**。
 - [ ] `agent:check` / `build` / `test:ui` / 后端 `pytest` 全过；视觉 QA 截图归档到 `docs/visual-qa/`。
 - [ ] 与原型逐屏对照：左/中/右默认态 + 右栏阅读态 + 右栏编辑态 + 附件 Modal，各截一张与原型并排核对。

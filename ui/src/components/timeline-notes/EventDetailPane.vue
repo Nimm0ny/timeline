@@ -21,7 +21,7 @@ import {
   propertyTypeIcon,
   resolvePropertyChips,
 } from "@/utils/timelineNotes";
-import { renderMarkdownToHtml } from "@/utils/markdownPreview";
+import { renderCachedMarkdownToHtml } from "@/utils/markdownPreview";
 import {
   attachmentIconName,
   attachmentKind,
@@ -151,7 +151,13 @@ const inEditMode = computed(() => props.mode === "edit" || props.mode === "creat
 const isDeleted = computed(() => Boolean(props.event?.deletedAt || draft.deletedAt));
 const topicColumns = computed(() => normalizeTopicColumns(props.topicColumns));
 const readableGroups = computed(() => buildReadableDetailGroups(props.event));
-const renderedBody = computed(() => renderMarkdownToHtml(props.event?.bodyMarkdown || ""));
+const renderedBody = computed(() =>
+  renderCachedMarkdownToHtml({
+    eventId: props.event?.id,
+    updatedAt: props.event?.updatedAt,
+    bodyMarkdown: props.event?.bodyMarkdown || "",
+  })
+);
 const editorDocumentKey = computed(() => {
   if (draft.id) return `event:${draft.id}:${editorResetSeq.value}`;
   return `create:${createSessionSeq.value}:${editorResetSeq.value}`;

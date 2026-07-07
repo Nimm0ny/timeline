@@ -260,6 +260,18 @@ test("search can use lightweight index full search text outside preview", () => 
   assert.equal(groupTimelineEvents([event], "era", "深层正文关键词").length, 1);
 });
 
+test("matchesEventSearch prefers searchText before rebuilding runtime haystacks", () => {
+  const event = {
+    headline: "Search Row",
+    searchText: "索引关键字",
+    bodyMarkdown: "这里没有那个词",
+    extra: { place: "上海" },
+  };
+
+  assert.equal(groupTimelineEvents([event], "era", "索引关键字").length, 1);
+  assert.equal(groupTimelineEvents([event], "era", "这里没有那个词").length, 0);
+});
+
 test("mindmapPlainText flattens a snapshot tree into searchable text", () => {
   const snapshot = {
     root: {

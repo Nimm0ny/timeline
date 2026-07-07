@@ -1,6 +1,6 @@
 ---
 type: plan
-status: define-first
+status: implementing
 owner: codex
 created: 2026-07-07
 source: 用户 2026-07-07 会话（中栏优先、右栏其次、移动端最后；本文件只定义加载性能专项）
@@ -118,7 +118,7 @@ source: 用户 2026-07-07 会话（中栏优先、右栏其次、移动端最后
 
 - 首波虚拟化库固定为 `@tanstack/vue-virtual`。
 - 不再比较 `vue-virtual-scroller`、`virtua`、`@vueuse/core` 等方案。
-- **注意**：当前 `AGENTS.md §9` 只预批 `CodeMirror 6` 与 `AntV X6`。本专项虽已选定 `@tanstack/vue-virtual` 作为首选实现，但在依赖例外完成前不得开工编码。若例外未获批准，本文件仅作为依赖例外申请与实现基线，不允许在实现中临时改用其他未登记依赖。
+- **注意**：`@tanstack/vue-virtual` 已登记为当前专项的第三个依赖例外；除 `CodeMirror 6`、`AntV X6`、`@tanstack/vue-virtual` 外，本专项不再引入任何新依赖。
 
 ### 2.3 统一原则
 

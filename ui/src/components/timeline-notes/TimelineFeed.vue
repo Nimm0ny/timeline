@@ -1,9 +1,24 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ColumnConfigPopover from "@/components/timeline-notes/ColumnConfigPopover.vue";
 import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import {
+  chunkGalleryRows,
+  FEED_BOARD_COLUMN_OVERSCAN,
+  FEED_GALLERY_DESKTOP_OVERSCAN,
+  FEED_GALLERY_MOBILE_OVERSCAN,
+  FEED_GROUP_DESKTOP_HEIGHT,
+  FEED_GROUP_MOBILE_HEIGHT,
+  FEED_LINEAR_DESKTOP_OVERSCAN,
+  FEED_LINEAR_DESKTOP_ROW_HEIGHT,
+  FEED_LINEAR_MOBILE_OVERSCAN,
+  FEED_LINEAR_MOBILE_ROW_HEIGHT,
+  FEED_LOAD_MORE_REMAINING,
+  sliceVirtualWindow,
+  useFeedVirtualRows,
+} from "@/composables/useFeedVirtualRows";
 import {
   aggregateOptionChips,
   availableDisplayViews,
@@ -35,6 +50,11 @@ import {
 // so a multi-value event never silently hides tags. Single source for the cap so
 // the slice and the overflow count can't drift.
 const FEED_CHIP_LIMIT = 2;
+const LINEAR_VIEWS = new Set(["timeline", "table", "list", "outline"]);
+const BOARD_CARD_ESTIMATE = 119;
+const GALLERY_CARD_MIN_WIDTH = 196;
+const GALLERY_GRID_GAP = 14;
+const GALLERY_ROW_META_HEIGHT = 96;
 
 const props = defineProps({
   loading: {
@@ -213,6 +233,9 @@ const searchOpen = ref(false);
 const searchInputRef = ref(null);
 const feedRef = ref(null);
 const rowRefs = new Map();
+const galleryMetrics = ref({ itemsPerRow: 1, rowHeight: 243 });
+const boardViewport = ref({ scrollTop: 0, clientHeight: 0 });
+const boardCardHeights = ref({});
 const widthOverrides = ref({});
 // 时间 / 事件 are built-in (not in the persisted column set), so their user widths
 // live in localStorage keyed per notebook — no data-contract change. Custom column
@@ -221,6 +244,7 @@ const builtinWidths = ref({});
 const COLUMN_WIDTH_STORAGE_PREFIX = "tl-colw:";
 const BUILTIN_WIDTH_BOUNDS = { time: [64, 240], title: [180, 760] };
 let stopColumnResize = null;
+let feedResizeObserver = null;
 
 // Note-level batch multi-select: a toolbar toggle reveals row checkboxes; row
 // clicks then toggle selection instead of opening the detail pane. Batch actions
@@ -312,6 +336,114 @@ function flatEvents() {
   return props.groups.flatMap((group) => group.items);
 }
 
+function isLinearView(view) {
+  return LINEAR_VIEWS.has(view);
+}
+
+function buildProjectedEvent(event, columns, { previewLength = 0 } = {}) {
+  const resolvedColumnValues = {};
+  const chipsByColumn = {};
+  for (const column of columns || []) {
+    resolvedColumnValues[column.key] = eventColumnValue(event, column);
+    if (isOptionColumn(column)) chipsByColumn[column.key] = resolvePropertyChips(event, column);
+  }
+  return {
+    key: `event:${event.id}`,
+    event,
+    titleText: resolvedColumnValues.title || eventColumnValue(event, { key: "title" }),
+    timeText: resolvedColumnValues.time || eventColumnValue(event, { key: "time" }),
+    previewText: previewLength > 0 ? buildEventPreview(event, previewLength) : "",
+    resolvedColumnValues,
+    chipsByColumn,
+    rowChips: aggregateOptionChips(event, props.columns, props.emptyColumnKeys),
+    hasAttachment: Boolean(event.attachments?.length || event.attachmentCount),
+    isMindmap: event.noteType === "mindmap",
+    thumbUrl: eventThumb(event),
+  };
+}
+
+function buildTimelineRows(groups, columns) {
+  return (groups || []).flatMap((group) => [
+    {
+      kind: "group-header",
+      key: `group:${group.key}`,
+      groupKey: group.key,
+      title: group.title,
+      subtitle: group.subtitle,
+    },
+    ...((group.items || []).map((event, index, items) => ({
+      kind: "event-row",
+      key: `event:${event.id}`,
+      groupKey: group.key,
+      isFirstInGroup: index === 0,
+      isLastInGroup: index === items.length - 1,
+      projected: buildProjectedEvent(event, columns, { previewLength: 90 }),
+    })) || []),
+  ]);
+}
+
+function buildOutlineRows(groups) {
+  return (groups || []).flatMap((group) => {
+    const rows = [
+      {
+        kind: "group-header",
+        key: `outline:${group.key}`,
+        groupKey: group.key,
+        title: group.title,
+        subtitle: group.subtitle,
+        collapsed: isGroupCollapsed(group.key),
+      },
+    ];
+    if (!isGroupCollapsed(group.key)) {
+      rows.push(
+        ...((group.items || []).map((event) => ({
+          kind: "event-row",
+          key: `event:${event.id}`,
+          groupKey: group.key,
+          projected: buildProjectedEvent(event, [], {}),
+        })) || [])
+      );
+    }
+    return rows;
+  });
+}
+
+function galleryItemsPerRow(width) {
+  const available = Math.max(GALLERY_CARD_MIN_WIDTH, Math.floor(width || 0) - 52);
+  return Math.max(1, Math.floor((available + GALLERY_GRID_GAP) / (GALLERY_CARD_MIN_WIDTH + GALLERY_GRID_GAP)));
+}
+
+function galleryRowHeight(width, itemsPerRow) {
+  const available = Math.max(GALLERY_CARD_MIN_WIDTH, Math.floor(width || 0) - 52);
+  const columns = Math.max(1, Number.parseInt(itemsPerRow, 10) || 1);
+  const cardWidth = (available - GALLERY_GRID_GAP * (columns - 1)) / columns;
+  return Math.round(cardWidth * 0.75 + GALLERY_ROW_META_HEIGHT + GALLERY_GRID_GAP);
+}
+
+function updateGalleryMetrics() {
+  if (!feedRef.value) return;
+  const itemsPerRow = galleryItemsPerRow(feedRef.value.clientWidth);
+  galleryMetrics.value = {
+    itemsPerRow,
+    rowHeight: galleryRowHeight(feedRef.value.clientWidth, itemsPerRow),
+  };
+}
+
+function updateBoardViewport(target = feedRef.value) {
+  if (!target) return;
+  boardViewport.value = {
+    scrollTop: Math.max(0, target.scrollTop || 0),
+    clientHeight: Math.max(0, target.clientHeight || 0),
+  };
+}
+
+function recordBoardCardHeight(bucketId, element) {
+  if (!bucketId || !element) return;
+  const measured = Math.round((element.getBoundingClientRect().height || 0) + 7);
+  if (!measured || measured === boardCardHeights.value[bucketId]) return;
+  boardCardHeights.value = { ...boardCardHeights.value, [bucketId]: measured };
+}
+
 // Sort control (docs/center-sort-design.md). The page owns the ordered sort levels
 // and clamps them per view; here we surface options and emit changes. Flat views
 // (table/list/gallery) re-sort the flattened set directly, bypassing the era
@@ -322,9 +454,7 @@ const GROUP_BY_OPTIONS = [
   { key: "month", label: "月", icon: "calendar" },
 ];
 
-function sortedFlatEvents() {
-  return [...flatEvents()].sort(compareEventsBySort(props.sort, props.columns));
-}
+const sortedFlatEvents = computed(() => [...flatEvents()].sort(compareEventsBySort(props.sort, props.columns)));
 
 // Fields the active view offers (favorites is flat and adds 收藏时间).
 function sortOptions() {
@@ -456,16 +586,51 @@ function boardColumn() {
   return pickBoardColumn(props.columns);
 }
 
-function boardGroups() {
-  return buildBoardGroups(flatEvents(), boardColumn(), props.sort);
+const boardGroups = computed(() =>
+  buildBoardGroups(flatEvents(), boardColumn(), props.sort).map((bucket) => ({
+    ...bucket,
+    projectedItems: bucket.items.map((event) => buildProjectedEvent(event, [], { previewLength: 70 })),
+  }))
+);
+const boardEventIndexById = computed(() => {
+  const map = new Map();
+  for (const bucket of boardGroups.value) {
+    bucket.projectedItems.forEach((projected, index) => {
+      map.set(projected.event.id, { bucketId: bucket.id, index });
+    });
+  }
+  return map;
+});
+
+function boardEstimateSize(bucketId) {
+  return boardCardHeights.value[bucketId] || BOARD_CARD_ESTIMATE;
 }
+
+function boardWindow(bucket) {
+  const window = sliceVirtualWindow({
+    count: bucket?.projectedItems?.length || 0,
+    scrollTop: boardViewport.value.scrollTop,
+    viewportHeight: boardViewport.value.clientHeight,
+    estimateSize: boardEstimateSize(bucket?.id),
+    overscan: FEED_BOARD_COLUMN_OVERSCAN,
+  });
+  return {
+    ...window,
+    visibleItems: (bucket?.projectedItems || []).slice(window.startIndex, window.endIndex + 1),
+  };
+}
+
+const boardRenderedBuckets = computed(() =>
+  boardGroups.value.map((bucket) => ({
+    ...bucket,
+    window: boardWindow(bucket),
+  }))
+);
 
 // Gallery view: every entry as a card, ordered by the active sort; the primary
 // image (thumb preferred) rides the index DTO, empty for imageless entries (which
 // render a placeholder).
-function galleryEvents() {
-  return sortedFlatEvents();
-}
+const galleryEvents = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, [], {})));
 
 function eventThumb(event) {
   return event?.thumbUrl || event?.imageUrl || "";
@@ -475,7 +640,7 @@ function eventThumb(event) {
 // across the visible (non-empty) option columns and capped by FEED_CHIP_LIMIT with
 // a +N overflow (see aggregateOptionChips) so a card never invents or hides tags.
 function rowChips(event) {
-  return aggregateOptionChips(event, props.columns, props.emptyColumnKeys);
+  return event?.rowChips || aggregateOptionChips(event, props.columns, props.emptyColumnKeys);
 }
 
 // Outline view: collapsible era groups (reuses the era grouping the page already
@@ -547,16 +712,104 @@ function hasTrailingSpacer() {
   return !props.mobile && timelineHasTrailingSpacer(null, null, effectiveTitleWidth());
 }
 
-function visibleColumns() {
+const visibleColumnsComputed = computed(() => {
   const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
   if (!props.mobile) return columns;
   return columns.filter((column) => column.key === "time" || column.key === "title");
+});
+
+function visibleColumns() {
+  return visibleColumnsComputed.value;
 }
 
-function rowGrid() {
+const rowGridComputed = computed(() => {
   if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
   return buildTimelineGridTemplate(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
+});
+
+function rowGrid() {
+  return rowGridComputed.value;
 }
+
+const timelineRows = computed(() => buildTimelineRows(props.groups, visibleColumnsComputed.value));
+const tableRows = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, visibleColumnsComputed.value, {})));
+const listRows = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, [], { previewLength: 80 })));
+const outlineRows = computed(() => buildOutlineRows(props.groups));
+
+const activeLinearRows = computed(() => {
+  switch (effectiveView()) {
+    case "timeline":
+      return timelineRows.value;
+    case "table":
+      return tableRows.value.map((projected) => ({ kind: "event-row", key: projected.key, projected }));
+    case "list":
+      return listRows.value.map((projected) => ({ kind: "event-row", key: projected.key, projected }));
+    case "outline":
+      return outlineRows.value;
+    default:
+      return [];
+  }
+});
+
+const activeLinearIndexByEventId = computed(() => {
+  const map = new Map();
+  activeLinearRows.value.forEach((item, index) => {
+    if (item.kind === "event-row") map.set(item.projected.event.id, index);
+  });
+  return map;
+});
+
+const linearVirtual = useFeedVirtualRows({
+  items: activeLinearRows,
+  estimateSize(index, item) {
+    if (item?.kind === "group-header") return props.mobile ? FEED_GROUP_MOBILE_HEIGHT : FEED_GROUP_DESKTOP_HEIGHT;
+    return props.mobile ? FEED_LINEAR_MOBILE_ROW_HEIGHT : FEED_LINEAR_DESKTOP_ROW_HEIGHT;
+  },
+  overscan: computed(() => (props.mobile ? FEED_LINEAR_MOBILE_OVERSCAN : FEED_LINEAR_DESKTOP_OVERSCAN)),
+  scrollElement: feedRef,
+  hasMore: computed(() => props.hasMore),
+  loading: computed(() => props.loading),
+  loadingMore: computed(() => props.loadingMore),
+  globalFavoritesMode: computed(() => props.globalFavoritesMode),
+  error: computed(() => props.error),
+  threshold: FEED_LOAD_MORE_REMAINING,
+  getItemKey(item, index) {
+    return item?.key ?? index;
+  },
+});
+const linearVirtualItems = linearVirtual.virtualItems;
+const linearTopSpacerPx = linearVirtual.topSpacerPx;
+const linearBottomSpacerPx = linearVirtual.bottomSpacerPx;
+
+const galleryRows = computed(() => chunkGalleryRows(galleryEvents.value, galleryMetrics.value.itemsPerRow));
+const galleryIndexByEventId = computed(() => {
+  const map = new Map();
+  galleryRows.value.forEach((row, rowIndex) => {
+    for (const projected of row.items) map.set(projected.event.id, rowIndex);
+  });
+  return map;
+});
+
+const galleryVirtual = useFeedVirtualRows({
+  items: galleryRows,
+  estimateSize() {
+    return galleryMetrics.value.rowHeight;
+  },
+  overscan: computed(() => (props.mobile ? FEED_GALLERY_MOBILE_OVERSCAN : FEED_GALLERY_DESKTOP_OVERSCAN)),
+  scrollElement: feedRef,
+  hasMore: computed(() => props.hasMore),
+  loading: computed(() => props.loading),
+  loadingMore: computed(() => props.loadingMore),
+  globalFavoritesMode: computed(() => props.globalFavoritesMode),
+  error: computed(() => props.error),
+  threshold: FEED_LOAD_MORE_REMAINING,
+  getItemKey(item, index) {
+    return item?.key ?? index;
+  },
+});
+const galleryVirtualItems = galleryVirtual.virtualItems;
+const galleryTopSpacerPx = galleryVirtual.topSpacerPx;
+const galleryBottomSpacerPx = galleryVirtual.bottomSpacerPx;
 
 function setRowRef(id, element) {
   if (element) {
@@ -618,21 +871,46 @@ function closeSearchIfEmpty() {
 
 function maybeRequestMore(target = feedRef.value, { auto = true } = {}) {
   if (!target) return;
-  const requestMore = shouldRequestMoreOnScroll({
-    scrollHeight: target.scrollHeight,
-    scrollTop: target.scrollTop,
-    clientHeight: target.clientHeight,
-    hasMore: props.hasMore,
-    loadingMore: props.loadingMore,
-    globalFavoritesMode: props.globalFavoritesMode,
-    loading: props.loading,
-    error: props.error,
-  });
+  const view = effectiveView();
+  const requestMore = isLinearView(view)
+    ? linearVirtual.maybeRequestMore()
+    : view === "gallery"
+      ? galleryVirtual.maybeRequestMore()
+      : shouldRequestMoreOnScroll({
+          scrollHeight: target.scrollHeight,
+          scrollTop: target.scrollTop,
+          clientHeight: target.clientHeight,
+          hasMore: props.hasMore,
+          loadingMore: props.loadingMore,
+          globalFavoritesMode: props.globalFavoritesMode,
+          loading: props.loading,
+          error: props.error,
+        });
   if (requestMore) emit("load-more", { auto });
 }
 
 function onFeedScroll(event) {
+  if (effectiveView() === "board") updateBoardViewport(event?.target);
   maybeRequestMore(event?.target, { auto: false });
+}
+
+function currentScrollTop() {
+  return Math.max(0, Number(feedRef.value?.scrollTop) || 0);
+}
+
+function rememberFeedScroll() {
+  const view = effectiveView();
+  if (isLinearView(view)) return linearVirtual.rememberScroll();
+  if (view === "gallery") return galleryVirtual.rememberScroll();
+  return currentScrollTop();
+}
+
+async function restoreFeedScroll(value) {
+  const view = effectiveView();
+  if (isLinearView(view)) return linearVirtual.restoreScroll(value);
+  if (view === "gallery") return galleryVirtual.restoreScroll(value);
+  await nextTick();
+  if (feedRef.value) feedRef.value.scrollTop = Math.max(0, Number(value) || 0);
 }
 
 function stopResizingColumn() {
@@ -693,7 +971,23 @@ function focusDate(value) {
   const target = events.find((event) => event.dateKey >= targetKey) || events.at(-1);
   if (!target) return;
   emit("select-event", target.id);
-  nextTick(() => rowRefs.get(target.id)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  nextTick(() => {
+    const view = effectiveView();
+    if (isLinearView(view)) {
+      const index = activeLinearIndexByEventId.value.get(target.id);
+      if (Number.isInteger(index)) {
+        linearVirtual.scrollToIndex(index, "center");
+        return;
+      }
+    } else if (view === "gallery") {
+      const index = galleryIndexByEventId.value.get(target.id);
+      if (Number.isInteger(index)) {
+        galleryVirtual.scrollToIndex(index, "center");
+        return;
+      }
+    }
+    rowRefs.get(target.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 
 function submitLocator() {
@@ -779,7 +1073,31 @@ watch(
   () => props.selectedEventId,
   (eventId) => {
     if (!eventId) return;
-    nextTick(() => rowRefs.get(eventId)?.scrollIntoView({ block: "nearest" }));
+    nextTick(() => {
+      const view = effectiveView();
+      if (isLinearView(view)) {
+        const index = activeLinearIndexByEventId.value.get(eventId);
+        if (Number.isInteger(index)) {
+          linearVirtual.scrollToIndex(index, view === "timeline" || view === "outline" ? "center" : "auto");
+          return;
+        }
+      } else if (view === "gallery") {
+        const index = galleryIndexByEventId.value.get(eventId);
+        if (Number.isInteger(index)) {
+          galleryVirtual.scrollToIndex(index, "center");
+          return;
+        }
+      } else if (view === "board") {
+        const match = boardEventIndexById.value.get(eventId);
+        if (match && feedRef.value) {
+          const cardHeight = boardEstimateSize(match.bucketId);
+          feedRef.value.scrollTop = Math.max(0, match.index * cardHeight - Math.floor(feedRef.value.clientHeight / 3));
+          updateBoardViewport(feedRef.value);
+          return;
+        }
+      }
+      rowRefs.get(eventId)?.scrollIntoView({ block: "nearest" });
+    });
   }
 );
 
@@ -801,15 +1119,46 @@ watch(
   }
 );
 
+watch(
+  () => effectiveView(),
+  () => {
+    nextTick(() => {
+      feedResizeObserver?.disconnect();
+      if (feedRef.value && feedResizeObserver) feedResizeObserver.observe(feedRef.value);
+      updateGalleryMetrics();
+      updateBoardViewport();
+    });
+  }
+);
+
 onMounted(() => {
   document.addEventListener("pointerdown", closePopovers);
   document.addEventListener("keydown", handleDocumentKeydown);
+  if (typeof ResizeObserver !== "undefined") {
+    feedResizeObserver = new ResizeObserver(() => {
+      updateGalleryMetrics();
+      updateBoardViewport();
+    });
+    if (feedRef.value) feedResizeObserver.observe(feedRef.value);
+  }
+  nextTick(() => {
+    updateGalleryMetrics();
+    updateBoardViewport();
+  });
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", closePopovers);
   document.removeEventListener("keydown", handleDocumentKeydown);
+  feedResizeObserver?.disconnect();
+  feedResizeObserver = null;
   stopResizingColumn();
+});
+
+defineExpose({
+  currentScrollTop,
+  rememberScroll: rememberFeedScroll,
+  restoreScroll: restoreFeedScroll,
 });
 </script>
 
@@ -1133,95 +1482,116 @@ onBeforeUnmount(() => {
           <span v-if="hasTrailingSpacer()" aria-hidden="true"></span>
           <span></span>
         </div>
-
-        <section v-for="group in props.groups" :key="group.key" class="era">
-          <div class="era-head">
-            <span class="rdot"></span>
-            <div class="era-main">
-              <b><HighlightedText :text="group.title" :query="props.searchQuery" /></b>
-              <span>{{ group.subtitle }}</span>
+        <div v-if="linearTopSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearTopSpacerPx}px` }"></div>
+        <template v-for="vRow in linearVirtualItems" :key="vRow.key">
+          <div
+            v-if="activeLinearRows[vRow.index]?.kind === 'group-header'"
+            class="era tlv-era tlv-era-group"
+          >
+            <div class="era-head">
+              <span class="rdot"></span>
+              <div class="era-main">
+                <b><HighlightedText :text="activeLinearRows[vRow.index].title" :query="props.searchQuery" /></b>
+                <span>{{ activeLinearRows[vRow.index].subtitle }}</span>
+              </div>
             </div>
           </div>
-
-          <button
-            v-for="event in group.items"
-            :key="event.id"
-            :ref="(element) => setRowRef(event.id, element)"
-            type="button"
-            class="row"
-            :class="{
-              active: !selectMode && event.id === props.selectedEventId,
-              selected: selectMode && isRowSelected(event.id),
-            }"
-            @click="onRowClick(event.id)"
+          <div
+            v-else
+            class="era tlv-era tlv-era-row"
+            :class="{ 'is-last': activeLinearRows[vRow.index]?.isLastInGroup }"
           >
-            <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
-              <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
-            </span>
-            <span v-else class="rdot"></span>
-            <template v-for="column in visibleColumns()" :key="column.key">
-              <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
-              <span v-else-if="column.key === 'title'" class="c-title">
-                <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
-                <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
-                  <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
-                </span>
-                <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
-                  <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
-                </span>
-                <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
-                <span class="ev-sum"><HighlightedText :text="buildEventPreview(event, 90)" :query="props.searchQuery" /></span>
+            <button
+              :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+              type="button"
+              class="row"
+              :class="{
+                active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+                selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
+              }"
+              @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
+            >
+              <span
+                v-if="selectMode"
+                class="tcheck"
+                :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }"
+              >
+                <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
               </span>
-              <span v-else-if="isOptionColumn(column)" class="c-tags">
+              <span v-else class="rdot"></span>
+              <template v-for="column in visibleColumns()" :key="column.key">
                 <span
-                  v-for="chip in resolvePropertyChips(event, column).slice(0, FEED_CHIP_LIMIT)"
-                  :key="chip.value"
-                  class="td"
-                  :style="{ '--dot': chip.color }"
-                >
-                  <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+                  v-if="column.key === 'time'"
+                  class="c-time"
+                  :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+                ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
+                <span v-else-if="column.key === 'title'" class="c-title">
+                  <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
+                  <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
+                    <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+                  </span>
+                  <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
+                    <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
+                  </span>
+                  <NotebookChip
+                    v-if="props.showSource"
+                    :topic-id="activeLinearRows[vRow.index].projected.event.topicId"
+                    :topics="props.topics"
+                  />
+                  <span class="ev-sum"><HighlightedText :text="activeLinearRows[vRow.index].projected.previewText" :query="props.searchQuery" /></span>
+                </span>
+                <span v-else-if="isOptionColumn(column)" class="c-tags">
+                  <span
+                    v-for="chip in activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(0, FEED_CHIP_LIMIT)"
+                    :key="chip.value"
+                    class="td"
+                    :style="{ '--dot': chip.color }"
+                  >
+                    <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+                  </span>
+                  <span
+                    v-if="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length > FEED_CHIP_LIMIT"
+                    class="td-more"
+                    :title="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                    >+{{ activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length - FEED_CHIP_LIMIT }}</span
+                  >
+                  <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
+                </span>
+                <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
+                  <TimelineLucideIcon
+                    v-if="isCheckboxChecked(activeLinearRows[vRow.index].projected.event.extra?.[column.key])"
+                    name="check"
+                    :stroke-width="2.2"
+                  />
+                  <span v-else class="c-empty">—</span>
                 </span>
                 <span
-                  v-if="resolvePropertyChips(event, column).length > FEED_CHIP_LIMIT"
-                  class="td-more"
-                  :title="resolvePropertyChips(event, column).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
-                  >+{{ resolvePropertyChips(event, column).length - FEED_CHIP_LIMIT }}</span
-                >
-                <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
-              </span>
-              <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
-                <TimelineLucideIcon
-                  v-if="isCheckboxChecked(event.extra?.[column.key])"
-                  name="check"
-                  :stroke-width="2.2"
-                />
-                <span v-else class="c-empty">—</span>
+                  v-else
+                  class="c-source"
+                  :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' }"
+                  :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+                ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
+              </template>
+              <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
+              <span
+                v-if="!selectMode"
+                class="row-act"
+                :title="props.trashView ? '永久删除' : '移入回收站'"
+                @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
+              >
+                <TimelineLucideIcon name="trash" :stroke-width="1.5" />
               </span>
               <span
-                v-else
-                class="c-source"
-                :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
-                :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
-              ><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
-            </template>
-            <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
-            <span
-              v-if="!selectMode"
-              class="row-act"
-              :title="props.trashView ? '永久删除' : '移入回收站'"
-              @click.stop="deleteRow(event)"
-            >
-              <TimelineLucideIcon name="trash" :stroke-width="1.5" />
-            </span>
-            <span
-              class="c-star"
-              :class="{ on: event.favorite }"
-              @click.stop="emit('toggle-favorite', event)"
-            >
-              <TimelineLucideIcon name="star" :stroke-width="1.5" />
-            </span>
-          </button>
-        </section>
+                class="c-star"
+                :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }"
+                @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)"
+              >
+                <TimelineLucideIcon name="star" :stroke-width="1.5" />
+              </span>
+            </button>
+          </div>
+        </template>
+        <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>
       </div>
     </div>
 
@@ -1248,37 +1618,41 @@ onBeforeUnmount(() => {
           <span v-if="hasTrailingSpacer()" aria-hidden="true"></span>
           <span></span>
         </div>
-
+        <div v-if="linearTopSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearTopSpacerPx}px` }"></div>
         <button
-          v-for="event in sortedFlatEvents()"
-          :key="event.id"
-          :ref="(element) => setRowRef(event.id, element)"
+          v-for="vRow in linearVirtualItems"
+          :key="vRow.key"
+          :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
           type="button"
           class="row"
           :class="{
-            active: !selectMode && event.id === props.selectedEventId,
-            selected: selectMode && isRowSelected(event.id),
+            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+            selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
           }"
-          @click="onRowClick(event.id)"
+          @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
         >
-          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
-            <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }">
+            <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
           </span>
           <span v-else aria-hidden="true"></span>
           <template v-for="column in visibleColumns()" :key="column.key">
-            <span v-if="column.key === 'time'" class="c-time" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
+            <span
+              v-if="column.key === 'time'"
+              class="c-time"
+              :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+            ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
             <span v-else-if="column.key === 'title'" class="c-title">
-              <b class="ev-name" :title="eventColumnValue(event, column)"><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></b>
-              <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
+              <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
+              <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
                 <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
               </span>
-              <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
+              <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
                 <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
               </span>
             </span>
             <span v-else-if="isOptionColumn(column)" class="c-tags">
               <span
-                v-for="chip in resolvePropertyChips(event, column).slice(0, FEED_CHIP_LIMIT)"
+                v-for="chip in activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(0, FEED_CHIP_LIMIT)"
                 :key="chip.value"
                 class="td"
                 :style="{ '--dot': chip.color }"
@@ -1286,16 +1660,16 @@ onBeforeUnmount(() => {
                 <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
               </span>
               <span
-                v-if="resolvePropertyChips(event, column).length > FEED_CHIP_LIMIT"
+                v-if="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length > FEED_CHIP_LIMIT"
                 class="td-more"
-                :title="resolvePropertyChips(event, column).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
-                >+{{ resolvePropertyChips(event, column).length - FEED_CHIP_LIMIT }}</span
+                :title="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                >+{{ activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length - FEED_CHIP_LIMIT }}</span
               >
-              <span v-if="!resolvePropertyChips(event, column).length" class="c-source c-empty">—</span>
+              <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
             </span>
             <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
               <TimelineLucideIcon
-                v-if="isCheckboxChecked(event.extra?.[column.key])"
+                v-if="isCheckboxChecked(activeLinearRows[vRow.index].projected.event.extra?.[column.key])"
                 name="check"
                 :stroke-width="2.2"
               />
@@ -1304,56 +1678,59 @@ onBeforeUnmount(() => {
             <span
               v-else
               class="c-source"
-              :class="{ 'c-empty': eventColumnValue(event, column) === '—' }"
-              :title="eventColumnValue(event, column) === '—' ? null : eventColumnValue(event, column)"
-            ><HighlightedText :text="eventColumnValue(event, column)" :query="props.searchQuery" /></span>
+              :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' }"
+              :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+            ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
           </template>
           <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
           <span
             v-if="!selectMode"
             class="row-act"
             :title="props.trashView ? '永久删除' : '移入回收站'"
-            @click.stop="deleteRow(event)"
+            @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
           >
             <TimelineLucideIcon name="trash" :stroke-width="1.5" />
           </span>
-          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+          <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
             <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
+        <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>
       </div>
     </div>
 
       <div v-else-if="effectiveView() === 'board'" ref="feedRef" class="feed scroll feed-x" @scroll="onFeedScroll">
       <div class="feed-inner view-board">
-        <section v-for="bucket in boardGroups()" :key="bucket.id" class="bd-col">
+        <section v-for="bucket in boardRenderedBuckets" :key="bucket.id" class="bd-col">
           <header class="bd-col-head">
             <span class="bd-dot" :style="{ '--dot': bucket.color }"></span>
             <b class="bd-col-name">{{ bucket.label }}</b>
             <span class="bd-col-count">{{ bucket.items.length }}</span>
           </header>
           <div class="bd-col-body">
+            <div v-if="bucket.window.topSpacerPx" class="feed-virtual-spacer" :style="{ height: `${bucket.window.topSpacerPx}px` }"></div>
             <button
-              v-for="event in bucket.items"
-              :key="`${bucket.id}:${event.id}`"
-              :ref="(element) => setRowRef(event.id, element)"
+              v-for="projected in bucket.window.visibleItems"
+              :key="`${bucket.id}:${projected.event.id}`"
+              :ref="(element) => { setRowRef(projected.event.id, element); recordBoardCardHeight(bucket.id, element); }"
               type="button"
               class="bd-card"
               :class="{
-                active: !selectMode && event.id === props.selectedEventId,
-                selected: selectMode && isRowSelected(event.id),
+                active: !selectMode && projected.event.id === props.selectedEventId,
+                selected: selectMode && isRowSelected(projected.event.id),
               }"
-              @click="onRowClick(event.id)"
+              @click="onRowClick(projected.event.id)"
             >
-              <b class="bd-card-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
-              <span class="bd-card-sum"><HighlightedText :text="buildEventPreview(event, 70)" :query="props.searchQuery" /></span>
+              <b class="bd-card-name"><HighlightedText :text="projected.titleText" :query="props.searchQuery" /></b>
+              <span class="bd-card-sum"><HighlightedText :text="projected.previewText" :query="props.searchQuery" /></span>
               <span class="bd-card-foot">
-                <span class="bd-card-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
-                <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+                <span class="bd-card-date">{{ eventHasDate(projected.event) ? projected.timeText : "" }}</span>
+                <span class="c-star" :class="{ on: projected.event.favorite }" @click.stop="emit('toggle-favorite', projected.event)">
                   <TimelineLucideIcon name="star" :stroke-width="1.5" />
                 </span>
               </span>
             </button>
+            <div v-if="bucket.window.bottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${bucket.window.bottomSpacerPx}px` }"></div>
             <p v-if="!bucket.items.length" class="bd-col-empty">空</p>
           </div>
         </section>
@@ -1361,140 +1738,145 @@ onBeforeUnmount(() => {
     </div>
 
       <div v-else-if="effectiveView() === 'gallery'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
-      <div class="feed-inner view-gallery">
-        <button
-          v-for="event in galleryEvents()"
-          :key="event.id"
-          :ref="(element) => setRowRef(event.id, element)"
-          type="button"
-          class="gl-card"
-          :class="{
-            active: !selectMode && event.id === props.selectedEventId,
-            selected: selectMode && isRowSelected(event.id),
-          }"
-          @click="onRowClick(event.id)"
-        >
-          <span class="gl-thumb" :class="{ 'is-empty': !eventThumb(event) }">
-            <img
-              v-if="eventThumb(event)"
-              :src="eventThumb(event)"
-              :alt="eventColumnValue(event, { key: 'title' })"
-              loading="lazy"
-              decoding="async"
-              fetchpriority="low"
-            />
-            <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
-            <span v-if="selectMode" class="gl-check tcheck" :class="{ on: isRowSelected(event.id) }">
-              <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
-            </span>
-            <span v-else-if="event.noteType === 'mindmap'" class="gl-badge" title="思维导图">
-              <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
-            </span>
-          </span>
-          <span class="gl-meta">
-            <b class="gl-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
-            <span v-if="rowChips(event).length" class="gl-tags c-tags">
-              <span
-                v-for="chip in rowChips(event).slice(0, FEED_CHIP_LIMIT)"
-                :key="chip.value"
-                class="td"
-                :style="{ '--dot': chip.color }"
-              >
-                <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
-              </span>
-              <span
-                v-if="rowChips(event).length > FEED_CHIP_LIMIT"
-                class="td-more"
-                :title="rowChips(event).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
-                >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
-              >
-            </span>
-            <span class="gl-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
-          </span>
-          <span
-            v-if="!selectMode"
-            class="gl-del"
-            :title="props.trashView ? '永久删除' : '移入回收站'"
-            @click.stop="deleteRow(event)"
+      <div class="feed-inner view-gallery" :style="{ '--gallery-cols': galleryMetrics.itemsPerRow }">
+        <div v-if="galleryTopSpacerPx" class="feed-virtual-spacer" :style="{ height: `${galleryTopSpacerPx}px` }"></div>
+        <div v-for="vRow in galleryVirtualItems" :key="vRow.key" class="gl-row">
+          <button
+            v-for="projected in galleryRows[vRow.index].items"
+            :key="projected.event.id"
+            :ref="(element) => setRowRef(projected.event.id, element)"
+            type="button"
+            class="gl-card"
+            :class="{
+              active: !selectMode && projected.event.id === props.selectedEventId,
+              selected: selectMode && isRowSelected(projected.event.id),
+            }"
+            @click="onRowClick(projected.event.id)"
           >
-            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
-          </span>
-          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.5" />
-          </span>
-        </button>
+            <span class="gl-thumb" :class="{ 'is-empty': !projected.thumbUrl }">
+              <img
+                v-if="projected.thumbUrl"
+                :src="projected.thumbUrl"
+                :alt="projected.titleText"
+                loading="lazy"
+                decoding="async"
+                fetchpriority="low"
+              />
+              <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
+              <span v-if="selectMode" class="gl-check tcheck" :class="{ on: isRowSelected(projected.event.id) }">
+                <TimelineLucideIcon v-if="isRowSelected(projected.event.id)" name="check" :stroke-width="2.4" />
+              </span>
+              <span v-else-if="projected.isMindmap" class="gl-badge" title="思维导图">
+                <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+              </span>
+            </span>
+            <span class="gl-meta">
+              <b class="gl-name"><HighlightedText :text="projected.titleText" :query="props.searchQuery" /></b>
+              <span v-if="projected.rowChips.length" class="gl-tags c-tags">
+                <span
+                  v-for="chip in projected.rowChips.slice(0, FEED_CHIP_LIMIT)"
+                  :key="chip.value"
+                  class="td"
+                  :style="{ '--dot': chip.color }"
+                >
+                  <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
+                </span>
+                <span
+                  v-if="projected.rowChips.length > FEED_CHIP_LIMIT"
+                  class="td-more"
+                  :title="projected.rowChips.slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+                  >+{{ projected.rowChips.length - FEED_CHIP_LIMIT }}</span
+                >
+              </span>
+              <span class="gl-date">{{ eventHasDate(projected.event) ? projected.timeText : "" }}</span>
+            </span>
+            <span
+              v-if="!selectMode"
+              class="gl-del"
+              :title="props.trashView ? '永久删除' : '移入回收站'"
+              @click.stop="deleteRow(projected.event)"
+            >
+              <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+            </span>
+            <span class="c-star" :class="{ on: projected.event.favorite }" @click.stop="emit('toggle-favorite', projected.event)">
+              <TimelineLucideIcon name="star" :stroke-width="1.5" />
+            </span>
+          </button>
+        </div>
+        <div v-if="galleryBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${galleryBottomSpacerPx}px` }"></div>
       </div>
     </div>
 
       <div v-else-if="effectiveView() === 'outline'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-outline">
-        <section v-for="group in props.groups" :key="group.key" class="ol-group">
+        <div v-if="linearTopSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearTopSpacerPx}px` }"></div>
+        <template v-for="vRow in linearVirtualItems" :key="vRow.key">
           <button
+            v-if="activeLinearRows[vRow.index]?.kind === 'group-header'"
             type="button"
             class="ol-head"
-            :class="{ collapsed: isGroupCollapsed(group.key) }"
-            @click="toggleGroup(group.key)"
+            :class="{ collapsed: activeLinearRows[vRow.index].collapsed }"
+            @click="toggleGroup(activeLinearRows[vRow.index].groupKey)"
           >
-            <TimelineLucideIcon class="ol-caret" :name="isGroupCollapsed(group.key) ? 'chevronRight' : 'chevronDown'" :stroke-width="2" />
-            <b class="ol-title"><HighlightedText :text="group.title" :query="props.searchQuery" /></b>
-            <span class="ol-sub">{{ group.subtitle }}</span>
+            <TimelineLucideIcon class="ol-caret" :name="activeLinearRows[vRow.index].collapsed ? 'chevronRight' : 'chevronDown'" :stroke-width="2" />
+            <b class="ol-title"><HighlightedText :text="activeLinearRows[vRow.index].title" :query="props.searchQuery" /></b>
+            <span class="ol-sub">{{ activeLinearRows[vRow.index].subtitle }}</span>
           </button>
-          <div v-if="!isGroupCollapsed(group.key)" class="ol-body">
-            <button
-              v-for="event in group.items"
-              :key="event.id"
-              :ref="(element) => setRowRef(event.id, element)"
-              type="button"
-              class="ol-row"
-              :class="{
-                active: !selectMode && event.id === props.selectedEventId,
-                selected: selectMode && isRowSelected(event.id),
-              }"
-              @click="onRowClick(event.id)"
-            >
-              <span class="ol-bullet" aria-hidden="true"></span>
-              <b class="ol-name"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
-              <span class="ol-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
-              <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
-                <TimelineLucideIcon name="star" :stroke-width="1.5" />
-              </span>
-            </button>
-          </div>
-        </section>
+          <button
+            v-else
+            :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+            type="button"
+            class="ol-row"
+            :class="{
+              active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+              selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
+            }"
+            @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
+          >
+            <span class="ol-bullet" aria-hidden="true"></span>
+            <b class="ol-name"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
+            <span class="ol-date">{{ eventHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
+            <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
+              <TimelineLucideIcon name="star" :stroke-width="1.5" />
+            </span>
+          </button>
+        </template>
+        <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>
       </div>
     </div>
 
       <div v-else ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
       <div class="feed-inner view-list">
+        <div v-if="linearTopSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearTopSpacerPx}px` }"></div>
         <button
-          v-for="event in sortedFlatEvents()"
-          :key="event.id"
-          :ref="(element) => setRowRef(event.id, element)"
+          v-for="vRow in linearVirtualItems"
+          :key="vRow.key"
+          :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
           type="button"
           class="lv-row"
           :class="{
-            active: !selectMode && event.id === props.selectedEventId,
-            selected: selectMode && isRowSelected(event.id),
+            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+            selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
           }"
-          @click="onRowClick(event.id)"
+          @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
         >
-          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(event.id) }">
-            <TimelineLucideIcon v-if="isRowSelected(event.id)" name="check" :stroke-width="2.4" />
+          <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }">
+            <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
           </span>
           <span class="lv-lead">
-            <b class="lv-name" :title="eventColumnValue(event, { key: 'title' })"><HighlightedText :text="eventColumnValue(event, { key: 'title' })" :query="props.searchQuery" /></b>
-            <span v-if="event.noteType === 'mindmap'" class="ev-type" title="思维导图">
+            <b class="lv-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
+            <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
               <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
             </span>
-            <span v-if="event.attachments?.length || event.attachmentCount" class="clip">
+            <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
               <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
             </span>
-            <NotebookChip v-if="props.showSource" :topic-id="event.topicId" :topics="props.topics" />
+            <NotebookChip v-if="props.showSource" :topic-id="activeLinearRows[vRow.index].projected.event.topicId" :topics="props.topics" />
           </span>
-          <span class="lv-sum"><HighlightedText :text="buildEventPreview(event, 80)" :query="props.searchQuery" /></span>
-          <span v-if="rowChips(event).length" class="lv-tags c-tags">
+          <span class="lv-sum"><HighlightedText :text="activeLinearRows[vRow.index].projected.previewText" :query="props.searchQuery" /></span>
+          <span v-if="activeLinearRows[vRow.index].projected.rowChips.length" class="lv-tags c-tags">
             <span
-              v-for="chip in rowChips(event).slice(0, FEED_CHIP_LIMIT)"
+              v-for="chip in activeLinearRows[vRow.index].projected.rowChips.slice(0, FEED_CHIP_LIMIT)"
               :key="chip.value"
               class="td"
               :style="{ '--dot': chip.color }"
@@ -1502,25 +1884,26 @@ onBeforeUnmount(() => {
               <i></i><HighlightedText :text="chip.label" :query="props.searchQuery" />
             </span>
             <span
-              v-if="rowChips(event).length > FEED_CHIP_LIMIT"
+              v-if="activeLinearRows[vRow.index].projected.rowChips.length > FEED_CHIP_LIMIT"
               class="td-more"
-              :title="rowChips(event).slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
-              >+{{ rowChips(event).length - FEED_CHIP_LIMIT }}</span
+              :title="activeLinearRows[vRow.index].projected.rowChips.slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
+              >+{{ activeLinearRows[vRow.index].projected.rowChips.length - FEED_CHIP_LIMIT }}</span
             >
           </span>
-          <span class="lv-date">{{ eventHasDate(event) ? eventColumnValue(event, { key: 'time' }) : "" }}</span>
+          <span class="lv-date">{{ eventHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
           <span
             v-if="!selectMode"
             class="lv-del"
             :title="props.trashView ? '永久删除' : '移入回收站'"
-            @click.stop="deleteRow(event)"
+            @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
           >
             <TimelineLucideIcon name="trash" :stroke-width="1.5" />
           </span>
-          <span class="c-star" :class="{ on: event.favorite }" @click.stop="emit('toggle-favorite', event)">
+          <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
             <TimelineLucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
+        <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>
       </div>
     </div>
   </section>

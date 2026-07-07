@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  clearMarkdownRenderCache,
+  markdownRenderCacheSize,
   plainTextFromMarkdown,
+  renderCachedMarkdownToHtml,
   renderMarkdownToHtml,
   renderTableToHtml,
   scanFencedCodeBlocks,
@@ -267,4 +270,18 @@ test("plainTextFromMarkdown strips strikethrough tildes", () => {
 test("plainTextFromMarkdown drops footnote ref/def markers (no raw ^1 in previews)", () => {
   assert.equal(plainTextFromMarkdown("观点[^1]后"), "观点后");
   assert.equal(plainTextFromMarkdown("[^1]: 一条注释"), "一条注释");
+});
+
+test("renderCachedMarkdownToHtml caches by event identity + updatedAt + body", () => {
+  clearMarkdownRenderCache();
+  const payload = { eventId: 1, updatedAt: "2026-07-07T00:00:00Z", bodyMarkdown: "# 标题" };
+  const first = renderCachedMarkdownToHtml(payload);
+  const second = renderCachedMarkdownToHtml(payload);
+
+  assert.equal(first, "<h1>标题</h1>");
+  assert.equal(second, "<h1>标题</h1>");
+  assert.equal(markdownRenderCacheSize(), 1);
+
+  renderCachedMarkdownToHtml({ ...payload, updatedAt: "2026-07-08T00:00:00Z" });
+  assert.equal(markdownRenderCacheSize(), 2);
 });

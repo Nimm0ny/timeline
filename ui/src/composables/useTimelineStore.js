@@ -1,15 +1,16 @@
 import { reactive } from "vue";
-import { api } from "@/composables/useApi";
+import { api } from "./useApi.js";
 import {
   buildEventPreview,
   compareTimelineEvents,
   mergeTopicEventPage,
   mindmapPlainText,
   planTopicPageFetch,
-} from "@/utils/timelineNotes";
-import { plainTextFromMarkdown } from "@/utils/markdownPreview";
+} from "../utils/timelineNotes.js";
+import { plainTextFromMarkdown } from "../utils/markdownPreview.js";
 
 const DEFAULT_TOPIC_PAGE_SIZE = 100;
+const DETAIL_CACHE_LIMIT = 40;
 
 function datePartsFromKey(dateKey) {
   const key = Number.parseInt(dateKey, 10) || 0;
@@ -144,6 +145,43 @@ export function useTimelineStore() {
     loading: false,
   });
   const topicEventRequests = new Map();
+  let protectedDetailId = null;
+  let detailTouchSequence = 0;
+  const detailTouchedAt = new Map();
+
+  function markDetailUsed(id) {
+    const next = Number(id);
+    if (!next) return;
+    detailTouchSequence += 1;
+    detailTouchedAt.set(next, detailTouchSequence);
+  }
+
+  function writeDetailCache(detail) {
+    const id = Number(detail?.id);
+    if (!id) return;
+    if (state.detailCache.has(id)) state.detailCache.delete(id);
+    state.detailCache.set(id, detail);
+    markDetailUsed(id);
+    evictDetailCache();
+  }
+
+  function evictDetailCache() {
+    while (state.detailCache.size > DETAIL_CACHE_LIMIT) {
+      let oldestId = null;
+      let oldestTouch = Number.POSITIVE_INFINITY;
+      for (const [id] of state.detailCache) {
+        if (id === protectedDetailId) continue;
+        const touchedAt = detailTouchedAt.get(id) || 0;
+        if (touchedAt < oldestTouch) {
+          oldestTouch = touchedAt;
+          oldestId = id;
+        }
+      }
+      if (oldestId == null) break;
+      state.detailCache.delete(oldestId);
+      detailTouchedAt.delete(oldestId);
+    }
+  }
 
   function replaceTopics(topics) {
     state.topics.splice(0, state.topics.length, ...(topics || []).map(normalizeTopic));
@@ -174,7 +212,7 @@ export function useTimelineStore() {
     for (const event of events || []) {
       if (!hasFullEventDetail(event)) continue;
       const detail = normalizeDetailEvent(event, id);
-      if (detail.id) state.detailCache.set(detail.id, detail);
+      if (detail.id) writeDetailCache(detail);
     }
     state.loadedTopicIds.add(id);
     state.topicPages[id] = {
@@ -191,7 +229,9 @@ export function useTimelineStore() {
   }
 
   function detailById(eventId) {
-    const cached = state.detailCache.get(Number(eventId)) || null;
+    const id = Number(eventId);
+    const cached = state.detailCache.get(id) || null;
+    if (cached) markDetailUsed(id);
     return cached && hasFullEventDetail(cached) ? cached : null;
   }
 
@@ -305,12 +345,18 @@ export function useTimelineStore() {
     return request;
   }
 
-  async function ensureEventDetail(eventId) {
+  async function ensureEventDetail(eventId, options = {}) {
     const id = Number(eventId);
     if (!id) return null;
     const cached = detailById(id);
     if (cached) return cached;
-    return upsertEvent(await api.getEvent(id));
+    return upsertEvent(await api.getEvent(id, options));
+  }
+
+  function setProtectedDetailId(eventId) {
+    const id = Number(eventId);
+    protectedDetailId = Number.isInteger(id) && id > 0 ? id : null;
+    evictDetailCache();
   }
 
   function upsertTopic(topic) {
@@ -333,7 +379,10 @@ export function useTimelineStore() {
     delete state.topicPages[id];
     for (const eventId of [...state.detailCache.keys()]) {
       const cached = state.detailCache.get(eventId);
-      if (cached?.topicId === id) state.detailCache.delete(eventId);
+      if (cached?.topicId === id) {
+        state.detailCache.delete(eventId);
+        detailTouchedAt.delete(eventId);
+      }
     }
   }
 
@@ -347,7 +396,7 @@ export function useTimelineStore() {
       state.eventsIndex.push(indexEvent);
     }
     state.eventsIndex.sort(compareTimelineEvents);
-    state.detailCache.set(detail.id, detail);
+    writeDetailCache(detail);
     updateTopicSummary(indexEvent.topicId);
     return detail;
   }
@@ -358,7 +407,7 @@ export function useTimelineStore() {
     const topicId = index >= 0 ? state.eventsIndex[index].topicId : detailById(id)?.topicId;
     if (index >= 0) state.eventsIndex[index] = { ...state.eventsIndex[index], ...patch };
     const cached = state.detailCache.get(id);
-    if (cached) state.detailCache.set(id, { ...cached, ...patch });
+    if (cached) writeDetailCache({ ...cached, ...patch });
     updateTopicSummary(topicId);
   }
 
@@ -367,6 +416,7 @@ export function useTimelineStore() {
     const existing = eventById(id);
     replaceEvents(state.eventsIndex.filter((event) => event.id !== id));
     state.detailCache.delete(id);
+    detailTouchedAt.delete(id);
     updateTopicSummary(existing?.topicId);
   }
 
@@ -383,6 +433,7 @@ export function useTimelineStore() {
     patchEvent,
     removeEvent,
     removeTopic,
+    setProtectedDetailId,
     setTopics,
     topicById,
     topicHasMore,

@@ -46,7 +46,9 @@ const SettingsModal = defineAsyncComponent(() => import("@/components/settings/S
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
+const feedPaneRef = ref(null);
 const mindmapSurfaceRef = ref(null);
+const mobileFeedScrollTop = ref(0);
 const timelineStore = useTimelineStore();
 const { isMobile, isCompactDesktop } = useViewport();
 
@@ -238,6 +240,8 @@ let workspaceSelectionRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
 let relatedPreviewRequestSeq = 0;
+let detailAbortController = null;
+let detailPrefetchHandle = null;
 let columnSaveChain = Promise.resolve();
 const latestColumnSaveRevisionByTopic = new Map();
 let columnSaveInFlight = 0;
@@ -1159,6 +1163,17 @@ function closeMobileSidebar() {
   state.mobileSidebarOpen = false;
 }
 
+function rememberMobileFeedScroll() {
+  if (!isMobile.value) return;
+  mobileFeedScrollTop.value = feedPaneRef.value?.rememberScroll?.() ?? feedPaneRef.value?.currentScrollTop?.() ?? mobileFeedScrollTop.value;
+}
+
+async function restoreMobileFeedScroll() {
+  if (!isMobile.value) return;
+  await nextTick();
+  await feedPaneRef.value?.restoreScroll?.(mobileFeedScrollTop.value);
+}
+
 function openSettings() {
   closeMobileSidebar();
   state.settingsOpen = true;
@@ -1328,6 +1343,7 @@ function saveAndContinue() {
 
 async function applyEventSelection(eventId) {
   const id = Number(eventId);
+  rememberMobileFeedScroll();
   let event = timelineStore.eventById(id);
   if (!event) {
     try {
@@ -1633,6 +1649,7 @@ function startCreateEvent() {
     exitGlobalFavoritesMode();
     closeMobileSidebar();
     state.mobileSearchOpen = false;
+    rememberMobileFeedScroll();
     state.detailMode = "create";
     state.rightOpen = true;
     await syncRouteState({ eventId: state.selectedEventId, mode: "create" });
@@ -1659,6 +1676,7 @@ function createEventInTopic(topicId) {
     }
     closeMobileSidebar();
     state.mobileSearchOpen = false;
+    rememberMobileFeedScroll();
     state.detailMode = "create";
     state.rightOpen = true;
     await syncRouteState({ topicId, eventId: state.selectedEventId, mode: "create" });
@@ -1667,6 +1685,7 @@ function createEventInTopic(topicId) {
 
 function startEditSelectedEvent() {
   if (!selectedEvent.value || selectedEvent.value.deletedAt) return;
+  rememberMobileFeedScroll();
   state.detailMode = "edit";
   state.rightOpen = true;
   syncRouteState({ eventId: state.selectedEventId, mode: "edit" });
@@ -2440,28 +2459,90 @@ function startResize(side, event) {
   event.preventDefault();
 }
 
-async function loadSelectedEventDetail(eventId) {
+function cancelDetailRequest() {
+  detailAbortController?.abort();
+  detailAbortController = null;
+}
+
+function clearDetailPrefetch() {
+  if (detailPrefetchHandle == null || typeof window === "undefined") return;
+  if (typeof window.cancelIdleCallback === "function" && typeof detailPrefetchHandle === "number") {
+    window.cancelIdleCallback(detailPrefetchHandle);
+  } else {
+    window.clearTimeout(detailPrefetchHandle);
+  }
+  detailPrefetchHandle = null;
+}
+
+function scheduleDetailPrefetch(eventId) {
+  clearDetailPrefetch();
   const id = Number(eventId);
-  if (!id || timelineStore.detailById(id)) {
-    state.detailLoading = false;
+  if (!id || !state.rightOpen || state.detailMode === "create") return;
+  const items = visibleEvents.value;
+  const index = items.findIndex((event) => event.id === id);
+  if (index < 0) return;
+  const distance = isMobile.value ? 1 : 2;
+  const targets = items
+    .slice(Math.max(0, index - distance), Math.min(items.length, index + distance + 1))
+    .filter((event) => event.id !== id)
+    .map((event) => event.id);
+  if (!targets.length) return;
+
+  const run = async () => {
+    detailPrefetchHandle = null;
+    for (const targetId of targets) {
+      if (timelineStore.detailById(targetId)) continue;
+      try {
+        await timelineStore.ensureEventDetail(targetId);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+  };
+
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    detailPrefetchHandle = window.requestIdleCallback(() => {
+      void run();
+    });
     return;
   }
+  detailPrefetchHandle = window.setTimeout(() => {
+    void run();
+  }, 120);
+}
+
+async function loadSelectedEventDetail(eventId) {
+  const id = Number(eventId);
   const seq = ++detailRequestSeq;
+  timelineStore.setProtectedDetailId(id || null);
+  if (!id || timelineStore.detailById(id)) {
+    cancelDetailRequest();
+    state.detailLoading = false;
+    state.detailError = "";
+    scheduleDetailPrefetch(id);
+    return;
+  }
+  cancelDetailRequest();
+  const controller = new AbortController();
+  detailAbortController = controller;
   state.detailLoading = true;
   state.detailError = "";
   try {
-    await timelineStore.ensureEventDetail(id);
+    await timelineStore.ensureEventDetail(id, { signal: controller.signal });
     if (seq === detailRequestSeq) {
       syncActiveTopicFromStore();
     }
   } catch (error) {
+    if (error?.name === "AbortError") return;
     if (seq === detailRequestSeq) {
       state.detailError = error.message || "详情加载失败";
       pushToast(`详情加载失败：${error.message}`, "error");
     }
   } finally {
+    if (detailAbortController === controller) detailAbortController = null;
     if (seq === detailRequestSeq) {
       state.detailLoading = false;
+      scheduleDetailPrefetch(id);
     }
   }
 }
@@ -2475,6 +2556,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalKeydown);
   resizeCleanup?.();
   clearCommandSearchTimer();
+  cancelDetailRequest();
+  clearDetailPrefetch();
 });
 
 watch(
@@ -2490,7 +2573,20 @@ watch(
 watch(
   () => [state.selectedEventId, state.rightOpen, state.detailMode],
   ([eventId, rightOpen, mode]) => {
-    if (!rightOpen || !eventId || mode === "create") return;
+    timelineStore.setProtectedDetailId(rightOpen ? eventId : null);
+    if (!rightOpen) {
+      cancelDetailRequest();
+      clearDetailPrefetch();
+      if (isMobile.value) void restoreMobileFeedScroll();
+      return;
+    }
+    if (!eventId || mode === "create") {
+      cancelDetailRequest();
+      clearDetailPrefetch();
+      state.detailLoading = false;
+      state.detailError = "";
+      return;
+    }
     loadSelectedEventDetail(eventId);
   }
 );
@@ -2637,6 +2733,7 @@ watch(
     />
 
     <TimelineFeed
+      ref="feedPaneRef"
       v-else
       :loading="state.loading || state.eventsLoading"
       :error="state.error"

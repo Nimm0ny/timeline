@@ -363,3 +363,33 @@ export function renderMarkdownToHtml(markdown) {
   closeList();
   return html.join("");
 }
+
+const MARKDOWN_RENDER_CACHE_LIMIT = 100;
+const markdownRenderCache = new Map();
+
+function touchMarkdownRenderCache(key, value) {
+  if (!key) return value;
+  if (markdownRenderCache.has(key)) markdownRenderCache.delete(key);
+  markdownRenderCache.set(key, value);
+  while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
+    const oldestKey = markdownRenderCache.keys().next().value;
+    if (oldestKey == null) break;
+    markdownRenderCache.delete(oldestKey);
+  }
+  return value;
+}
+
+export function renderCachedMarkdownToHtml({ eventId, updatedAt, bodyMarkdown } = {}) {
+  const key = [Number(eventId) || 0, String(updatedAt || ""), String(bodyMarkdown || "")].join("::");
+  const cached = markdownRenderCache.get(key);
+  if (cached != null) return touchMarkdownRenderCache(key, cached);
+  return touchMarkdownRenderCache(key, renderMarkdownToHtml(bodyMarkdown || ""));
+}
+
+export function clearMarkdownRenderCache() {
+  markdownRenderCache.clear();
+}
+
+export function markdownRenderCacheSize() {
+  return markdownRenderCache.size;
+}
