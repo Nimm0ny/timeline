@@ -90,10 +90,6 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
-  activeEra: {
-    type: String,
-    default: "",
-  },
   loading: {
     type: Boolean,
     default: false,
@@ -126,7 +122,6 @@ const emit = defineEmits([
   "rename-topic",
   "change-container-type",
   "select-topic",
-  "select-era",
   "update:filter",
   "update:property-filter",
   "delete-bookshelf",
@@ -171,7 +166,6 @@ const state = reactive({
     properties: false,
     stats: false,
   },
-  topicCollapsed: {},
   propertyTopicCollapsed: {},
 });
 
@@ -1055,10 +1049,6 @@ function toggleSection(key) {
   state.sections[key] = !state.sections[key];
 }
 
-function isTopicExpanded(topicId) {
-  return !selectMode.value && topicId === props.activeTopicId && state.topicCollapsed[topicId] !== true;
-}
-
 function isBookshelfExpanded(bookshelf) {
   const name = String(bookshelf?.name || "").trim();
   if (!name) return false;
@@ -1133,9 +1123,6 @@ function toggleCollapseAll() {
   for (const key of activePanel.value.sections) {
     state.sections[key] = collapse;
   }
-  for (const topic of props.topics) {
-    state.topicCollapsed[topic.id] = collapse;
-  }
   emit("set-all-bookshelves-collapsed", collapse);
   allCollapsed.value = collapse;
 }
@@ -1196,7 +1183,6 @@ watch(
   () => props.activeTopicId,
   (topicId, previous) => {
     if (topicId && topicId !== previous) {
-      state.topicCollapsed[topicId] = false;
       state.propertyTopicCollapsed[topicId] = false;
       allCollapsed.value = false;
     }

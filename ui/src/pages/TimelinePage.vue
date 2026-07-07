@@ -1905,15 +1905,6 @@ function updatePropertyFilter(propertyFilter) {
   });
 }
 
-function updateActiveEra(era) {
-  runOrConfirm(async () => {
-    exitGlobalFavoritesMode();
-    applyFilterState({ era });
-    closeMobileSidebar();
-    await syncRouteState({ era, eventId: state.rightOpen ? state.selectedEventId : null });
-  });
-}
-
 function updateSearchQuery(value) {
   state.searchQuery = value;
   setDefaultSelection();
@@ -2751,7 +2742,6 @@ watch(
       :columns="topicColumns"
       :property-filter="state.propertyFilter"
       :property-data-ready="timelineStore.state.indexLoaded"
-      :active-era="state.activeEra"
       :loading="state.loading"
       :error="state.error"
       :column-saving="state.columnSaving"
@@ -2775,7 +2765,6 @@ watch(
       @open-favorite-event="selectEvent"
       @toggle-bookshelf="toggleBookshelf"
       @set-all-bookshelves-collapsed="setAllBookshelvesCollapsed"
-      @select-era="updateActiveEra"
       @select-ribbon="handleSidebarRibbon"
       @select-topic="selectTopic"
       @update:filter="updateSidebarFilter"
