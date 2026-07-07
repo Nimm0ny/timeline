@@ -502,6 +502,16 @@ const activeSort = computed(() =>
 );
 const activeComparator = computed(() => compareEventsBySort(activeSort.value, feedColumns.value));
 
+// The direction the backend feed must page in. Only the primary *time* sort is
+// pushed down for W1 (timeline/outline clamp their primary to time); non-time
+// primaries keep today's client-side sort over the loaded page, so they page
+// ascending (dir 1). Descending here makes cursor pagination fetch newest-first,
+// so a large notebook's "倒序" shows the true newest, not a reversed oldest page.
+const feedFetchDir = computed(() => {
+  const primary = activeSort.value?.[0];
+  return primary && primary.field === "time" && primary.dir < 0 ? -1 : 1;
+});
+
 // Sort/grouping persist to the backend for cross-device sync: per-notebook
 // sort + groupBy ride the Topic meta (loaded with the index), the cross-notebook
 // favorites sort rides app config (it has no owning notebook). Reload from those
@@ -528,16 +538,27 @@ watch(
     state.sort = isGlobalFavoritesMode.value ? favoritesSortLevels() : topicSortLevels(state.activeTopicId);
     state.groupBy = loadGroupBy(state.activeTopicId);
   },
-  { immediate: true }
+  // flush:"sync" so state.sort (hence feedFetchDir) is current the instant
+  // activeTopicId changes — the topic-switch fetch reads feedFetchDir synchronously
+  // in the same tick, so a 'pre'-flushed watcher would let it page the previous
+  // topic's direction (opening a descending notebook would load its oldest page).
+  { immediate: true, flush: "sync" }
 );
 
 function changeSort(sort) {
+  const prevFetchDir = feedFetchDir.value;
   const next = normalizeSortLevels(sort);
   state.sort = next;
   if (isGlobalFavoritesMode.value) {
     persistFavoritesSort(next);
   } else if (state.activeTopicId) {
     persistTopicMetaField(state.activeTopicId, { sort: next });
+    // The backend feed pages by time direction, so flipping 正序/倒序 changes which
+    // events the first page holds — re-fetch from page 1. (Favorites is fully
+    // in-memory and re-sorts client-side, so it needs no re-fetch.)
+    if (feedFetchDir.value !== prevFetchDir) {
+      void ensureTopicEventsReady(state.activeTopicId, { force: true });
+    }
   }
 }
 
@@ -869,7 +890,7 @@ async function ensureTopicEventsReady(topicId, { force = false, throwOnError = f
   const seq = ++topicEventsRequestSeq;
   state.eventsLoading = true;
   try {
-    await timelineStore.ensureTopicEvents(id, { force });
+    await timelineStore.ensureTopicEvents(id, { force, dir: feedFetchDir.value });
     if (state.activeTopicId === id) syncActiveTopicFromStore();
     state.error = "";
     return true;
@@ -897,7 +918,7 @@ async function loadMoreActiveTopicEvents({ auto = false } = {}) {
   }
   state.loadingMore = true;
   try {
-    await timelineStore.ensureTopicEvents(topicId, { append: true });
+    await timelineStore.ensureTopicEvents(topicId, { append: true, dir: feedFetchDir.value });
     if (state.autoLoadBlockedKey === autoLoadContextKey.value) state.autoLoadBlockedKey = "";
     syncActiveTopicFromStore();
   } catch (error) {

@@ -798,6 +798,159 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
     assert set(undated_ids).issubset(seen)
 
 
+def test_topic_events_descending_flips_dated_order_and_keeps_undated_tail(client, db_session, seeded_topic):
+    undated = TimelineEvent(
+        topic_id=seeded_topic.id,
+        year="Undated Note",
+        sort_key=0.0,
+        date_key=None,
+        headline="Undated Note",
+        era="Archive",
+        body_markdown="No date here.",
+    )
+    db_session.add(undated)
+    db_session.flush()
+    undated_id = undated.id
+    backfill_event_text_fields(db_session)
+    rebuild_topic_read_models(db_session)
+    db_session.commit()
+
+    asc = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    asc_dated = [item["dateKey"] for item in asc if item["dateKey"] is not None]
+    assert asc_dated == sorted(asc_dated)  # dir defaults to ascending (oldest -> newest)
+    assert asc[-1]["id"] == undated_id  # undated sinks to the tail
+
+    desc = client.get(f"/api/topics/{seeded_topic.id}/events", params={"dir": -1}).json()["items"]
+    desc_dated = [item["dateKey"] for item in desc if item["dateKey"] is not None]
+    assert desc_dated == sorted(desc_dated, reverse=True)  # newest -> oldest
+    assert desc[-1]["id"] == undated_id  # undated is NOT floated to the top by descending
+
+    assert {item["id"] for item in asc} == {item["id"] for item in desc}  # same set, reordered
+
+
+def test_topic_events_descending_cursor_pagination_is_complete_and_ordered(client, db_session, seeded_topic):
+    for n in range(2):
+        db_session.add(
+            TimelineEvent(
+                topic_id=seeded_topic.id,
+                year=f"Undated {n}",
+                sort_key=0.0,
+                date_key=None,
+                headline=f"Undated {n}",
+                era="Archive",
+                body_markdown="",
+            )
+        )
+    backfill_event_text_fields(db_session)
+    rebuild_topic_read_models(db_session)
+    db_session.commit()
+
+    single_shot = client.get(
+        f"/api/topics/{seeded_topic.id}/events", params={"dir": -1, "limit": 500}
+    ).json()["items"]
+    expected_ids = [item["id"] for item in single_shot]
+
+    walked = []
+    seen = set()
+    cursor = None
+    for _ in range(50):  # safety bound against a runaway cursor
+        params = {"dir": -1, "limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        payload = client.get(f"/api/topics/{seeded_topic.id}/events", params=params).json()
+        ids = [item["id"] for item in payload["items"]]
+        assert not (seen & set(ids))  # pages never overlap
+        seen.update(ids)
+        walked.extend(ids)
+        if not payload["hasMore"]:
+            break
+        cursor = payload["nextCursor"]
+
+    assert walked == expected_ids  # small-limit paged walk == single-shot descending order
+    dated = [item["dateKey"] for item in single_shot if item["dateKey"] is not None]
+    assert dated == sorted(dated, reverse=True)
+    tail = [item for item in single_shot if item["dateKey"] is None]
+    assert len(tail) == 2 and single_shot[-2:] == tail  # undated pair trails the whole descending run
+
+
+def _walk_all_pages(client, topic_id, *, limit, direction=1):
+    seen = []
+    cursor = None
+    for _ in range(200):  # safety bound against a runaway cursor
+        params = {"limit": limit, "dir": direction}
+        if cursor:
+            params["cursor"] = cursor
+        resp = client.get(f"/api/topics/{topic_id}/events", params=params)
+        assert resp.status_code == 200, resp.text  # every cursor token must resume, never 500/400
+        payload = resp.json()
+        seen.extend(item["id"] for item in payload["items"])
+        if not payload["hasMore"]:
+            return seen
+        cursor = payload["nextCursor"]
+    raise AssertionError("pagination did not terminate")
+
+
+def test_topic_events_pages_through_an_undated_tail_that_crosses_a_boundary(client, db_session, seeded_topic):
+    # 3 undated notes at limit=2 forces the undated tail to span a page boundary, so
+    # next_cursor becomes "null:<id>" — building the dated comparison for that cursor
+    # would raise (date_key < None). Guards against the hoisted-`dated_after` regression.
+    for n in range(3):
+        db_session.add(
+            TimelineEvent(
+                topic_id=seeded_topic.id,
+                year=f"Undated {n}",
+                sort_key=0.0,
+                date_key=None,
+                headline=f"Undated {n}",
+                era="Archive",
+                body_markdown="",
+            )
+        )
+    backfill_event_text_fields(db_session)
+    rebuild_topic_read_models(db_session)
+    db_session.commit()
+
+    all_ids = [
+        item["id"]
+        for item in client.get(f"/api/topics/{seeded_topic.id}/events", params={"limit": 500}).json()["items"]
+    ]
+    assert _walk_all_pages(client, seeded_topic.id, limit=2) == all_ids  # complete across the null-cursor hop
+
+
+def test_topic_events_cursor_round_trips_for_non_four_digit_years(client, db_session, seeded_topic):
+    # date_key for years <1000 / <100 / BCE is not an 8-digit YYYYMMDD, so a cursor
+    # token minted from it must parse back as a raw int, not a human date (else 400 on
+    # a 7-digit/negative key, or a silent mis-parse on a 6-digit key).
+    for year in (-626, 99, 907, 1050):
+        dk = make_date_key(year, 1, 1)
+        db_session.add(
+            TimelineEvent(
+                topic_id=seeded_topic.id,
+                year=str(year),
+                sort_key=float(dk),
+                date_key=dk,
+                date_year=year,
+                date_month=1,
+                date_day=1,
+                headline=f"Y{year}",
+                era="Ancient",
+                body_markdown="",
+            )
+        )
+    backfill_event_text_fields(db_session)
+    rebuild_topic_read_models(db_session)
+    db_session.commit()
+
+    for direction in (1, -1):
+        expected = [
+            item["id"]
+            for item in client.get(
+                f"/api/topics/{seeded_topic.id}/events", params={"limit": 500, "dir": direction}
+            ).json()["items"]
+        ]
+        assert _walk_all_pages(client, seeded_topic.id, limit=2, direction=direction) == expected, f"dir={direction}"
+
+
 def test_import_accepts_legacy_and_v2_payloads(db_session, seeded_topic):
     legacy_payload = [
         {

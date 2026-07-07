@@ -145,6 +145,17 @@ export function useTimelineStore() {
     loading: false,
   });
   const topicEventRequests = new Map();
+  // Monotonic per-topic fetch generation. A reset fetch (initial / forced page-1)
+  // bumps it, so a slower superseded response — e.g. the ascending page from a
+  // rapid 正序⇄倒序 toggle landing after the descending one — is dropped instead of
+  // clobbering the current page. Append fetches capture the current gen, never bump.
+  const topicFetchGen = new Map();
+  const topicGen = (id) => topicFetchGen.get(id) || 0;
+  const bumpTopicGen = (id) => {
+    const next = topicGen(id) + 1;
+    topicFetchGen.set(id, next);
+    return next;
+  };
   let protectedDetailId = null;
   let detailTouchSequence = 0;
   const detailTouchedAt = new Map();
@@ -314,9 +325,10 @@ export function useTimelineStore() {
     }
   }
 
-  async function ensureTopicEvents(topicId, { force = false, append = false, cursor = null, limit = DEFAULT_TOPIC_PAGE_SIZE } = {}) {
+  async function ensureTopicEvents(topicId, { force = false, append = false, cursor = null, limit = DEFAULT_TOPIC_PAGE_SIZE, dir = 1 } = {}) {
     const id = Number(topicId);
     if (!id) return [];
+    const fetchDir = Number(dir) < 0 ? -1 : 1;
     const currentPage = topicPageState(id);
     const plan = planTopicPageFetch(
       { loaded: isTopicEventsLoaded(id), hasMore: currentPage.hasMore, nextCursor: currentPage.nextCursor },
@@ -324,12 +336,18 @@ export function useTimelineStore() {
     );
     if (!plan.shouldFetch) return eventsForTopic(id);
     const requestCursor = plan.requestCursor;
-    const requestKey = `${id}:${append ? requestCursor || "append" : force ? "force" : "initial"}`;
+    // dir rides the request key so a forced re-fetch under a new direction is a
+    // distinct in-flight request, never deduped against the old-direction one.
+    const requestKey = `${id}:${fetchDir}:${append ? requestCursor || "append" : force ? "force" : "initial"}`;
     const existing = topicEventRequests.get(requestKey);
     if (existing && !force) return existing;
+    // Bump only when we actually issue a new request (after the dedup return above,
+    // so a deduped initial load doesn't strand the in-flight one under a newer gen).
+    const gen = append ? topicGen(id) : bumpTopicGen(id);
     const request = api
-      .getTimelineEvents(id, { cursor: requestCursor, limit })
+      .getTimelineEvents(id, { cursor: requestCursor, limit, dir: fetchDir })
       .then((payload) => {
+        if (gen !== topicGen(id)) return eventsForTopic(id); // superseded by a newer reset — drop
         const items = Array.isArray(payload) ? payload : payload?.items || [];
         replaceTopicEvents(id, items, Array.isArray(payload) ? null : payload?.bounds || null, {
           append,

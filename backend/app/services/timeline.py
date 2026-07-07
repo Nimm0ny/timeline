@@ -405,6 +405,20 @@ def apply_event_state(event: TimelineEvent, payload: dict):
         event.deleted_at = parse_optional_datetime(payload.get("deletedAt"))
 
 
+def parse_cursor_key(part: str) -> int | None:
+    """A cursor's date-key component is the raw ``date_key`` integer the server minted
+    into ``next_cursor`` (year*10000 + month*100 + day) — NOT a human YYYYMMDD string.
+    Parse it as an int so it round-trips for every year; routing it through
+    ``parse_query_date_key`` 400s on 7-digit keys (year < 1000) and negative keys (BCE),
+    and silently mis-parses 6-digit keys (year < 100)."""
+    if part.lower() == "null":
+        return None
+    try:
+        return int(part)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor key") from exc
+
+
 def parse_cursor_token(value: str | None) -> tuple[int | None, int | None] | None:
     if value is None:
         return None
@@ -412,9 +426,9 @@ def parse_cursor_token(value: str | None) -> tuple[int | None, int | None] | Non
     if not raw:
         return None
     if ":" not in raw:
-        return (None, None) if raw.lower() == "null" else (parse_query_date_key(raw), None)
+        return (None, None) if raw.lower() == "null" else (parse_cursor_key(raw), None)
     left, right = raw.split(":", 1)
-    cursor_key = None if left.lower() == "null" else parse_query_date_key(left)
+    cursor_key = parse_cursor_key(left)
     try:
         cursor_id = int(right)
     except ValueError as exc:
@@ -1428,10 +1442,16 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
     }
 
 
-def timeline_event_order_clauses():
+def timeline_event_order_clauses(direction: int = 1):
+    """Feed ordering. `direction` (+1 asc / -1 desc) flips only the *dated* region:
+    undated events always sink to the bottom (the `date_key IS NULL` bucket stays
+    `.asc()` regardless of direction — a note with no date is not "the newest"), and
+    `id` stays ascending as a stable tiebreak. Default +1 keeps every existing
+    no-arg caller (index/search/related/list) byte-for-byte unchanged."""
+    date_clause = TimelineEvent.date_key.desc() if direction < 0 else TimelineEvent.date_key.asc()
     return (
         case((TimelineEvent.date_key.is_(None), 1), else_=0).asc(),
-        TimelineEvent.date_key.asc(),
+        date_clause,
         TimelineEvent.id.asc(),
     )
 
@@ -1694,8 +1714,10 @@ def query_topic_events(
     to_key: int | None = None,
     cursor: tuple[int | None, int | None] | None = None,
     limit: int | None = 100,
+    direction: int = 1,
 ) -> dict:
     get_topic_or_404(db, topic_id)
+    direction = -1 if direction < 0 else 1
     bounds = build_topic_bounds(db, topic_id)
     safe_limit = max(1, min(int(limit or 100), 500))
     query = build_event_list_query(db, topic_id)
@@ -1706,24 +1728,32 @@ def query_topic_events(
         query = query.filter(TimelineEvent.date_key <= to_key)
     if cursor is not None:
         cursor_key, cursor_id = cursor
+        # Direction only flips the *dated* walk (older-ward when descending). The
+        # undated tail (date_key IS NULL, id-ascending) always trails all dated rows
+        # regardless of direction, so its cursor logic is identical both ways. Only
+        # build the dated comparison when there IS a dated key: a "null:<id>" tail
+        # cursor has cursor_key=None, and `date_key < None` raises at query-build time.
+        dated_after = None
+        if cursor_key is not None:
+            dated_after = (
+                TimelineEvent.date_key < cursor_key if direction < 0 else TimelineEvent.date_key > cursor_key
+            )
         if cursor_id is None:
             if cursor_key is not None:
-                query = query.filter(
-                    or_(TimelineEvent.date_key > cursor_key, TimelineEvent.date_key.is_(None))
-                )
+                query = query.filter(or_(dated_after, TimelineEvent.date_key.is_(None)))
         else:
             if cursor_key is None:
                 query = query.filter(and_(TimelineEvent.date_key.is_(None), TimelineEvent.id > cursor_id))
             else:
                 query = query.filter(
                     or_(
-                        TimelineEvent.date_key > cursor_key,
+                        dated_after,
                         TimelineEvent.date_key.is_(None),
                         and_(TimelineEvent.date_key == cursor_key, TimelineEvent.id > cursor_id),
                     )
                 )
 
-    query = query.order_by(*timeline_event_order_clauses())
+    query = query.order_by(*timeline_event_order_clauses(direction))
     query = query.limit(safe_limit + 1)
 
     rows = query.all()

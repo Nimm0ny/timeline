@@ -94,6 +94,9 @@ export const api = {
     if (params.to) search.set("to", params.to);
     if (params.cursor) search.set("cursor", params.cursor);
     if (params.limit) search.set("limit", String(params.limit));
+    // Only send dir when descending; omitting it keeps the URL clean and the
+    // backend default (ascending) is byte-for-byte today's behavior.
+    if (Number(params.dir) < 0) search.set("dir", "-1");
     const suffix = search.toString() ? `?${search.toString()}` : "";
     return request(`/api/topics/${encodeURIComponent(topicId)}/events${suffix}`);
   },

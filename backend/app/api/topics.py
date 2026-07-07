@@ -82,6 +82,7 @@ def get_topic_events(
     to_date: str | None = Query(None, alias="to"),
     cursor: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
+    dir: int = Query(1),
     db: Session = Depends(get_db),
 ):
     return query_topic_events(
@@ -91,6 +92,7 @@ def get_topic_events(
         to_key=parse_query_date_key(to_date, is_end=True),
         cursor=parse_cursor_token(cursor) if cursor else None,
         limit=limit,
+        direction=-1 if dir < 0 else 1,
     )
 
 
