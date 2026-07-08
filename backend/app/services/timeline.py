@@ -1430,6 +1430,53 @@ def sync_event_embeds(db: Session, event: TimelineEvent) -> None:
         )
 
 
+def sync_event_manual_links(db: Session, event: TimelineEvent) -> None:
+    """Re-derive a note's `manual` link rows from its legacy related_event_ids_json — the pre-
+    wikilink "关联事件" relationships, projected into the links table so they surface in the
+    target's backlink panel (§6.4). Idempotent, mirroring sync_event_embeds: clears this source's
+    manual rows and re-inserts one per distinct related id. `wikilink`/`embed` anchors belong to
+    other writers and are untouched. A live target resolves the row; a deleted/missing target
+    stays dangling (target_event_id NULL). Call after flush (id present), before commit."""
+    db.query(TimelineLink).filter(
+        TimelineLink.source_event_id == event.id,
+        TimelineLink.anchor_type == "manual",
+    ).delete(synchronize_session=False)
+    if event.deleted_at:
+        return
+    related_ids: list[int] = []
+    seen: set[int] = set()
+    for value in deserialize_json_list(event.related_event_ids_json):
+        try:
+            rid = int(value)
+        except (TypeError, ValueError):
+            continue
+        # positive ids only (match normalize_related_event_ids, which the raw column / backfill
+        # bypass), no self-reference, dedupe repeats.
+        if rid <= 0 or rid == event.id or rid in seen:
+            continue
+        seen.add(rid)
+        related_ids.append(rid)
+    if not related_ids:
+        return
+    live = {
+        row[0]: (row[1] or "").strip()
+        for row in db.query(TimelineEvent.id, TimelineEvent.headline)
+        .filter(TimelineEvent.id.in_(related_ids), TimelineEvent.deleted_at.is_(None))
+        .all()
+    }
+    for index, rid in enumerate(related_ids):
+        db.add(
+            TimelineLink(
+                source_event_id=event.id,
+                target_event_id=rid if rid in live else None,
+                target_title=(live.get(rid) or "")[:255],
+                anchor_type="manual",
+                position=index,
+                context_text="手动关联",
+            )
+        )
+
+
 def purge_event_links(db: Session, event_id: int) -> None:
     """Drop every link row touching a note (as source or target) — for a permanent
     delete, so no dangling FK rows survive the row's removal."""
@@ -1681,6 +1728,31 @@ def backfill_event_text_fields(db: Session) -> None:
         event.preview_text = preview_text
         event.search_text = search_text
     db.add(AppConfigEntry(key=TEXT_FIELDS_BACKFILL_KEY, value="1"))
+    db.flush()
+
+
+MANUAL_LINKS_BACKFILL_KEY = "manual_links_backfilled_v1"
+
+
+def backfill_manual_links(db: Session) -> None:
+    # One-time projection of legacy related_event_ids_json → `manual` link rows so pre-existing
+    # "关联事件" relationships appear in backlink panels (§6.4). Guarded by a marker like
+    # backfill_event_text_fields; every create/update now runs sync_event_manual_links, so after
+    # this pass the manual rows are authoritative. Only rows with a non-empty related list are scanned.
+    if db.get(AppConfigEntry, MANUAL_LINKS_BACKFILL_KEY) is not None:
+        return
+    rows = (
+        db.query(TimelineEvent)
+        .filter(
+            TimelineEvent.related_event_ids_json.isnot(None),
+            TimelineEvent.related_event_ids_json != "",
+            TimelineEvent.related_event_ids_json != "[]",
+        )
+        .all()
+    )
+    for event in rows:
+        sync_event_manual_links(db, event)
+    db.add(AppConfigEntry(key=MANUAL_LINKS_BACKFILL_KEY, value="1"))
     db.flush()
 
 
@@ -2417,6 +2489,7 @@ def create_event(db: Session, topic_id: int, payload: dict) -> dict:
     upsert_search_index_row(db, event, data, topic)
     sync_event_links(db, event)
     sync_event_embeds(db, event)
+    sync_event_manual_links(db, event)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
@@ -2453,6 +2526,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
     upsert_search_index_row(db, event, data, event.topic)
     sync_event_links(db, event)
     sync_event_embeds(db, event)
+    sync_event_manual_links(db, event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:

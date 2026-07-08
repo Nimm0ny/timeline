@@ -5,6 +5,8 @@ backlinks are one indexed lookup on timeline_links(target_event_id), not a body 
 See docs/notes-app-pivot-design.md §6.
 """
 
+import json
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +14,7 @@ from backend.app.db.session import Base
 from backend.app.models.entities import TimelineEvent, TimelineLink
 from backend.app.services import legacy_migration as legacy_migration_module
 from backend.app.services.timeline import (
+    backfill_manual_links,
     batch_event_previews,
     create_event,
     create_topic,
@@ -20,6 +23,7 @@ from backend.app.services.timeline import (
     get_event_detail,
     parse_snapshot_embeds,
     parse_wikilinks,
+    sync_event_manual_links,
     update_event,
 )
 
@@ -333,6 +337,151 @@ def test_canvas_indexed_by_embedded_headline(tmp_path, monkeypatch):
         event = db.query(TimelineEvent).filter(TimelineEvent.id == board["id"]).one()
         assert "Waterloo" in (event.search_text or "")
         assert "1815" in (event.search_text or "")
+    finally:
+        db.close()
+        engine.dispose()
+
+
+# ── §6.4: legacy manual "关联事件" (related_event_ids) → `manual` link rows (backfill + sync) ──
+def _related(db, topic_id, headline, related_ids):
+    # An entry note carrying legacy manual related_event_ids (the pre-wikilink 关联事件 relation).
+    return create_event(
+        db,
+        topic_id,
+        {"headline": headline, "era": "", "bodyMarkdown": headline, "noteType": "entry", "relatedEventIds": related_ids},
+    )
+
+
+def test_manual_related_becomes_backlink(tmp_path, monkeypatch):
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        target = _entry(db, topic["id"], "Target")
+        source = _related(db, topic["id"], "Source", [target["id"]])
+        back = get_backlinks(db, target["id"])
+        assert back["total"] == 1
+        item = back["items"][0]
+        assert item["sourceId"] == source["id"]
+        assert item["anchorType"] == "manual"
+        assert item["contextText"] == "手动关联"
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_dangling_related_id_stays_null(tmp_path, monkeypatch):
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        source = _related(db, topic["id"], "Source", [999999])  # no such note → dangling
+        rows = (
+            db.query(TimelineLink)
+            .filter(TimelineLink.source_event_id == source["id"], TimelineLink.anchor_type == "manual")
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].target_event_id is None
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_links_resync_on_edit(tmp_path, monkeypatch):
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        a = _entry(db, topic["id"], "A")
+        b = _entry(db, topic["id"], "B")
+        source = _related(db, topic["id"], "S", [a["id"]])
+        assert get_backlinks(db, a["id"])["total"] == 1
+        assert get_backlinks(db, b["id"])["total"] == 0
+        # Re-relate S to B instead of A → manual rows follow.
+        update_event(
+            db, source["id"],
+            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": [b["id"]]},
+        )
+        assert get_backlinks(db, a["id"])["total"] == 0
+        assert get_backlinks(db, b["id"])["total"] == 1
+        # Clear relations → manual rows gone.
+        update_event(
+            db, source["id"],
+            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": []},
+        )
+        assert get_backlinks(db, b["id"])["total"] == 0
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_links_drop_self_and_dedupe(tmp_path, monkeypatch):
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        target = _entry(db, topic["id"], "T")
+        source = _related(db, topic["id"], "S", [target["id"]])
+        # Simulate a legacy related list carrying a self-ref + a duplicate; re-sync the writer directly.
+        row = db.get(TimelineEvent, source["id"])
+        row.related_event_ids_json = json.dumps([source["id"], target["id"], target["id"]])
+        db.flush()
+        sync_event_manual_links(db, row)
+        db.commit()
+        links = (
+            db.query(TimelineLink)
+            .filter(TimelineLink.source_event_id == source["id"], TimelineLink.anchor_type == "manual")
+            .all()
+        )
+        assert len(links) == 1  # self dropped, duplicate collapsed
+        assert links[0].target_event_id == target["id"]
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_links_backfill_is_guarded(tmp_path, monkeypatch):
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        target = _entry(db, topic["id"], "T")
+        _related(db, topic["id"], "S", [target["id"]])
+        # Simulate pre-writer legacy rows: drop the manual links the ongoing sync just wrote.
+        db.query(TimelineLink).filter(TimelineLink.anchor_type == "manual").delete()
+        db.commit()
+        assert get_backlinks(db, target["id"])["total"] == 0
+        # First backfill re-projects related_event_ids_json → manual rows.
+        backfill_manual_links(db)
+        db.commit()
+        assert get_backlinks(db, target["id"])["total"] == 1
+        # Guarded: drop again → a second backfill is a no-op (marker set), so they stay gone.
+        db.query(TimelineLink).filter(TimelineLink.anchor_type == "manual").delete()
+        db.commit()
+        backfill_manual_links(db)
+        db.commit()
+        assert get_backlinks(db, target["id"])["total"] == 0
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_writer_leaves_wikilink_and_embed_intact(tmp_path, monkeypatch):
+    # The manual writer runs LAST in create/update; if its delete ever lost the anchor_type=="manual"
+    # scope it would wipe the source's own wikilink/embed rows and no other test would catch it.
+    db, engine = _session(tmp_path, monkeypatch)
+    try:
+        topic = create_topic(db, "t1", None)
+        target = _entry(db, topic["id"], "T")
+        # One source that BOTH wikilinks and manually-relates the same target.
+        source = create_event(
+            db,
+            topic["id"],
+            {"headline": "S", "era": "", "bodyMarkdown": f"see [[{target['id']}|T]]", "noteType": "entry", "relatedEventIds": [target["id"]]},
+        )
+        anchors = {
+            row.anchor_type
+            for row in db.query(TimelineLink).filter(TimelineLink.source_event_id == source["id"]).all()
+        }
+        assert anchors == {"wikilink", "manual"}  # both survive — manual writer didn't wipe wikilink
+        # get_backlinks collapses the two anchors from one source to a single backlink row.
+        assert get_backlinks(db, target["id"])["total"] == 1
     finally:
         db.close()
         engine.dispose()
