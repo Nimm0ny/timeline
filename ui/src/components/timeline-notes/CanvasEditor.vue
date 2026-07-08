@@ -165,7 +165,9 @@ function currentView() {
   const g = graph.value;
   if (!g) return null;
   const { tx = 0, ty = 0 } = g.translate?.() || {};
-  return { tx, ty, zoom: g.getZoom?.() ?? 1 };
+  // X6's zoom getter is zoom(), not getZoom() (which doesn't exist on the Graph) — reading the
+  // wrong name silently persisted zoom as 1, so a reload reset the zoom. Same fix as recomputeTiers.
+  return { tx, ty, zoom: g.zoom?.() ?? 1 };
 }
 
 function flushViewSave() {
