@@ -1049,7 +1049,7 @@ function syncActiveTopicFromStore() {
   state.events = state.activeTopicId ? notesStore.notesForTopic(state.activeTopicId) : [];
   state.eventBounds = state.activeTopicMeta
     ? {
-        eventCount: state.activeTopicMeta.eventCount,
+        noteCount: state.activeTopicMeta.noteCount,
         minDateKey: state.activeTopicMeta.minDateKey,
         maxDateKey: state.activeTopicMeta.maxDateKey,
         minDate: state.activeTopicMeta.minDate,
@@ -1593,7 +1593,7 @@ async function persistMindmapTree({ id, tree } = {}) {
       // updateNote is a full replace — forward the note's existing attachments and
       // related links so a tree autosave can't blank them.
       attachments: note.attachments || [],
-      relatedEventIds: note.relatedEventIds || [],
+      relatedNoteIds: note.relatedNoteIds || [],
     };
     if (note.hasDate && note.dateParts?.year != null) {
       payload.dateYear = note.dateParts.year;
@@ -1635,7 +1635,7 @@ async function persistCanvasSnapshot({ id, tree } = {}) {
       // updateNote is a full replace — forward existing attachments/links so a board
       // autosave can't blank them.
       attachments: note.attachments || [],
-      relatedEventIds: note.relatedEventIds || [],
+      relatedNoteIds: note.relatedNoteIds || [],
     };
     if (note.hasDate && note.dateParts?.year != null) {
       payload.dateYear = note.dateParts.year;
@@ -1896,7 +1896,7 @@ async function createTopic(input) {
   if (!topicName) return;
   try {
     const created = await api.createTopic(topicName, request.bookshelfId);
-    notesStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
+    notesStore.upsertTopic({ ...created, noteCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
     await refreshSidebarData({ reloadTopics: true });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
     const ready = await applyWorkspaceSelectionWithNotes({
@@ -2924,7 +2924,7 @@ watch(
       :filter-context-clearable="isGlobalFavoritesMode && favoritesPanel.clearable"
       :topic-id="state.activeTopicId"
       :topics="state.topics"
-      :event-count="visibleNotes.length"
+      :note-count="visibleNotes.length"
       :empty-reason="feedEmptyReason"
       :search-query="state.searchQuery"
       :groups="groupedNotes"

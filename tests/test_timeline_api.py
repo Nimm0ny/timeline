@@ -58,13 +58,13 @@ def test_topic_meta_range_and_summary(client, seeded_topic):
     assert body["columns"] == []
     assert body["minDateKey"] == 18400101
     assert body["maxDateKey"] == 18410215
-    assert body["eventCount"] == 4
+    assert body["noteCount"] == 4
 
     summary = client.get(f"/api/topics/{seeded_topic.id}/summary", params={"groupBy": "month"})
     assert summary.status_code == 200
     payload = summary.json()
     assert payload["items"][0]["displayLabel"] == "1840-01"
-    assert payload["items"][0]["eventCount"] == 2
+    assert payload["items"][0]["noteCount"] == 2
 
 
 def test_bookshelf_contracts_cover_list_create_update_delete_and_topic_assignment(client, seeded_topic):
@@ -73,7 +73,7 @@ def test_bookshelf_contracts_cover_list_create_update_delete_and_topic_assignmen
     default_shelf = next(item for item in shelves.json() if item["name"] == "default")
     assert default_shelf["title"] == "编年"
     assert default_shelf["topicCount"] == 1
-    assert default_shelf["eventCount"] == 4
+    assert default_shelf["noteCount"] == 4
     tree = client.get("/api/bookshelves/tree")
     assert tree.status_code == 200
     default_tree = next(item for item in tree.json() if item["name"] == "default")
@@ -138,7 +138,7 @@ def test_bookshelf_contracts_cover_list_create_update_delete_and_topic_assignmen
 def test_index_and_event_detail_contract(client, seeded_topic):
     long_body = "Short preview. " + ("filler " * 40) + "deep-search-token"
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1842,
             "dateMonth": 5,
@@ -159,9 +159,9 @@ def test_index_and_event_detail_contract(client, seeded_topic):
     assert index.status_code == 200
     payload = index.json()
     assert payload["topics"][0]["id"] == seeded_topic.id
-    assert payload["topics"][0]["eventCount"] == 5
+    assert payload["topics"][0]["noteCount"] == 5
 
-    event = payload["events"][0]
+    event = payload["notes"][0]
     assert event["topicId"] == seeded_topic.id
     assert event["headline"] == "Opium War Begins"
     assert event["preview"] == "Conflict begins."
@@ -169,7 +169,7 @@ def test_index_and_event_detail_contract(client, seeded_topic):
     assert "bodyMarkdown" not in event
     assert "attachments" not in event
 
-    indexed_created = next(item for item in payload["events"] if item["id"] == created.json()["id"])
+    indexed_created = next(item for item in payload["notes"] if item["id"] == created.json()["id"])
     assert indexed_created["attachmentCount"] == 1
     assert "deep-search-token" in indexed_created["searchText"]
     assert "rare-attachment-name.pdf" in indexed_created["searchText"]
@@ -177,7 +177,7 @@ def test_index_and_event_detail_contract(client, seeded_topic):
     assert "bodyMarkdown" not in indexed_created
     assert "attachments" not in indexed_created
 
-    detail = client.get(f"/api/events/{event['id']}")
+    detail = client.get(f"/api/notes/{event['id']}")
     assert detail.status_code == 200
     body = detail.json()
     assert body["id"] == event["id"]
@@ -215,7 +215,7 @@ def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
         "items": [],
         "image": None,
     }
-    created = client.post(f"/api/topics/{seeded_topic.id}/events", json=payload)
+    created = client.post(f"/api/topics/{seeded_topic.id}/notes", json=payload)
     assert created.status_code == 200
     note_id = created.json()["id"]
 
@@ -254,27 +254,27 @@ def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
     relabeled_match = client.get("/api/search", params={"q": "Policy Renamed"})
     assert relabeled_match.status_code == 200
     assert any(row["id"] == note_id for row in relabeled_match.json())
-    listed = client.get(f"/api/topics/{seeded_topic.id}/events", params={"limit": 200})
+    listed = client.get(f"/api/topics/{seeded_topic.id}/notes", params={"limit": 200})
     assert listed.status_code == 200
     listed_event = next(row for row in listed.json()["items"] if row["id"] == note_id)
     assert "Policy Renamed" in listed_event["searchText"]
 
     updated = client.put(
-        f"/api/events/{note_id}",
+        f"/api/notes/{note_id}",
         json={**payload, "headline": "Updated Search Event", "bodyMarkdown": "replacementneedle is now the indexed body."},
     )
     assert updated.status_code == 200
     assert all(row["id"] != note_id for row in client.get("/api/search", params={"q": "uniqueneedle"}).json())
     assert any(row["id"] == note_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
 
-    deleted = client.delete(f"/api/events/{note_id}")
+    deleted = client.delete(f"/api/notes/{note_id}")
     assert deleted.status_code == 200
     assert all(row["id"] != note_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
 
 
 def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     response = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1842,
             "dateMonth": 3,
@@ -291,7 +291,7 @@ def test_structured_event_creation_and_range_fetch(client, seeded_topic):
     assert created["headline"] == "Structured Event"
 
     ranged = client.get(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         params={"from": "1842-03-01", "to": "1842-03-31"},
     )
     assert ranged.status_code == 200
@@ -455,14 +455,14 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
     assert saved_columns["tags"]["type"] == "multiselect"
     assert [option["id"] for option in saved_columns["tags"]["options"]] == ["important", "archive"]
 
-    existing = client.get(f"/api/topics/{seeded_topic.id}/events")
+    existing = client.get(f"/api/topics/{seeded_topic.id}/notes")
     assert existing.status_code == 200
     related_id = existing.json()["items"][0]["id"]
     assert "bodyMarkdown" not in existing.json()["items"][0]
-    assert client.get(f"/api/events/{related_id}").json()["bodyMarkdown"] == "Conflict begins."
+    assert client.get(f"/api/notes/{related_id}").json()["bodyMarkdown"] == "Conflict begins."
 
     response = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1842,
             "dateMonth": 4,
@@ -481,7 +481,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
             "attachments": [
                 {"id": None, "name": "archive-note.md", "filename": "archive-note.md", "mimeType": "text/markdown"}
             ],
-            "relatedEventIds": [related_id],
+            "relatedNoteIds": [related_id],
             "favorite": True,
             "items": [],
             "image": None,
@@ -498,8 +498,8 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
         "source": "档案馆",
     }
     assert created["attachments"][0]["url"] == "/images/archive-note.md"
-    assert created["relatedEventIds"] == [related_id]
-    assert created["relatedEvents"][0]["id"] == related_id
+    assert created["relatedNoteIds"] == [related_id]
+    assert created["relatedNotes"][0]["id"] == related_id
     assert created["createdAt"]
     assert created["updatedAt"]
     assert created["favorite"] is True
@@ -509,7 +509,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
     assert created["items"][0]["tag"] == "note"
 
     updated = client.put(
-        f"/api/events/{created['id']}",
+        f"/api/notes/{created['id']}",
         json={
             "dateYear": 1842,
             "dateMonth": 4,
@@ -520,7 +520,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
             # invalid select id falls back to ""; unknown property key dropped
             "extra": {"type": "ghost", "tags": ["archive"], "place": "南京", "source": "条约文本", "unknown": "drop"},
             "attachments": [],
-            "relatedEventIds": [related_id],
+            "relatedNoteIds": [related_id],
             "items": [],
             "image": None,
         },
@@ -535,10 +535,10 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
 
     exported, _ = export_topic_data(db_session, seeded_topic.id)
     assert exported["columns"][0]["key"] == "type"
-    exported_event = next(item for item in exported["events"] if item["id"] == created["id"])
+    exported_event = next(item for item in exported["notes"] if item["id"] == created["id"])
     assert exported_event["bodyMarkdown"] == "Updated body"
     assert exported_event["extra"] == {"type": "", "tags": ["archive"], "place": "南京", "source": "条约文本"}
-    assert exported_event["relatedEvents"][0]["id"] == related_id
+    assert exported_event["relatedNotes"][0]["id"] == related_id
 
     # Remove the `source` property; its value must survive as an orphan soft-keep.
     removed_column = client.put(
@@ -552,7 +552,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
     assert removed_column.status_code == 200
 
     preserved = client.put(
-        f"/api/events/{created['id']}",
+        f"/api/notes/{created['id']}",
         json={
             "dateYear": 1842,
             "dateMonth": 4,
@@ -562,7 +562,7 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
             "bodyMarkdown": "Preserve orphan extra",
             "extra": {"type": "treaty", "tags": ["important"], "place": "上海"},
             "attachments": [],
-            "relatedEventIds": [related_id],
+            "relatedNoteIds": [related_id],
             "items": [],
             "image": None,
         },
@@ -577,30 +577,30 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
 
 
 def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanent_delete(client, seeded_topic):
-    events = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    events = client.get(f"/api/topics/{seeded_topic.id}/notes").json()["items"]
     note_id = events[0]["id"]
 
-    favorite = client.put(f"/api/events/{note_id}", json={"favorite": True})
+    favorite = client.put(f"/api/notes/{note_id}", json={"favorite": True})
     assert favorite.status_code == 200
     assert favorite.json()["favorite"] is True
     assert favorite.json()["favoriteAt"]
     assert favorite.json()["deletedAt"] is None
 
-    deleted = client.delete(f"/api/events/{note_id}")
+    deleted = client.delete(f"/api/notes/{note_id}")
     assert deleted.status_code == 200
     assert deleted.json()["deletedAt"]
-    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 3
-    assert next(item for item in client.get("/api/bookshelves").json() if item["name"] == "default")["eventCount"] == 3
+    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["noteCount"] == 3
+    assert next(item for item in client.get("/api/bookshelves").json() if item["name"] == "default")["noteCount"] == 3
 
-    after_delete = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    after_delete = client.get(f"/api/topics/{seeded_topic.id}/notes").json()["items"]
     deleted_event = next(item for item in after_delete if item["id"] == note_id)
     assert deleted_event["deletedAt"]
 
-    blocked_favorite = client.put(f"/api/events/{note_id}", json={"favorite": False})
+    blocked_favorite = client.put(f"/api/notes/{note_id}", json={"favorite": False})
     assert blocked_favorite.status_code == 409
 
     blocked_edit = client.put(
-        f"/api/events/{note_id}",
+        f"/api/notes/{note_id}",
         json={
             "dateYear": 1840,
             "dateMonth": 1,
@@ -615,21 +615,21 @@ def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanen
     )
     assert blocked_edit.status_code == 409
 
-    restored = client.put(f"/api/events/{note_id}", json={"deletedAt": None})
+    restored = client.put(f"/api/notes/{note_id}", json={"deletedAt": None})
     assert restored.status_code == 200
     assert restored.json()["deletedAt"] is None
-    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 4
+    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["noteCount"] == 4
 
-    unfavorite = client.put(f"/api/events/{note_id}", json={"favorite": False})
+    unfavorite = client.put(f"/api/notes/{note_id}", json={"favorite": False})
     assert unfavorite.status_code == 200
     assert unfavorite.json()["favorite"] is False
     assert unfavorite.json()["favoriteAt"] is None
 
-    permanent = client.delete(f"/api/events/{note_id}", params={"permanent": "true"})
+    permanent = client.delete(f"/api/notes/{note_id}", params={"permanent": "true"})
     assert permanent.status_code == 200
-    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 3
+    assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["noteCount"] == 3
 
-    after_permanent = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    after_permanent = client.get(f"/api/topics/{seeded_topic.id}/notes").json()["items"]
     assert note_id not in [item["id"] for item in after_permanent]
 
 
@@ -674,24 +674,24 @@ def test_topic_era_stats_merges_normalized_eras(db_session):
 
 
 def test_topic_stat_favorite_count_tracks_soft_delete(client, seeded_topic, db_session):
-    events = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    events = client.get(f"/api/topics/{seeded_topic.id}/notes").json()["items"]
     note_id = events[0]["id"]
 
-    client.put(f"/api/events/{note_id}", json={"favorite": True})
+    client.put(f"/api/notes/{note_id}", json={"favorite": True})
     stat = db_session.get(TopicStat, seeded_topic.id)
     db_session.refresh(stat)
     assert stat.live_event_count == 4
     assert stat.favorite_count == 1
 
     # Soft-deleting the favorited event drops live + favorite and bumps deleted.
-    client.delete(f"/api/events/{note_id}")
+    client.delete(f"/api/notes/{note_id}")
     db_session.refresh(stat)
     assert stat.live_event_count == 3
     assert stat.deleted_event_count == 1
     assert stat.favorite_count == 0
 
     # Restore brings the (still-favorited) event back into the live/favorite counts.
-    client.put(f"/api/events/{note_id}", json={"deletedAt": None})
+    client.put(f"/api/notes/{note_id}", json={"deletedAt": None})
     db_session.refresh(stat)
     assert stat.live_event_count == 4
     assert stat.deleted_event_count == 0
@@ -700,7 +700,7 @@ def test_topic_stat_favorite_count_tracks_soft_delete(client, seeded_topic, db_s
 
 def test_negative_year_range_fetch(client, seeded_topic):
     response = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": -1,
             "dateMonth": 1,
@@ -714,7 +714,7 @@ def test_negative_year_range_fetch(client, seeded_topic):
     assert response.status_code == 200
 
     ranged = client.get(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         params={"from": "-0001-01-01", "to": "-0001-01-31"},
     )
     assert ranged.status_code == 200
@@ -769,7 +769,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
-    page = client.get(f"/api/topics/{seeded_topic.id}/events")
+    page = client.get(f"/api/topics/{seeded_topic.id}/notes")
     assert page.status_code == 200
     payload = page.json()
     assert len(payload["items"]) == 100
@@ -785,7 +785,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
     seen = {item["id"] for item in payload["items"]}
     cursor = payload["nextCursor"]
     while cursor:
-        next_page = client.get(f"/api/topics/{seeded_topic.id}/events", params={"cursor": cursor})
+        next_page = client.get(f"/api/topics/{seeded_topic.id}/notes", params={"cursor": cursor})
         assert next_page.status_code == 200
         next_payload = next_page.json()
         ids = [item["id"] for item in next_payload["items"]]
@@ -793,7 +793,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
         seen.update(ids)
         cursor = next_payload["nextCursor"] if next_payload["hasMore"] else None
 
-    final_ids = {item["id"] for item in client.get(f"/api/topics/{seeded_topic.id}/events", params={"limit": 500}).json()["items"]}
+    final_ids = {item["id"] for item in client.get(f"/api/topics/{seeded_topic.id}/notes", params={"limit": 500}).json()["items"]}
     assert seen == final_ids
     assert set(undated_ids).issubset(seen)
 
@@ -815,12 +815,12 @@ def test_topic_events_descending_flips_dated_order_and_keeps_undated_tail(client
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
-    asc = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
+    asc = client.get(f"/api/topics/{seeded_topic.id}/notes").json()["items"]
     asc_dated = [item["dateKey"] for item in asc if item["dateKey"] is not None]
     assert asc_dated == sorted(asc_dated)  # dir defaults to ascending (oldest -> newest)
     assert asc[-1]["id"] == undated_id  # undated sinks to the tail
 
-    desc = client.get(f"/api/topics/{seeded_topic.id}/events", params={"dir": -1}).json()["items"]
+    desc = client.get(f"/api/topics/{seeded_topic.id}/notes", params={"dir": -1}).json()["items"]
     desc_dated = [item["dateKey"] for item in desc if item["dateKey"] is not None]
     assert desc_dated == sorted(desc_dated, reverse=True)  # newest -> oldest
     assert desc[-1]["id"] == undated_id  # undated is NOT floated to the top by descending
@@ -846,7 +846,7 @@ def test_topic_events_descending_cursor_pagination_is_complete_and_ordered(clien
     db_session.commit()
 
     single_shot = client.get(
-        f"/api/topics/{seeded_topic.id}/events", params={"dir": -1, "limit": 500}
+        f"/api/topics/{seeded_topic.id}/notes", params={"dir": -1, "limit": 500}
     ).json()["items"]
     expected_ids = [item["id"] for item in single_shot]
 
@@ -857,7 +857,7 @@ def test_topic_events_descending_cursor_pagination_is_complete_and_ordered(clien
         params = {"dir": -1, "limit": 2}
         if cursor:
             params["cursor"] = cursor
-        payload = client.get(f"/api/topics/{seeded_topic.id}/events", params=params).json()
+        payload = client.get(f"/api/topics/{seeded_topic.id}/notes", params=params).json()
         ids = [item["id"] for item in payload["items"]]
         assert not (seen & set(ids))  # pages never overlap
         seen.update(ids)
@@ -880,7 +880,7 @@ def _walk_all_pages(client, topic_id, *, limit, direction=1):
         params = {"limit": limit, "dir": direction}
         if cursor:
             params["cursor"] = cursor
-        resp = client.get(f"/api/topics/{topic_id}/events", params=params)
+        resp = client.get(f"/api/topics/{topic_id}/notes", params=params)
         assert resp.status_code == 200, resp.text  # every cursor token must resume, never 500/400
         payload = resp.json()
         seen.extend(item["id"] for item in payload["items"])
@@ -912,7 +912,7 @@ def test_topic_events_pages_through_an_undated_tail_that_crosses_a_boundary(clie
 
     all_ids = [
         item["id"]
-        for item in client.get(f"/api/topics/{seeded_topic.id}/events", params={"limit": 500}).json()["items"]
+        for item in client.get(f"/api/topics/{seeded_topic.id}/notes", params={"limit": 500}).json()["items"]
     ]
     assert _walk_all_pages(client, seeded_topic.id, limit=2) == all_ids  # complete across the null-cursor hop
 
@@ -945,7 +945,7 @@ def test_topic_events_cursor_round_trips_for_non_four_digit_years(client, db_ses
         expected = [
             item["id"]
             for item in client.get(
-                f"/api/topics/{seeded_topic.id}/events", params={"limit": 500, "dir": direction}
+                f"/api/topics/{seeded_topic.id}/notes", params={"limit": 500, "dir": direction}
             ).json()["items"]
         ]
         assert _walk_all_pages(client, seeded_topic.id, limit=2, direction=direction) == expected, f"dir={direction}"
@@ -969,7 +969,7 @@ def test_import_accepts_legacy_and_v2_payloads(db_session, seeded_topic):
         "columns": [
             {"key": "place", "label": "地点", "type": "text", "width": 96, "order": 0, "visible": True}
         ],
-        "events": [
+        "notes": [
             {
                 "dateYear": 1844,
                 "dateMonth": 4,
@@ -988,8 +988,8 @@ def test_import_accepts_legacy_and_v2_payloads(db_session, seeded_topic):
     exported, _ = export_topic_data(db_session, seeded_topic.id)
     assert exported["schemaVersion"] == 2
     assert exported["columns"][0]["key"] == "place"
-    assert exported["events"][0]["headline"] == "V2 Import"
-    assert exported["events"][0]["extra"] == {"place": "上海"}
+    assert exported["notes"][0]["headline"] == "V2 Import"
+    assert exported["notes"][0]["extra"] == {"place": "上海"}
 
 
 def test_bookshelf_schema_migration_adds_topic_column_and_assigns_default_and_qs_topics(tmp_path, monkeypatch):

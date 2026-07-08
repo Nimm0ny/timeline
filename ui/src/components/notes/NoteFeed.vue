@@ -89,7 +89,7 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  eventCount: {
+  noteCount: {
     type: Number,
     default: 0,
   },
@@ -1169,7 +1169,7 @@ defineExpose({
     <div class="tl-bar" @pointerdown="onBarPointerDown">
       <div class="tl-head">
         <h2>{{ props.topicTitle || "历史事件" }}</h2>
-        <span class="tl-count">· 共 {{ props.eventCount }} 条</span>
+        <span class="tl-count">· 共 {{ props.noteCount }} 条</span>
         <span v-if="props.filterContextLabel" class="tl-context">
           <span class="tl-context-label">{{ props.filterContextLabel }}</span>
           <button

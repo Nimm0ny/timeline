@@ -25,7 +25,7 @@ function normalizeTopic(topic = {}) {
     ...topic,
     id: Number(topic.id),
     columns: Array.isArray(topic.columns) ? topic.columns : [],
-    eventCount: Number(topic.eventCount || 0),
+    noteCount: Number(topic.noteCount || 0),
     minDateKey: topic.minDateKey ?? null,
     maxDateKey: topic.maxDateKey ?? null,
     minDate: topic.minDate ?? null,
@@ -68,7 +68,7 @@ function hasFullNoteDetail(note = {}) {
     "bodyJson" in note ||
     "attachments" in note ||
     "items" in note ||
-    "relatedEvents" in note
+    "relatedNotes" in note
   );
 }
 
@@ -257,7 +257,7 @@ export function useNotesStore() {
   }
 
   function applyTopicBounds(topic, bounds) {
-    topic.eventCount = Number(bounds.eventCount || 0);
+    topic.noteCount = Number(bounds.noteCount || 0);
     topic.minDateKey = bounds.minDateKey ?? null;
     topic.maxDateKey = bounds.maxDateKey ?? null;
     topic.minDate = bounds.minDate ?? null;
@@ -278,7 +278,7 @@ export function useNotesStore() {
     if (topicPageState(id).hasMore) return;
     const notes = notesForTopic(id);
     const { min, max } = minMaxNotes(notes);
-    topic.eventCount = notes.length;
+    topic.noteCount = notes.length;
     topic.minDateKey = min?.dateKey ?? null;
     topic.maxDateKey = max?.dateKey ?? null;
     topic.minDate = min?.isoDate ?? null;
@@ -314,7 +314,7 @@ export function useNotesStore() {
     try {
       const payload = await api.getIndex();
       replaceTopics(payload.topics || []);
-      replaceNotes(payload.events || []);
+      replaceNotes(payload.notes || []);
       state.loadedTopicIds.clear();
       for (const topic of state.topics) state.loadedTopicIds.add(topic.id);
       state.topicPages = Object.fromEntries(state.topics.map((topic) => [topic.id, { loaded: true, hasMore: false, nextCursor: null }]));

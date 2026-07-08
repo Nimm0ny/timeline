@@ -1511,7 +1511,7 @@ watch(typeMenu, (value) => {
                           <span v-else class="ti-chev"></span>
                           <span class="ti-ic"><LucideIcon :name="containerTypeIcon(entry.topic.containerType)" :stroke-width="1.5" /></span>
                           <span class="ti-name">{{ entry.topic.title || entry.topic.name }}</span>
-                          <span class="ti-cnt">{{ entry.topic.eventCount || 0 }}</span>
+                          <span class="ti-cnt">{{ entry.topic.noteCount || 0 }}</span>
                           <span v-if="!selectMode" class="ti-acts">
                             <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(entry.topic, $event)">
                               <LucideIcon name="more" :stroke-width="1.5" />

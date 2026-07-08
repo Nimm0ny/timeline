@@ -58,7 +58,7 @@ const sections = computed(() => [
   {
     id: "events",
     label: "事件",
-    items: props.events.map((event) => ({ type: "event", key: `event-${event.id}`, value: event })),
+    items: props.events.map((event) => ({ type: "note", key: `event-${event.id}`, value: event })),
   },
   {
     id: "topics",
@@ -91,7 +91,7 @@ function moveActive(delta) {
 
 function activate(item = flatItems.value[activeIndex.value]) {
   if (!item) return;
-  if (item.type === "event") emit("select-note", item.value);
+  if (item.type === "note") emit("select-note", item.value);
   if (item.type === "topic") emit("select-topic", item.value);
   if (item.type === "command") emit("command", item.value.id);
 }
@@ -203,7 +203,7 @@ watch(
                 <span class="command-row-sub">笔记本</span>
               </span>
               <span class="command-row-meta">
-                <span class="command-date">{{ item.value.eventCount || 0 }} 条</span>
+                <span class="command-date">{{ item.value.noteCount || 0 }} 条</span>
               </span>
             </template>
 

@@ -1,7 +1,7 @@
 /**
  * @typedef {Object} NoteNode
  * @property {number} id
- * @property {"event"} nodeType
+ * @property {"note"} nodeType
  * @property {number} dateKey
  * @property {number} sortKey
  * @property {string} isoDate
@@ -24,7 +24,7 @@
  * @property {string} displayLabel
  * @property {string} headline
  * @property {string} era
- * @property {number} eventCount
+ * @property {number} noteCount
  * @property {number} rangeStartKey
  * @property {number} rangeEndKey
  * @property {string} rangeStartDate
@@ -35,7 +35,7 @@
 export function normalizeNoteNode(node) {
   return {
     id: Number(node.id),
-    nodeType: "event",
+    nodeType: "note",
     dateKey: Number(node.dateKey),
     sortKey: Number(node.sortKey ?? node.dateKey),
     isoDate: String(node.isoDate || ""),
@@ -63,7 +63,7 @@ export function normalizeSummaryNode(node) {
     displayLabel: String(node.displayLabel || ""),
     headline: String(node.headline || node.displayLabel || ""),
     era: String(node.era || ""),
-    eventCount: Number(node.eventCount || 0),
+    noteCount: Number(node.noteCount || 0),
     rangeStartKey: Number(node.rangeStartKey),
     rangeEndKey: Number(node.rangeEndKey),
     rangeStartDate: String(node.rangeStartDate || ""),

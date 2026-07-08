@@ -1107,7 +1107,7 @@ function hasReadableRelatedNote(event = {}) {
 export function buildReadableDetailGroups(event) {
   return {
     attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment),
-    relatedEvents: (Array.isArray(event?.relatedEvents) ? event.relatedEvents : []).filter(hasReadableRelatedNote),
+    relatedNotes: (Array.isArray(event?.relatedNotes) ? event.relatedNotes : []).filter(hasReadableRelatedNote),
   };
 }
 
@@ -1271,8 +1271,8 @@ export function buildEditorDraft(event, columns = []) {
     image: event?.image || "",
     imageUrl: event?.imageUrl || "",
     attachments: Array.isArray(event?.attachments) ? event.attachments.map((item) => ({ ...item })) : [],
-    relatedEventIds: Array.isArray(event?.relatedEventIds) ? [...event.relatedEventIds] : [],
-    relatedEvents: Array.isArray(event?.relatedEvents) ? event.relatedEvents.map((item) => ({ ...item })) : [],
+    relatedNoteIds: Array.isArray(event?.relatedNoteIds) ? [...event.relatedNoteIds] : [],
+    relatedNotes: Array.isArray(event?.relatedNotes) ? event.relatedNotes.map((item) => ({ ...item })) : [],
     favorite: Boolean(event?.favorite),
     deletedAt: event?.deletedAt || null,
     items: (event?.items || [{ tag: "note", text: bodyMarkdown || "" }]).map((item) => ({
@@ -1346,7 +1346,7 @@ export const SIDEBAR_SORT_MODES = ["default", "name", "count", "updated"];
 // every tiebreak fall back to title ascending (zh-CN collation).
 function compareSidebarNodes(a, b, mode) {
   if (mode === "count") {
-    const delta = Number(b?.eventCount || 0) - Number(a?.eventCount || 0);
+    const delta = Number(b?.noteCount || 0) - Number(a?.noteCount || 0);
     if (delta) return delta;
   } else if (mode === "updated") {
     const av = a?.updatedAt ? Date.parse(a.updatedAt) : NaN;
@@ -1394,7 +1394,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = [])
       name: normalizedName,
       title: String(shelf?.title || normalizedName).trim() || normalizedName,
       topicCount: 0,
-      eventCount: 0,
+      noteCount: 0,
       topics: [],
     };
     byShelf.set(normalizedName, entry);
@@ -1410,7 +1410,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = [])
         name: bookshelf.name,
         title: bookshelf.title,
         topicCount: 0,
-        eventCount: 0,
+        noteCount: 0,
         topics: [],
       };
       byShelf.set(bookshelf.name, shelf);
@@ -1429,7 +1429,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = [])
     }
 
     shelf.topicCount += 1;
-    shelf.eventCount += Number(topic.eventCount || 0);
+    shelf.noteCount += Number(topic.noteCount || 0);
     shelf.topics.push({ topic, eras });
   }
 

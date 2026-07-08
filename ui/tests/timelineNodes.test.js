@@ -32,7 +32,7 @@ test("normalizeSummaryNode preserves bucket metadata", () => {
     displayLabel: "1840",
     headline: "1840",
     era: "2 events",
-    eventCount: 2,
+    noteCount: 2,
     rangeStartKey: 18400101,
     rangeEndKey: 18401231,
     rangeStartDate: "1840-01-01",
@@ -40,6 +40,6 @@ test("normalizeSummaryNode preserves bucket metadata", () => {
     items: [{ tag: "summary", text: "2 events in 1840" }],
   });
   assert.equal(node.groupBy, "year");
-  assert.equal(node.eventCount, 2);
+  assert.equal(node.noteCount, 2);
   assert.equal(node.rangeEndDate, "1840-12-31");
 });

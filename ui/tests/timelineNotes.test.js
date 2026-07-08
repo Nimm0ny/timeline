@@ -340,8 +340,8 @@ test("buildEditorDraft clones event DTO fields and seeds property values", () =>
     era: "Modern",
     bodyMarkdown: "",
     attachments: [{ id: 7, name: "source.pdf", filename: "source.pdf" }],
-    relatedEventIds: [1],
-    relatedEvents: [{ id: 1, headline: "Trade Conflict" }],
+    relatedNoteIds: [1],
+    relatedNotes: [{ id: 1, headline: "Trade Conflict" }],
     items: [{ tag: "note", text: "Fallback body" }],
     extra: { tags: ["politics"] },
   };
@@ -350,7 +350,7 @@ test("buildEditorDraft clones event DTO fields and seeds property values", () =>
   assert.equal(draft.dateYear, 1949);
   assert.equal(draft.bodyMarkdown, "Fallback body");
   assert.deepEqual(draft.extra.tags, ["politics"]);
-  assert.deepEqual(draft.relatedEventIds, [1]);
+  assert.deepEqual(draft.relatedNoteIds, [1]);
   assert.equal(draft.tags, undefined);
 
   draft.attachments[0].name = "changed.pdf";
@@ -361,12 +361,12 @@ test("buildEditorDraft clones event DTO fields and seeds property values", () =>
 test("buildReadableDetailGroups removes empty read-mode support groups", () => {
   const groups = buildReadableDetailGroups({
     attachments: [{ name: "  " }, { filename: "source.pdf" }],
-    relatedEvents: [{ id: 1, headline: "" }, { id: 2, headline: "Trade Conflict" }],
+    relatedNotes: [{ id: 1, headline: "" }, { id: 2, headline: "Trade Conflict" }],
   });
 
   assert.equal(groups.tags, undefined);
   assert.deepEqual(groups.attachments.map((attachment) => attachment.filename), ["source.pdf"]);
-  assert.deepEqual(groups.relatedEvents.map((event) => event.id), [2]);
+  assert.deepEqual(groups.relatedNotes.map((event) => event.id), [2]);
 });
 
 test("normalizeTopicColumns validates, sorts, dedups options, and reserves only title/time", () => {
@@ -744,8 +744,8 @@ test("normalizeTopicBookshelf falls back to system shelf semantics", () => {
 
 test("buildBookshelfTree keeps empty shelves and groups topic eras chronologically", () => {
   const topics = [
-    { id: 1, title: "党史", eventCount: 2, bookshelfId: 10, bookshelfName: "default", bookshelfTitle: "编年" },
-    { id: 2, title: "求是网-理论", eventCount: 1, bookshelfId: 11, bookshelfName: "qstheory", bookshelfTitle: "求是" },
+    { id: 1, title: "党史", noteCount: 2, bookshelfId: 10, bookshelfName: "default", bookshelfTitle: "编年" },
+    { id: 2, title: "求是网-理论", noteCount: 1, bookshelfId: 11, bookshelfName: "qstheory", bookshelfTitle: "求是" },
   ];
   const bookshelves = [
     { id: 10, name: "default", title: "编年" },
@@ -898,19 +898,19 @@ const sidebarSortTree = () => [
   {
     name: "b",
     title: "Beta",
-    eventCount: 5,
+    noteCount: 5,
     updatedAt: "2026-06-01T00:00:00Z",
     topics: [
-      { topic: { id: 1, title: "Cat", eventCount: 2, updatedAt: "2026-02-01T00:00:00Z" }, eras: [{ era: "e", count: 2 }] },
-      { topic: { id: 2, title: "Dog", eventCount: 9, updatedAt: "2026-03-01T00:00:00Z" }, eras: [] },
+      { topic: { id: 1, title: "Cat", noteCount: 2, updatedAt: "2026-02-01T00:00:00Z" }, eras: [{ era: "e", count: 2 }] },
+      { topic: { id: 2, title: "Dog", noteCount: 9, updatedAt: "2026-03-01T00:00:00Z" }, eras: [] },
     ],
   },
   {
     name: "a",
     title: "Alpha",
-    eventCount: 8,
+    noteCount: 8,
     updatedAt: "2026-05-01T00:00:00Z",
-    topics: [{ topic: { id: 3, title: "Ant", eventCount: 1, updatedAt: "2026-04-01T00:00:00Z" }, eras: [] }],
+    topics: [{ topic: { id: 3, title: "Ant", noteCount: 1, updatedAt: "2026-04-01T00:00:00Z" }, eras: [] }],
   },
 ];
 

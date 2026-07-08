@@ -348,7 +348,7 @@ def _related(db, topic_id, headline, related_ids):
     return create_note(
         db,
         topic_id,
-        {"headline": headline, "era": "", "bodyMarkdown": headline, "noteType": "entry", "relatedEventIds": related_ids},
+        {"headline": headline, "era": "", "bodyMarkdown": headline, "noteType": "entry", "relatedNoteIds": related_ids},
     )
 
 
@@ -398,14 +398,14 @@ def test_manual_links_resync_on_edit(tmp_path, monkeypatch):
         # Re-relate S to B instead of A → manual rows follow.
         update_note(
             db, source["id"],
-            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": [b["id"]]},
+            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedNoteIds": [b["id"]]},
         )
         assert get_backlinks(db, a["id"])["total"] == 0
         assert get_backlinks(db, b["id"])["total"] == 1
         # Clear relations → manual rows gone.
         update_note(
             db, source["id"],
-            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": []},
+            {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedNoteIds": []},
         )
         assert get_backlinks(db, b["id"])["total"] == 0
     finally:
@@ -473,7 +473,7 @@ def test_manual_writer_leaves_wikilink_and_embed_intact(tmp_path, monkeypatch):
         source = create_note(
             db,
             topic["id"],
-            {"headline": "S", "era": "", "bodyMarkdown": f"see [[{target['id']}|T]]", "noteType": "entry", "relatedEventIds": [target["id"]]},
+            {"headline": "S", "era": "", "bodyMarkdown": f"see [[{target['id']}|T]]", "noteType": "entry", "relatedNoteIds": [target["id"]]},
         )
         anchors = {
             row.anchor_type

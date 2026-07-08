@@ -17,7 +17,7 @@ function detailEvent(id) {
     noteType: "entry",
     bodyMarkdown: `Body ${id}`,
     attachments: [],
-    relatedEvents: [],
+    relatedNotes: [],
     items: [],
     extra: {},
     favorite: false,

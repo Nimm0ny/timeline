@@ -258,7 +258,7 @@ def topic_capability_signals(columns: list | None, *, event_count: int, has_date
         for column in (columns or [])
     )
     return {
-        "eventCount": int(event_count or 0),
+        "noteCount": int(event_count or 0),
         "hasDated": bool(has_dated),
         "hasImage": bool(has_image),
         "hasSelectColumn": has_select_column,
@@ -272,7 +272,7 @@ def topic_capabilities(display_style: str | None, signals: dict) -> list[str]:
     enabled = {"list", "table", normalize_display_style(display_style)}
     if signals.get("hasDated"):
         enabled.add("timeline")
-    if signals.get("eventCount"):
+    if signals.get("noteCount"):
         enabled.add("outline")
     if signals.get("hasSelectColumn"):
         enabled.add("board")
@@ -318,7 +318,7 @@ def bookshelf_to_dict(bookshelf: Bookshelf, *, topic_count: int = 0, event_count
         "createdAt": serialize_datetime(bookshelf.created_at),
         "updatedAt": serialize_datetime(bookshelf.updated_at),
         "topicCount": int(topic_count or 0),
-        "eventCount": int(event_count or 0),
+        "noteCount": int(event_count or 0),
     }
 
 
@@ -743,7 +743,7 @@ def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | No
 
 
 def normalize_related_note_ids(payload: dict) -> list[int]:
-    raw = payload.get("relatedEventIds") or []
+    raw = payload.get("relatedNoteIds") or []
     if not isinstance(raw, list):
         raise HTTPException(status_code=400, detail="Related events must be an array")
     ids = []
@@ -793,7 +793,7 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
     return {
         "id": event.id,
         "topicId": event.topic_id,
-        "nodeType": "event",
+        "nodeType": "note",
         **date_payload,
         "sortKey": event.sort_key,
         "headline": headline,
@@ -813,8 +813,8 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
         "bodyJson": deserialize_body_json(event.body_json),
         "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
-        "relatedEventIds": related_ids,
-        "relatedEvents": [related_lookup[note_id] for note_id in related_ids if related_lookup and note_id in related_lookup],
+        "relatedNoteIds": related_ids,
+        "relatedNotes": [related_lookup[note_id] for note_id in related_ids if related_lookup and note_id in related_lookup],
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
         "favorite": bool(event.favorite),
@@ -1174,7 +1174,7 @@ def note_to_list_dict(event: Note) -> dict:
     return {
         "id": event.id,
         "topicId": event.topic_id,
-        "nodeType": "event",
+        "nodeType": "note",
         **date_payload,
         "sortKey": event.sort_key,
         "headline": headline,
@@ -1777,7 +1777,7 @@ def topic_list_item(topic: Topic, stat: TopicStat | None, min_date_key, max_date
     image_count = int(stat.image_count if stat is not None else 0)
     return {
         **topic_to_dict(topic),
-        "eventCount": live_event_count,
+        "noteCount": live_event_count,
         "minDateKey": int(min_date_key) if min_date_key is not None else None,
         "maxDateKey": int(max_date_key) if max_date_key is not None else None,
         "minDate": date_key_to_iso(int(min_date_key)) if min_date_key is not None else None,
@@ -1835,7 +1835,7 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
         .scalar()
     )
     return {
-        "eventCount": int(stat.live_event_count if stat is not None else 0),
+        "noteCount": int(stat.live_event_count if stat is not None else 0),
         "minDateKey": int(min_date_key) if min_date_key is not None else None,
         "maxDateKey": int(max_date_key) if max_date_key is not None else None,
         "minDate": date_key_to_iso(min_date_key) if min_date_key is not None else None,
@@ -1930,7 +1930,7 @@ def list_bookshelf_tree(db: Session) -> list[dict]:
                 "createdAt": None,
                 "updatedAt": None,
                 "topicCount": 0,
-                "eventCount": 0,
+                "noteCount": 0,
                 "topics": [],
             }
             shelves.append(shelf)
@@ -2038,7 +2038,7 @@ def get_topic_meta(db: Session, topic_id: int) -> dict:
         **bounds,
         **topic_capabilities_block(
             topic,
-            event_count=bounds["eventCount"],
+            event_count=bounds["noteCount"],
             has_dated=bounds["maxDateKey"] is not None,
             has_image=bounds["hasImage"],
         ),
@@ -2113,7 +2113,7 @@ def build_timeline_index(db: Session) -> dict:
     )
     return {
         "topics": list_topics(db),
-        "events": [note_to_index_dict(event) for event in rows],
+        "notes": [note_to_index_dict(event) for event in rows],
     }
 
 
@@ -2221,8 +2221,8 @@ def summary_node_from_row(group_by: str, row) -> dict:
         "rangeEndKey": range_end_key,
         "rangeStartDate": date_key_to_iso(range_start_key),
         "rangeEndDate": date_key_to_iso(range_end_key),
-        "eventCount": event_count,
-        "era": f"{event_count} events",
+        "noteCount": event_count,
+        "era": f"{event_count} notes",
         "image": None,
         "items": [
             {
@@ -2388,7 +2388,7 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "extra": extra,
             "attachments": attachments,
-            "relatedEventIds": related_event_ids,
+            "relatedNoteIds": related_event_ids,
             "items": items,
             "image": image,
             **state,
@@ -2413,7 +2413,7 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "extra": extra,
             "attachments": attachments,
-            "relatedEventIds": related_event_ids,
+            "relatedNoteIds": related_event_ids,
             "items": items,
             "image": image,
             **state,
@@ -2440,7 +2440,7 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
         "bodyMarkdown": body_markdown or default_body_markdown(items),
         "extra": extra,
         "attachments": attachments,
-        "relatedEventIds": related_event_ids,
+        "relatedNoteIds": related_event_ids,
         "items": items,
         "image": image,
         **state,
@@ -2464,7 +2464,7 @@ def write_note_model(event: Note, data: dict, image: ImageAsset | None, *, topic
     event.body_json = json.dumps(data["bodyJson"], ensure_ascii=False) if data.get("bodyJson") is not None else None
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
-    event.related_note_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)
+    event.related_note_ids_json = json.dumps(data["relatedNoteIds"], ensure_ascii=False)
     event.image = image
     next_favorite = bool(data.get("favorite", event.favorite))
     if next_favorite and not event.favorite:
@@ -2579,14 +2579,14 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
         title = parsed.get("title", "")
         subtitle = parsed.get("subtitle", "")
         columns = parsed.get("columns", [])
-        raw_events = parsed.get("events", [])
+        raw_events = parsed.get("notes", parsed.get("events", []))  # W6-3: read new "notes"; fall back to legacy "events" export files
     elif isinstance(parsed, list):
         title = topic.title
         subtitle = topic.subtitle
         columns = deserialize_json_list(topic.columns_json)
         raw_events = parsed
     else:
-        raise ValueError("JSON must be an array or object with events")
+        raise ValueError("JSON must be an array or object with notes")
 
     topic.columns_json = json.dumps(normalize_topic_columns(columns), ensure_ascii=False)
     normalized_events = [normalize_note_payload(lift_import_date_parts(item), topic=topic) for item in raw_events]
@@ -2628,7 +2628,7 @@ def export_topic_data(db: Session, topic_id: int, *, from_key: int | None = None
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
         "columns": deserialize_json_list(topic.columns_json),
-        "events": serialize_note_rows(db, rows),
+        "notes": serialize_note_rows(db, rows),
     }
     safe_ascii_name = "timeline-export.json"
     utf8_name = quote(f"{topic.name}.json")

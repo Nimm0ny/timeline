@@ -180,7 +180,7 @@ def test_update_sort_and_group_by_persist_and_normalize(client, seeded_topic):
 def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
     tree = {"data": {"text": "Root"}, "children": [{"data": {"text": "Branch"}, "children": []}]}
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1850,
             "dateMonth": 6,
@@ -195,13 +195,13 @@ def test_event_round_trips_note_type_and_body_json(client, seeded_topic):
     assert created["noteType"] == "mindmap"
     assert created["bodyJson"] == tree
 
-    detail = client.get(f"/api/events/{created['id']}").json()
+    detail = client.get(f"/api/notes/{created['id']}").json()
     assert detail["noteType"] == "mindmap"
     assert detail["bodyJson"] == tree
 
     # Entry notes use markdown; any bodyJson sent with an entry is dropped.
     entry = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1851,
             "dateMonth": 1,
@@ -222,7 +222,7 @@ def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     for them too (de-temporalization; see test_entry_can_be_undated)."""
     tree = {"data": {"text": "中心主题"}, "children": []}
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "headline": "导图笔记",
             "noteType": "mindmap",
@@ -242,7 +242,7 @@ def test_mindmap_allows_empty_items_and_era(client, seeded_topic):
     # An entry with no body still fails — de-temporalization frees the date, not the
     # content: an entry is a body, so it must carry one.
     entry = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "空条目", "era": "Modern China"},
     )
     assert entry.status_code == 400
@@ -254,7 +254,7 @@ def test_entry_can_be_undated(client, seeded_topic):
     A body is still required (content is not optional), and era is only a timeline
     bucket, so an undated note may omit it."""
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "无日期随想", "bodyMarkdown": "just a thought", "noteType": "entry"},
     )
     assert created.status_code == 200
@@ -267,14 +267,14 @@ def test_entry_can_be_undated(client, seeded_topic):
     # A *partial* date is still rejected — you can't half-date a note (era is supplied
     # here so the failure is the incomplete date, not the missing bucket).
     partial = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "半个日期", "bodyMarkdown": "x", "era": "Modern China", "dateYear": 2026},
     )
     assert partial.status_code == 400
 
     # The relaxation frees the date, not the body: an undated entry with no body fails.
     empty = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "空", "noteType": "entry"},
     )
     assert empty.status_code == 400
@@ -285,7 +285,7 @@ def test_mindmap_body_json_size_guard(client, seeded_topic):
     unbounded blob."""
     huge = {"data": {"text": "x" * (5_000_001)}, "children": []}
     res = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"dateYear": 2026, "dateMonth": 6, "dateDay": 30, "headline": "巨树", "noteType": "mindmap", "bodyJson": huge},
     )
     assert res.status_code == 413
@@ -299,13 +299,13 @@ def test_mindmap_tree_text_flows_into_index_preview_and_search(client, seeded_to
         ],
     }
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "导图检索", "noteType": "mindmap", "bodyJson": tree},
     )
     assert created.status_code == 200
     note_id = created.json()["id"]
 
-    indexed = client.get("/api/index").json()["events"]
+    indexed = client.get("/api/index").json()["notes"]
     row = next(item for item in indexed if item["id"] == note_id)
     assert row["preview"] == "中心主题 分支甲 细节点"
     assert "分支甲" in row["searchText"]
@@ -331,7 +331,7 @@ def test_canvas_note_round_trips_note_type_and_snapshot(client, seeded_topic):
         "view": {"tx": 0, "ty": 0, "zoom": 1},
     }
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "画布笔记", "noteType": "canvas", "bodyJson": snapshot},
     )
     assert created.status_code == 200
@@ -339,7 +339,7 @@ def test_canvas_note_round_trips_note_type_and_snapshot(client, seeded_topic):
     assert body["noteType"] == "canvas"
     assert body["hasDate"] is False
 
-    detail = client.get(f"/api/events/{body['id']}").json()
+    detail = client.get(f"/api/notes/{body['id']}").json()
     assert detail["noteType"] == "canvas"
     assert detail["bodyJson"] == snapshot
 
@@ -357,12 +357,12 @@ def test_x6_snapshot_text_flows_into_search(client, seeded_topic):
         ],
     }
     created = client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "画布检索", "noteType": "canvas", "bodyJson": snapshot},
     )
     note_id = created.json()["id"]
 
-    indexed = client.get("/api/index").json()["events"]
+    indexed = client.get("/api/index").json()["notes"]
     row = next(item for item in indexed if item["id"] == note_id)
     assert "海报灵感" in row["searchText"]
     assert "配色方案" in row["searchText"]
@@ -383,7 +383,7 @@ def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_to
     events[0].image_id = image.id
     db_session.commit()
 
-    by_id = {event["id"]: event for event in build_timeline_index(db_session)["events"]}
+    by_id = {event["id"]: event for event in build_timeline_index(db_session)["notes"]}
 
     with_image = by_id[events[0].id]
     assert with_image["image"] == "abc.webp"
@@ -412,7 +412,7 @@ def test_index_event_thumb_falls_back_to_full_image_when_no_thumb(db_session, se
     event.image_id = image.id
     db_session.commit()
 
-    entry = next(item for item in build_timeline_index(db_session)["events"] if item["id"] == event.id)
+    entry = next(item for item in build_timeline_index(db_session)["notes"] if item["id"] == event.id)
     assert entry["imageUrl"] == "/images/pic.gif"
     assert entry["thumbUrl"] == "/images/pic.gif"
 
@@ -479,7 +479,7 @@ def test_export_import_round_trips_dated_entry(client, seeded_topic):
     has to lift it back — otherwise the de-temporalization relaxation would silently
     re-import every dated entry as undated (dateKey=None). Guards that regression."""
     client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={
             "dateYear": 1842,
             "dateMonth": 8,
@@ -491,7 +491,7 @@ def test_export_import_round_trips_dated_entry(client, seeded_topic):
     )
 
     exported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
-    sample = next(e for e in exported["events"] if e["headline"] == "南京条约")
+    sample = next(e for e in exported["notes"] if e["headline"] == "南京条约")
     # The export shape is the round-trip trap: date is nested, not a top-level key.
     assert "dateYear" not in sample
     assert sample["dateParts"]["year"] == 1842
@@ -503,7 +503,7 @@ def test_export_import_round_trips_dated_entry(client, seeded_topic):
     assert res.status_code == 200
 
     reexported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
-    restored = next(e for e in reexported["events"] if e["headline"] == "南京条约")
+    restored = next(e for e in reexported["notes"] if e["headline"] == "南京条约")
     assert restored["hasDate"] is True
     assert restored["dateKey"] == 18420829
     assert restored["dateParts"] == {"year": 1842, "month": 8, "day": 29}
@@ -513,7 +513,7 @@ def test_export_import_keeps_undated_note_undated(client, seeded_topic):
     """The mirror of the round-trip guard: a genuinely undated note (all-null dateParts)
     must NOT be resurrected with a bogus date by the import lift — it stays undated."""
     client.post(
-        f"/api/topics/{seeded_topic.id}/events",
+        f"/api/topics/{seeded_topic.id}/notes",
         json={"headline": "无日期随想", "bodyMarkdown": "just a thought"},
     )
     exported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
@@ -523,6 +523,6 @@ def test_export_import_keeps_undated_note_undated(client, seeded_topic):
     )
     assert res.status_code == 200
     reexported = client.get(f"/api/topics/{seeded_topic.id}/export").json()
-    restored = next(e for e in reexported["events"] if e["headline"] == "无日期随想")
+    restored = next(e for e in reexported["notes"] if e["headline"] == "无日期随想")
     assert restored["hasDate"] is False
     assert restored["dateKey"] is None

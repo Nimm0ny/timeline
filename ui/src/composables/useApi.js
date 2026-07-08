@@ -64,7 +64,7 @@ export const api = {
     return request(`/api/search?${search.toString()}`);
   },
   getNote(id, options = {}) {
-    return request(`/api/events/${encodeURIComponent(id)}`, options);
+    return request(`/api/notes/${encodeURIComponent(id)}`, options);
   },
   // W4 backlinks: incoming [[wikilink]]s to a note (indexed lookup, lazy on panel expand).
   getBacklinks(id, params = {}) {
@@ -72,11 +72,11 @@ export const api = {
     if (params.offset) search.set("offset", String(params.offset));
     if (params.limit) search.set("limit", String(params.limit));
     const suffix = search.toString() ? `?${search.toString()}` : "";
-    return request(`/api/events/${encodeURIComponent(id)}/backlinks${suffix}`);
+    return request(`/api/notes/${encodeURIComponent(id)}/backlinks${suffix}`);
   },
   // W5 canvas embeds: one round-trip {id,headline,container,preview} for all embedded ids.
   getNotesBatchPreview(ids) {
-    return request("/api/events/batch-preview", {
+    return request("/api/notes/batch-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
@@ -114,7 +114,7 @@ export const api = {
     // backend default (ascending) is byte-for-byte today's behavior.
     if (Number(params.dir) < 0) search.set("dir", "-1");
     const suffix = search.toString() ? `?${search.toString()}` : "";
-    return request(`/api/topics/${encodeURIComponent(topicId)}/events${suffix}`);
+    return request(`/api/topics/${encodeURIComponent(topicId)}/notes${suffix}`);
   },
   getNotesSummary(topicId, params = {}) {
     const search = new URLSearchParams();
@@ -124,33 +124,33 @@ export const api = {
     return request(`/api/topics/${encodeURIComponent(topicId)}/summary?${search.toString()}`);
   },
   createTopicNote(topicId, payload) {
-    return request(`/api/topics/${encodeURIComponent(topicId)}/events`, {
+    return request(`/api/topics/${encodeURIComponent(topicId)}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   },
   getAllNotes(topicId) {
-    return request(`/api/topics/${encodeURIComponent(topicId)}/events`);
+    return request(`/api/topics/${encodeURIComponent(topicId)}/notes`);
   },
   createNote(topicId, payload) {
     return api.createTopicNote(topicId, payload);
   },
   updateNote(id, payload) {
-    return request(`/api/events/${id}`, {
+    return request(`/api/notes/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   },
   deleteNote(id) {
-    return request(`/api/events/${id}`, { method: "DELETE" });
+    return request(`/api/notes/${id}`, { method: "DELETE" });
   },
   softDeleteNote(id) {
     return api.deleteNote(id);
   },
   permanentlyDeleteNote(id) {
-    return request(`/api/events/${id}?permanent=true`, { method: "DELETE" });
+    return request(`/api/notes/${id}?permanent=true`, { method: "DELETE" });
   },
   restoreNote(id) {
     return api.updateNote(id, { deletedAt: null });

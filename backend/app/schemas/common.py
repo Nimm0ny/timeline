@@ -44,7 +44,7 @@ class NoteIn(BaseModel):
     # Structured body for non-entry notes (e.g. mindmap tree); None for entries.
     bodyJson: dict | list | None = None
     attachments: list[AttachmentIn] = Field(default_factory=list)
-    relatedEventIds: list[int] = Field(default_factory=list)
+    relatedNoteIds: list[int] = Field(default_factory=list)
     # Property values: free fields -> str, single-select -> str (option id),
     # multi-select -> list[str] (option ids). Type/tags live here too.
     extra: dict[str, str | list[str]] = Field(default_factory=dict)
@@ -81,7 +81,7 @@ class TopicOut(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     capabilitySignals: dict | None = None
     updatedAt: str | None = None
-    eventCount: int | None = None
+    noteCount: int | None = None
     minDateKey: int | None = None
     maxDateKey: int | None = None
     minDate: str | None = None

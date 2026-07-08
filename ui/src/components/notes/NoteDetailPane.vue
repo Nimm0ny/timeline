@@ -408,7 +408,7 @@ function snapshotDraft() {
     bodyMarkdown: draft.bodyMarkdown || "",
     image: draft.image || "",
     attachments: draft.attachments,
-    relatedEventIds: draft.relatedEventIds,
+    relatedNoteIds: draft.relatedNoteIds,
     favorite: Boolean(draft.favorite),
     deletedAt: draft.deletedAt || null,
     extra: draft.extra,
@@ -429,8 +429,8 @@ function applyDraft(sourceNote) {
   draft.image = next.image;
   draft.imageUrl = next.imageUrl;
   draft.attachments = next.attachments;
-  draft.relatedEventIds = next.relatedEventIds;
-  draft.relatedEvents = next.relatedEvents;
+  draft.relatedNoteIds = next.relatedNoteIds;
+  draft.relatedNotes = next.relatedNotes;
   draft.favorite = next.favorite;
   draft.deletedAt = next.deletedAt;
   draft.items = next.items;
@@ -685,7 +685,7 @@ function submit() {
       image: draft.image || null,
       bodyMarkdown,
       attachments,
-      relatedEventIds: draft.relatedEventIds,
+      relatedNoteIds: draft.relatedNoteIds,
       favorite: Boolean(draft.favorite),
       deletedAt: draft.deletedAt || null,
       items: [],

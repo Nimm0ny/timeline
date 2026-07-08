@@ -77,7 +77,7 @@ def put_topic_meta(topic_id: int, payload: dict, db: Session = Depends(get_db)):
     return update_topic_meta(db, topic_id, payload)
 
 
-@router.get("/api/topics/{topic_id}/events")
+@router.get("/api/topics/{topic_id}/notes")
 def get_topic_notes(
     topic_id: int,
     from_date: str | None = Query(None, alias="from"),
@@ -115,7 +115,7 @@ def get_topic_summary(
     )
 
 
-@router.post("/api/topics/{topic_id}/events")
+@router.post("/api/topics/{topic_id}/notes")
 def create_topic_note(
     topic_id: int,
     payload: dict,
@@ -124,39 +124,39 @@ def create_topic_note(
     return create_note(db, topic_id, payload)
 
 
-@router.put("/api/events/{event_id}")
-def put_note(event_id: int, payload: dict, db: Session = Depends(get_db)):
-    return update_note(db, event_id, payload)
+@router.put("/api/notes/{note_id}")
+def put_note(note_id: int, payload: dict, db: Session = Depends(get_db)):
+    return update_note(db, note_id, payload)
 
 
-@router.get("/api/events/{event_id}")
-def get_note(event_id: int, db: Session = Depends(get_db)):
-    return get_note_detail(db, event_id)
+@router.get("/api/notes/{note_id}")
+def get_note(note_id: int, db: Session = Depends(get_db)):
+    return get_note_detail(db, note_id)
 
 
-@router.get("/api/events/{event_id}/backlinks")
+@router.get("/api/notes/{note_id}/backlinks")
 def get_note_backlinks(
-    event_id: int,
+    note_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    return get_backlinks(db, event_id, offset=offset, limit=limit)
+    return get_backlinks(db, note_id, offset=offset, limit=limit)
 
 
-@router.post("/api/events/batch-preview")
+@router.post("/api/notes/batch-preview")
 def post_notes_batch_preview(payload: dict, db: Session = Depends(get_db)):
     ids = payload.get("ids") if isinstance(payload, dict) else None
     return batch_note_previews(db, ids if isinstance(ids, list) else [])
 
 
-@router.delete("/api/events/{event_id}")
+@router.delete("/api/notes/{note_id}")
 def remove_note(
-    event_id: int,
+    note_id: int,
     permanent: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    return delete_note(db, event_id, permanent=permanent)
+    return delete_note(db, note_id, permanent=permanent)
 
 
 @router.post("/api/topics/{topic_id}/import")
