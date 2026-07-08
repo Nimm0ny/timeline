@@ -1017,11 +1017,15 @@ function applyGraphState(payload, persist) {
   // Migrate a legacy snapshot viewport into localStorage on first open — else the next
   // content save (buildSnapshot no longer emits `view`) silently drops it and resets the view.
   if (!stored && payload?.view) writeX6View("mindmap", props.noteId, payload.view);
-  if (view?.tx != null || view?.ty != null) {
-    g.translate(view.tx || 0, view.ty || 0);
-  }
+  // Apply zoom BEFORE translate: zoomTo() scales about the viewport center and shifts the pan,
+  // so setting the absolute translation LAST restores the exact saved {tx,ty,zoom}. (Order only
+  // started to matter once zoom actually persisted — see currentView.) centerContent is the
+  // no-stored-pan fallback (fresh map), so it's gated on the translate being absent.
   if (view?.zoom != null) {
     g.zoomTo(view.zoom);
+  }
+  if (view?.tx != null || view?.ty != null) {
+    g.translate(view.tx || 0, view.ty || 0);
   } else if (cells.length) {
     try {
       g.centerContent();
