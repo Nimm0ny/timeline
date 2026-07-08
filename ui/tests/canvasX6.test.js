@@ -17,6 +17,7 @@ import {
   computeEmbedTier,
   EMBED_TIER,
   EMBED_READABLE_PX,
+  EMBED_FULL_PX,
   EMBED_MARGIN_RATIO,
 } from "../src/utils/canvasX6.js";
 
@@ -187,4 +188,45 @@ test("computeEmbedTier: fails open to preview on missing / malformed bbox / host
   // NaN geometry must fail OPEN (preview), never closed (hidden → blank card).
   assert.equal(computeEmbedTier({ bbox: { x: NaN, y: 0, width: 240, height: 120 }, ...HOST }), EMBED_TIER.PREVIEW);
   assert.equal(computeEmbedTier({ bbox: BBOX, tx: NaN, ...HOST }), EMBED_TIER.PREVIEW);
+});
+
+// ---- W5b-2 · the T2 "full" tier (on-screen AND large enough for full markdown) ----
+test("computeEmbedTier: on-screen and large enough (>= fullPx) → full (T2)", () => {
+  // 240-wide box at zoom 1.5 → on-screen width 360 = fullPx → full.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, zoom: 1.5, ...HOST }),
+    EMBED_TIER.FULL
+  );
+  // Comfortably past the threshold stays full.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 0, y: 0 }, zoom: 2, ...HOST }),
+    EMBED_TIER.FULL
+  );
+});
+
+test("computeEmbedTier: the T2 full threshold is a tight boundary above preview", () => {
+  // Just under fullPx (240*1.49 = 357.6 < 360) is still the plain preview.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 0, y: 0 }, zoom: 1.49, ...HOST }),
+    EMBED_TIER.PREVIEW
+  );
+  // Exactly at fullPx (>=) crosses into full. Tight boundary pair with the above.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 0, y: 0 }, zoom: 1.5, ...HOST }),
+    EMBED_TIER.FULL
+  );
+  assert.equal(EMBED_FULL_PX, 360);
+});
+
+test("computeEmbedTier: fullPx override lowers the T2 entry point", () => {
+  // At zoom 1 the 240px card is preview by default (240 < 360)...
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, zoom: 1, ...HOST }),
+    EMBED_TIER.PREVIEW
+  );
+  // ...but full once fullPx drops to 200 (240 >= 200). The cap itself is a recompute concern.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, zoom: 1, fullPx: 200, ...HOST }),
+    EMBED_TIER.FULL
+  );
 });

@@ -11,6 +11,8 @@ import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.v
 const props = defineProps({
   note: { type: Object, required: true },
   saving: { type: Boolean, default: false },
+  // Passed straight through to CanvasEditor for the T2 full-text tier (§7.4); see its prop doc.
+  resolveDetail: { type: Function, default: null },
 });
 const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "restore", "permanent-delete", "open-embed"]);
 
@@ -180,6 +182,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       :tree="note.bodyJson"
       :title="note.headline"
       :read-only="Boolean(note.deletedAt)"
+      :resolve-detail="resolveDetail"
       @ready="onReady"
       @active="activeCount = $event"
       @update="emit('save', $event)"

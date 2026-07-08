@@ -7,6 +7,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { getEmbedEntry } from "@/utils/embedPreviewStore.js";
 import { getCardTier } from "@/utils/canvasTierStore.js";
+import { getEmbedDetailHtml } from "@/utils/embedDetailStore.js";
 
 const getNode = inject("getNode", null);
 const node = typeof getNode === "function" ? getNode() : null;
@@ -46,19 +47,26 @@ const container = computed(() => (isTombstone.value ? "" : entry.value?.containe
 // mounted), "shell" = on-screen but too small (title + chip, no preview), "preview" = full.
 // Default "preview" so a card mounted before the first recompute never renders blank.
 const tier = computed(() => getCardTier(node?.id) ?? "preview");
+
+// T2 full-text (§7.2): when this card is at the "full" tier AND CanvasEditor has rendered its
+// markdown into the detail store, show the whole note in place of the 120-char preview. A
+// full-tier card whose detail hasn't landed yet keeps the preview (fail-open — never blank).
+const fullHtml = computed(() => (tier.value === "full" ? getEmbedDetailHtml(noteId.value)?.html : "") || "");
 </script>
 
 <template>
   <div
     class="cv-embed-card"
-    :class="{ 'is-tombstone': isTombstone, 'is-hidden': tier === 'hidden', 'is-shell': tier === 'shell' }"
+    :class="{ 'is-tombstone': isTombstone, 'is-hidden': tier === 'hidden', 'is-shell': tier === 'shell', 'is-full': Boolean(fullHtml) }"
     :style="boxStyle"
     :title="title"
   >
     <span class="cv-embed-spine" aria-hidden="true"></span>
     <div class="cv-embed-main">
       <div class="cv-embed-headline">{{ title }}</div>
-      <p v-if="preview && tier !== 'shell'" class="cv-embed-preview">{{ preview }}</p>
+      <!-- eslint-disable-next-line vue/no-v-html -- app's own read-mode renderer, same trust as EventDetailPane -->
+      <div v-if="fullHtml" class="cv-embed-body markdown-body" v-html="fullHtml"></div>
+      <p v-else-if="preview && tier !== 'shell'" class="cv-embed-preview">{{ preview }}</p>
       <div v-if="container" class="cv-embed-container">{{ container }}</div>
     </div>
   </div>

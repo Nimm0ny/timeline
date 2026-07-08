@@ -2903,6 +2903,7 @@ watch(
       ref="canvasSurfaceRef"
       :note="canvasNote"
       :saving="state.mindmapSaving"
+      :resolve-detail="timelineStore.ensureEventDetail"
       @back="closeMindmap"
       @save="saveCanvasSnapshot"
       @toggle-favorite="toggleFavorite"

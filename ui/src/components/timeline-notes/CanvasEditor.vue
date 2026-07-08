@@ -14,6 +14,7 @@ import {
   computeEmbedTier,
   EMBED_DEFAULT_HEIGHT,
   EMBED_DEFAULT_WIDTH,
+  EMBED_TIER,
   embedNoteIdsFromSnapshot,
   isEmbedCard,
   isX6CanvasSnapshot,
@@ -21,8 +22,10 @@ import {
   X6_CANVAS_FORMAT,
 } from "@/utils/canvasX6.js";
 import { EmbedTeleport } from "@/utils/embedCardShape.js";
-import { resolveEmbedPreviews } from "@/utils/embedPreviewStore.js";
+import { getEmbedEntry, resolveEmbedPreviews } from "@/utils/embedPreviewStore.js";
 import { clearCardTiers, setCardTiers } from "@/utils/canvasTierStore.js";
+import { clearEmbedDetails, getEmbedDetailHtml, setEmbedDetail } from "@/utils/embedDetailStore.js";
+import { renderCachedMarkdownToHtml } from "@/utils/markdownPreview.js";
 import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 
@@ -35,6 +38,10 @@ const props = defineProps({
   tree: { type: [Object, Array, null], default: null },
   title: { type: String, default: "" },
   readOnly: { type: Boolean, default: false },
+  // Resolve one embedded note's full detail ({ bodyMarkdown, updatedAt, ... }) for the T2 tier.
+  // Threaded from TimelinePage = (id) => timelineStore.ensureEventDetail(id) so canvas full-text
+  // rides the app's shared LRU-40 detail cache (§7.4/§7.8). Absent → T2 stays at preview.
+  resolveDetail: { type: Function, default: null },
 });
 const emit = defineEmits(["update", "ready", "active", "open-embed"]);
 
@@ -57,6 +64,14 @@ let viewSaveTimer = null;
 let tierTimer = null;
 let savedJson = null;
 let suppressSaves = false;
+
+// T2 full-markdown concurrency budget (§7.3 backstop): at most this many embed cards render the
+// note's full markdown at once; extra on-screen-large cards stay at preview until they pan nearer
+// the viewport center. The 360px full threshold means few cards qualify at once, so it rarely bites.
+const EMBED_FULL_BUDGET = 24;
+// note ids already attempted for T2 detail this board (in-flight or done) — each is fetched at
+// most once per canvas session, so a re-settle never re-fetches and a failure isn't retry-stormed.
+const fullTried = new Set();
 
 function readVar(name, fallback) {
   if (typeof window === "undefined") return fallback;
@@ -125,12 +140,72 @@ function recomputeTiers() {
   const { tx = 0, ty = 0 } = g.translate?.() || {};
   const hostWidth = host.clientWidth;
   const hostHeight = host.clientHeight;
-  const entries = [];
+  const tiers = new Map();
+  const fullCandidates = [];
   for (const node of g.getNodes()) {
     if (!isEmbedCard(node)) continue;
-    entries.push([node.id, computeEmbedTier({ bbox: node.getBBox(), tx, ty, zoom, hostWidth, hostHeight })]);
+    const bbox = node.getBBox();
+    const tier = computeEmbedTier({ bbox, tx, ty, zoom, hostWidth, hostHeight });
+    tiers.set(node.id, tier);
+    if (tier === EMBED_TIER.FULL) {
+      // card-center → viewport-center distance (screen px) to rank T2 candidates for the budget.
+      const dx = (bbox.x + bbox.width / 2) * zoom + tx - hostWidth / 2;
+      const dy = (bbox.y + bbox.height / 2) * zoom + ty - hostHeight / 2;
+      fullCandidates.push({ node, dist: dx * dx + dy * dy });
+    }
   }
-  setCardTiers(entries);
+  const fullNodes = capFullBudget(tiers, fullCandidates);
+  setCardTiers(tiers);
+  for (const node of fullNodes) resolveFullDetail(node);
+}
+
+// §7.3 render budget: keep only the EMBED_FULL_BUDGET cards nearest the viewport center at the
+// "full" tier and demote the rest to "preview" (mutating `tiers`), so a zoomed-in board never
+// renders dozens of full-markdown cards at once. Returns the nodes that stay full.
+function capFullBudget(tiers, fullCandidates) {
+  if (fullCandidates.length <= EMBED_FULL_BUDGET) return fullCandidates.map((c) => c.node);
+  fullCandidates.sort((a, b) => a.dist - b.dist);
+  const kept = fullCandidates.slice(0, EMBED_FULL_BUDGET);
+  const keptIds = new Set(kept.map((c) => c.node.id));
+  for (const c of fullCandidates) {
+    if (!keptIds.has(c.node.id)) tiers.set(c.node.id, EMBED_TIER.PREVIEW);
+  }
+  // eslint-disable-next-line no-console
+  console.debug(`[canvas] T2 over budget: ${fullCandidates.length} candidates → ${EMBED_FULL_BUDGET}`);
+  return kept.map((c) => c.node);
+}
+
+// Fetch + render one T2 card's full markdown, once per canvas session (§7.4). Rides the shared
+// detail cache via the resolveDetail prop (= ensureEventDetail) and the read-mode cached renderer;
+// the HTML lands in embedDetailStore, which EmbedCardNode reads. Fail-open: any miss leaves the
+// card at its preview, never blank.
+async function resolveFullDetail(node) {
+  const resolve = props.resolveDetail;
+  if (typeof resolve !== "function") return;
+  const noteId = node.getData?.()?.noteId;
+  if (noteId == null || noteId === "") return;
+  // Known-deleted target (tombstone) → don't fetch; it'd 404 and retry on every settle.
+  if (getEmbedEntry(noteId)?.status === "missing") return;
+  const key = String(noteId);
+  // Attempt each id at most once per board: a stored entry means resolved, fullTried membership
+  // means already attempted/in-flight. A transient failure thus leaves the card at preview until
+  // the canvas is reopened, rather than re-fetching on every settle.
+  if (getEmbedDetailHtml(noteId) || fullTried.has(key)) return;
+  fullTried.add(key);
+  try {
+    const detail = await resolve(Number(noteId));
+    // The editor may have unmounted while the fetch was in flight — don't repopulate a store the
+    // unmount just cleared (onBeforeUnmount nulls graph.value after clearEmbedDetails).
+    if (!graph.value) return;
+    if (detail && detail.bodyMarkdown != null) {
+      setEmbedDetail(
+        noteId,
+        renderCachedMarkdownToHtml({ eventId: noteId, updatedAt: detail.updatedAt, bodyMarkdown: detail.bodyMarkdown })
+      );
+    }
+  } catch {
+    // Fetch failed → leave the card at preview (fail-open); not retried this session (see fullTried).
+  }
 }
 
 // Recompute only after the gesture settles (§7.3 "手势中不动档"): pan/zoom/model-change events
@@ -595,9 +670,11 @@ onBeforeUnmount(() => {
   cancelEdit();
   flushViewSave();
   flushSave();
-  // Drop this board's tiers so they can't bleed into the next note (CanvasSurface keys the
-  // editor by note.id → a switch remounts and re-classifies from scratch).
+  // Drop this board's tiers + rendered T2 detail so they can't bleed into the next note
+  // (CanvasSurface keys the editor by note.id → a switch remounts and re-classifies from scratch).
   clearCardTiers();
+  clearEmbedDetails();
+  fullTried.clear();
   graph.value?.dispose();
   graph.value = null;
   graphHistory.value = null;

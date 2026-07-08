@@ -6069,6 +6069,42 @@ button.prop-row-type.open .timeline-lucide-icon {
 .cv-embed-card.is-hidden {
   display: none;
 }
+/* W5b-2 T2 (§7.2): a zoomed-in card renders the note's full markdown in place of the preview.
+   The box stays a fixed size (growing the node would dirty the snapshot), so the body scrolls
+   within it — the card itself is physically enlarged by the graph zoom that promoted it. */
+.cv-embed-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.cv-embed-body img {
+  max-width: 100%;
+  height: auto;
+}
+/* Tame the read-mode .markdown-body rhythm to the card's scale (mirror of the tombstone scope
+   reset): the first line hugs the top, headings and blocks stay compact instead of inheriting
+   the right rail's large margins/sizes. */
+.cv-embed-body.markdown-body > :first-child {
+  margin-top: 0;
+}
+.cv-embed-body.markdown-body h1,
+.cv-embed-body.markdown-body h2,
+.cv-embed-body.markdown-body h3,
+.cv-embed-body.markdown-body h4 {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.cv-embed-body.markdown-body p,
+.cv-embed-body.markdown-body ul,
+.cv-embed-body.markdown-body ol,
+.cv-embed-body.markdown-body pre,
+.cv-embed-body.markdown-body blockquote {
+  margin: 0 0 4px;
+}
 
 .mm-loading {
   position: absolute;
