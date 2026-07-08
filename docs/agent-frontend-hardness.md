@@ -166,14 +166,14 @@
   - `bodyMarkdown`
   - `tags`
   - `attachments`（含 `url` / `imageUrl`，供右栏内联图片与附件 Modal）
-  - `relatedEventIds`
+  - `relatedNoteIds`
   - `createdAt`
   - `updatedAt`
   - `favorite`
   - `deletedAt`
   - `extra`（用户自定义列值；键白名单 = 该专题 `columns_json`，见实现 spec §8.2）
   - legacy `items[]`
-- 专题(meta) DTO 增加 `columns`（用户自定义列定义数组）。自定义列只走 `Topic.columns_json + TimelineEvent.extra_json`，不为单个业务列硬编码字段。
+- 专题(meta) DTO 增加 `columns`（用户自定义列定义数组）。自定义列只走 `Topic.columns_json + Note.extra_json`，不为单个业务列硬编码字段。
 - 删除进入回收站：设置 `deletedAt = now`。
 - 恢复：设置 `deletedAt = null`。
 - 回收站内只允许查看、恢复、永久删除。
