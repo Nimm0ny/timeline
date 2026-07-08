@@ -337,6 +337,28 @@ async function refreshSidebarData({ reloadTopics = false } = {}) {
   await refreshBookshelfTree({ syncTopics: reloadTopics });
 }
 
+// The loaded bookshelf tree and the flat notesStore hold independent topic copies;
+// the sidebar renders from the tree (icon/name/count read entry.topic.*). A mutation
+// that only touches the store (e.g. an optimistic container-type switch) leaves the
+// tree stale until the next full refetch — so patch the matching tree entry in place
+// to reflect it immediately. Immutable update so the sidebar computed re-renders.
+function patchBookshelfTreeTopic(topicId, patch) {
+  const id = Number(topicId);
+  if (!id || !patch) return;
+  let changed = false;
+  const next = state.bookshelfTree.map((shelf) => {
+    if (!shelf?.topics?.some((entry) => Number(entry?.topic?.id) === id)) return shelf;
+    changed = true;
+    return {
+      ...shelf,
+      topics: shelf.topics.map((entry) =>
+        Number(entry?.topic?.id) === id ? { ...entry, topic: { ...entry.topic, ...patch } } : entry
+      ),
+    };
+  });
+  if (changed) state.bookshelfTree = next;
+}
+
 function persistBookshelfCollapsed(nextState) {
   state.bookshelfCollapsed = { ...nextState };
   writeObjectStorage(BOOKSHELF_COLLAPSE_KEY, state.bookshelfCollapsed);
@@ -2460,22 +2482,33 @@ async function changeContainerType({ id, containerType } = {}) {
   if (!topicMeta || topicMeta.containerType === containerType) return;
   const views = containerTypeViews(containerType);
   const nextDisplay = views.includes(topicMeta.displayStyle) ? topicMeta.displayStyle : views[0];
-  notesStore.upsertTopic({
-    ...topicMeta,
-    containerType,
-    views,
-    defaultView: views[0],
-    displayStyle: nextDisplay,
-  });
+  const treePatch = { containerType, views, defaultView: views[0], displayStyle: nextDisplay };
+  notesStore.upsertTopic({ ...topicMeta, ...treePatch });
+  // Sidebar icon reads entry.topic.containerType from the tree, not the store — patch
+  // it too so the notebook glyph flips instantly instead of only after a reload.
+  patchBookshelfTreeTopic(topicId, treePatch);
   if (state.activeTopicId === topicId) syncActiveTopicFromStore();
   const task = async () => {
     try {
       const meta = await api.updateTopicMeta(topicId, { containerType });
       notesStore.upsertTopic(meta);
+      patchBookshelfTreeTopic(topicId, {
+        containerType: meta.containerType,
+        views: meta.views,
+        defaultView: meta.defaultView,
+        displayStyle: meta.displayStyle,
+      });
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
     } catch (error) {
       try {
-        notesStore.upsertTopic(await api.getTopicMeta(topicId));
+        const fresh = await api.getTopicMeta(topicId);
+        notesStore.upsertTopic(fresh);
+        patchBookshelfTreeTopic(topicId, {
+          containerType: fresh.containerType,
+          views: fresh.views,
+          defaultView: fresh.defaultView,
+          displayStyle: fresh.displayStyle,
+        });
         if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the error toast.
@@ -2913,9 +2946,17 @@ watch(
       @open-embed="pinRelatedNote"
     />
 
+    <!-- Remount the feed per display view (don't remove this key). NoteFeed's six view
+         branches (timeline/table/board/gallery/outline/list) all share ref="feedRef",
+         so Vue's incremental patch corrupts on an in-place view swap (Cannot set
+         properties of null '__vnode' in patchKeyedChildren) — the switcher icon moved
+         but the feed stayed on the old view. Keying by the resolved view forces a clean
+         remount so the correct branch always renders. Switching topics with the same
+         view does NOT change this key, so it still patches in place. -->
     <NoteFeed
       ref="feedPaneRef"
       v-else
+      :key="`feed-view:${effectiveDisplayStyle}`"
       :loading="state.loading || state.eventsLoading"
       :error="state.error"
       :has-topic="Boolean(state.activeTopicId) || isGlobalFavoritesMode"

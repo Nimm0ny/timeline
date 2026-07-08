@@ -1224,6 +1224,10 @@ button {
   grid-template-columns: 28px 1fr;
   align-items: center;
   padding: 13px 0 5px;
+  /* Timeline era headers (the accent time-nodes) are labels, not text fields:
+     no I-beam caret and no text selection when clicking the node/rail area. */
+  cursor: default;
+  user-select: none;
 }
 
 .era-main b {
