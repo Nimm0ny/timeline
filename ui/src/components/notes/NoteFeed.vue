@@ -779,7 +779,15 @@ const linearVirtual = useFeedVirtualRows({
     return item?.key ?? index;
   },
 });
-const linearVirtualItems = linearVirtual.virtualItems;
+// The virtualizer derives its window from a snapshot of activeLinearRows.length; when
+// the row set shrinks (notebook switch, search, in-place view change, load-more) it can
+// briefly emit indices past the *new* array before it re-measures. Dropping those stale
+// indices here keeps the template from dereferencing activeLinearRows[undefined] mid-flush
+// — that throw corrupts the running patch and nulls a sibling vnode's el, which surfaces
+// as the "Cannot set properties of null (setting '__vnode')" cascade in patchKeyedChildren.
+const linearVirtualItems = computed(() =>
+  linearVirtual.virtualItems.value.filter((item) => activeLinearRows.value[item.index] != null)
+);
 const linearTopSpacerPx = linearVirtual.topSpacerPx;
 const linearBottomSpacerPx = linearVirtual.bottomSpacerPx;
 
@@ -809,16 +817,30 @@ const galleryVirtual = useFeedVirtualRows({
     return item?.key ?? index;
   },
 });
-const galleryVirtualItems = galleryVirtual.virtualItems;
+// Same stale-index guard as the linear window (galleryRows[vRow.index].items is read
+// directly in the template).
+const galleryVirtualItems = computed(() =>
+  galleryVirtual.virtualItems.value.filter((item) => galleryRows.value[item.index] != null)
+);
 const galleryTopSpacerPx = galleryVirtual.topSpacerPx;
 const galleryBottomSpacerPx = galleryVirtual.bottomSpacerPx;
 
 function setRowRef(id, element) {
+  if (id == null) return;
   if (element) {
     rowRefs.set(id, element);
   } else {
     rowRefs.delete(id);
   }
+}
+
+// Bind the row id at render time instead of dereferencing activeLinearRows[vRow.index]
+// inside the ref callback. A template ref fn fires again with null on unmount (and on
+// every re-render for inline fns); if that deferred call re-reads the reactive row by
+// index after the row set has changed, it throws mid-patch and nulls a sibling vnode's el.
+// Capturing the resolved id keeps the callback a total function no matter when it runs.
+function rowRefSetter(id) {
+  return (element) => setRowRef(id, element);
 }
 
 function openSearch() {
@@ -1508,7 +1530,7 @@ defineExpose({
             :class="{ 'is-last': activeLinearRows[vRow.index]?.isLastInGroup }"
           >
             <button
-              :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+              :ref="rowRefSetter(activeLinearRows[vRow.index].projected.event.id)"
               type="button"
               class="row"
               :class="{
@@ -1631,7 +1653,7 @@ defineExpose({
         <button
           v-for="vRow in linearVirtualItems"
           :key="vRow.key"
-          :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+          :ref="rowRefSetter(activeLinearRows[vRow.index].projected.event.id)"
           type="button"
           class="row"
           :class="{
@@ -1839,7 +1861,7 @@ defineExpose({
           </button>
           <button
             v-else
-            :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+            :ref="rowRefSetter(activeLinearRows[vRow.index].projected.event.id)"
             type="button"
             class="ol-row"
             :class="{
@@ -1866,7 +1888,7 @@ defineExpose({
         <button
           v-for="vRow in linearVirtualItems"
           :key="vRow.key"
-          :ref="(element) => setRowRef(activeLinearRows[vRow.index].projected.event.id, element)"
+          :ref="rowRefSetter(activeLinearRows[vRow.index].projected.event.id)"
           type="button"
           class="lv-row"
           :class="{
