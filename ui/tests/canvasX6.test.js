@@ -8,6 +8,7 @@ import {
   buildCardNode,
   canvasSnapshotText,
   makeCanvasEdge,
+  EMBED_CARD_SHAPE,
   EMBED_DEFAULT_WIDTH,
   EMBED_DEFAULT_HEIGHT,
   buildEmbedCardNode,
@@ -62,15 +63,17 @@ test("makeCanvasEdge is a directed connector with no fixed endpoints", () => {
   assert.equal(edge.source, undefined);
 });
 
-test("buildEmbedCardNode tags an embed card with noteId and the fixed embed size", () => {
+test("buildEmbedCardNode tags a Vue-shape embed card with noteId and the fixed embed size", () => {
   const node = buildEmbedCardNode({ x: 40, y: 60, noteId: 7, headline: "标题", preview: "预览" });
+  assert.equal(node.shape, EMBED_CARD_SHAPE);
   assert.equal(node.data.kind, "embed");
   assert.equal(node.data.noteId, 7);
   assert.equal(node.width, EMBED_DEFAULT_WIDTH);
   assert.equal(node.height, EMBED_DEFAULT_HEIGHT);
-  // headline/preview reach both the rendered labels and data (for batch-preview refresh).
-  assert.equal(node.attrs.label.text, "标题");
-  assert.equal(node.attrs.preview.text, "预览");
+  // headline/preview ride in data — the pre-fetch display fallback + the backend search text;
+  // the live title/preview come from the reactive embed store at render time.
+  assert.equal(node.data.headline, "标题");
+  assert.equal(node.data.preview, "预览");
   assert.equal(node.ports.items.length, 4);
   assert.match(node.id, /^c-/);
   const explicit = buildEmbedCardNode({ id: "c-embed", x: 0, y: 0, noteId: 1 });

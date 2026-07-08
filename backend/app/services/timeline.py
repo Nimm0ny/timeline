@@ -225,9 +225,14 @@ def collect_x6_snapshot_text(value) -> str:
         label = cell.get("attrs", {}).get("label", {}) if isinstance(cell.get("attrs"), dict) else {}
         text = normalize_html_text(data.get("text")) or normalize_html_text(label.get("text") if isinstance(label, dict) else None)
         note = normalize_html_text(data.get("note"))
+        # Embed cards (data.kind == "embed") carry no `text`; their searchable content is the
+        # embedded note's cached headline + preview, so the canvas is findable by what it embeds
+        # (§5.5 seam #4). Other card kinds have no headline/preview keys → None → skipped.
+        headline = normalize_html_text(data.get("headline"))
+        preview = normalize_html_text(data.get("preview"))
         tags = " ".join(str(item or "").strip() for item in (data.get("tag") or []) if str(item or "").strip())
         link = normalize_html_text(data.get("hyperlink"))
-        parts.extend(part for part in (text, note, tags, link) if part)
+        parts.extend(part for part in (text, note, headline, preview, tags, link) if part)
     return " ".join(parts)
 
 
@@ -1355,6 +1360,76 @@ def sync_event_links(db: Session, event: TimelineEvent) -> None:
         )
 
 
+def parse_snapshot_embeds(snapshot) -> list[dict]:
+    """Embed refs in an X6 canvas snapshot: one entry per embed card (data.kind == "embed"
+    with a numeric noteId). `title` = the card's cached headline (display fallback); `position`
+    = cell order (embeds have no body char-offset). Tolerates the tagged {_fmt, cells}
+    snapshot, a bare {cells}, or a raw cells list."""
+    cells = snapshot.get("cells") if isinstance(snapshot, dict) else snapshot
+    if not isinstance(cells, list):
+        return []
+    embeds: list[dict] = []
+    for index, cell in enumerate(cells):
+        if not isinstance(cell, dict):
+            continue
+        data = cell.get("data") if isinstance(cell.get("data"), dict) else {}
+        if data.get("kind") != "embed":
+            continue
+        try:
+            note_id = int(data.get("noteId"))
+        except (TypeError, ValueError):
+            continue
+        embeds.append(
+            {
+                "noteId": note_id,
+                "title": normalize_html_text(data.get("headline")) or "",
+                "position": index,
+                "context": "嵌入于画布",
+            }
+        )
+    return embeds
+
+
+def sync_event_embeds(db: Session, event: TimelineEvent) -> None:
+    """Re-derive a note's `embed` rows from its X6 snapshot (canvas note-embed cards, §7.5).
+    Idempotent, mirroring sync_event_links: clears this source's embed rows and re-inserts one
+    per distinct embedded note. `wikilink`/`manual` anchors belong to other writers and are
+    untouched. A live target resolves the row (→ shows in the target's backlink panel as an
+    embed); a deleted/dangling target keeps target_event_id NULL — the tombstone case, same
+    treatment as a dangling wikilink. Call after flush (id present) with body_json written,
+    before commit."""
+    db.query(TimelineLink).filter(
+        TimelineLink.source_event_id == event.id,
+        TimelineLink.anchor_type == "embed",
+    ).delete(synchronize_session=False)
+    if event.deleted_at:
+        return
+    # One canvas embedding the same note twice is ONE relationship (backlinks dedupe per source
+    # anyway) — keep the first card's position/title.
+    by_target: dict[int, dict] = {}
+    for parsed in parse_snapshot_embeds(deserialize_body_json(event.body_json)):
+        by_target.setdefault(parsed["noteId"], parsed)
+    if not by_target:
+        return
+    live_ids = {
+        row[0]
+        for row in db.query(TimelineEvent.id)
+        .filter(TimelineEvent.id.in_(list(by_target)), TimelineEvent.deleted_at.is_(None))
+        .all()
+    }
+    for note_id, parsed in by_target.items():
+        db.add(
+            TimelineLink(
+                source_event_id=event.id,
+                target_event_id=note_id if note_id in live_ids else None,
+                target_title=(parsed["title"] or "")[:255],
+                anchor_type="embed",
+                position=parsed["position"],
+                context_text=parsed["context"],
+            )
+        )
+
+
 def purge_event_links(db: Session, event_id: int) -> None:
     """Drop every link row touching a note (as source or target) — for a permanent
     delete, so no dangling FK rows survive the row's removal."""
@@ -2341,6 +2416,7 @@ def create_event(db: Session, topic_id: int, payload: dict) -> dict:
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
     sync_event_links(db, event)
+    sync_event_embeds(db, event)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
@@ -2376,6 +2452,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
     sync_event_links(db, event)
+    sync_event_embeds(db, event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:

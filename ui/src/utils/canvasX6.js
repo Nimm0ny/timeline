@@ -139,6 +139,9 @@ export function applyCanvasColors(graph, colors = {}) {
   const { card = "#ffffff", text: textColor = "#3a3733", line = "#d8d4cc" } = colors;
   const fontFamily = (typeof document !== "undefined" && getComputedStyle(document.body).fontFamily) || "sans-serif";
   graph.getNodes().forEach((node) => {
+    // Embed cards are Vue/DOM nodes that theme themselves from CSS vars — skip the SVG repaint
+    // (they have no body/label attrs to set, and touching them would be a no-op at best).
+    if (isEmbedCard(node)) return;
     const data = node.getData() || {};
     node.attr("body/fill", data.fill || card);
     node.attr("body/stroke", line);
@@ -154,82 +157,29 @@ export function applyCanvasColors(graph, colors = {}) {
 
 // ---- W5 note-embed cards -------------------------------------------------------
 // A second card kind on the same flat board: an embedded reference to another note
-// (data.kind === "embed", data.noteId). It must read as a distinct object — an accent
-// spine down the left edge plus a bold title line (the note headline) over a muted
-// preview line — so it never looks like a free text card. Fixed size; a rich HTML body
-// would need a Vue-shape dependency we do NOT add (AGENTS §9), so it is a plain rect +
-// two <text> labels, styled to match buildCardAttrs.
+// (data.kind === "embed", data.noteId). It renders as a real DOM node via
+// @antv/x6-vue-shape (EmbedCardNode.vue, bound to the shape in embedCardShape.js) so it can
+// carry rich, theme-aware content — an accent spine + the live note title over a preview
+// line — and later grow to the full-markdown / in-place-edit tiers (§7.2). This file stays
+// Vue-free: it only builds the snapshot node; the shape↔component binding lives in
+// embedCardShape.js. headline/preview ride in data as the pre-fetch display fallback and as
+// the backend walker's search text (§5.5 seam #4); the live values come from the reactive
+// embed store on canvas open.
+export const EMBED_CARD_SHAPE = "embed-card";
 export const EMBED_DEFAULT_WIDTH = 240;
 export const EMBED_DEFAULT_HEIGHT = 120;
 
-const EMBED_MUTED_FALLBACK = "#8a857c";
-
-function embedCardAttrs(headline, preview, colors = {}) {
-  const {
-    card = "#ffffff",
-    text: textColor = "#3a3733",
-    line = "#d8d4cc",
-    accent = "#7b68d9",
-    muted = EMBED_MUTED_FALLBACK,
-  } = colors;
-  const fontFamily = (typeof document !== "undefined" && getComputedStyle(document.body).fontFamily) || "sans-serif";
-  return {
-    body: { rx: 10, ry: 10, fill: card, stroke: line, strokeWidth: 1.5, cursor: "move" },
-    // Accent rail down the straight part of the left edge — the at-a-glance
-    // "this is a linked note" marker that a plain text card never has.
-    spine: { x: 0, y: 10, width: 3, height: EMBED_DEFAULT_HEIGHT - 20, rx: 1.5, ry: 1.5, fill: accent },
-    // The title reuses the `label` selector on purpose: the existing applyCanvasColors
-    // repaints label/fill + label/fontFamily on a theme switch, so the headline follows
-    // light/dark for free (it never touches our custom `preview`/`spine` selectors, and
-    // it only rewrites fontSize/fontWeight when they live in data, which ours do not —
-    // so the bold weight below survives).
-    label: {
-      text: headline || "无标题",
-      fill: textColor,
-      fontSize: 14,
-      fontWeight: 600,
-      fontFamily,
-      textWrap: { width: -30, height: 22, ellipsis: true },
-      textAnchor: "start",
-      textVerticalAnchor: "top",
-      refX: 16,
-      refY: 14,
-    },
-    preview: {
-      text: preview || "",
-      fill: muted,
-      fontSize: 12,
-      fontWeight: "normal",
-      fontFamily,
-      textWrap: { width: -30, height: 58, ellipsis: true },
-      textAnchor: "start",
-      textVerticalAnchor: "top",
-      refX: 16,
-      refY: 44,
-    },
-  };
-}
-
 // An embed card node for the X6 snapshot. Fixed EMBED_DEFAULT_* size; reuses the shared
 // magnetic ports so it wires to text cards and other embeds exactly like buildCardNode.
-export function buildEmbedCardNode({ id, x, y, noteId, headline = "", preview = "", colors = {} }) {
+export function buildEmbedCardNode({ id, x, y, noteId, headline = "", preview = "" }) {
   return {
     id: id || nextCardId(),
-    shape: "rect",
+    shape: EMBED_CARD_SHAPE,
     x,
     y,
     width: EMBED_DEFAULT_WIDTH,
     height: EMBED_DEFAULT_HEIGHT,
-    markup: [
-      { tagName: "rect", selector: "body" },
-      { tagName: "rect", selector: "spine" },
-      { tagName: "text", selector: "label" },
-      { tagName: "text", selector: "preview" },
-    ],
     ports: buildCardPorts(),
-    attrs: embedCardAttrs(headline, preview, colors),
-    // headline/preview ride in data too so a batch-preview refresh can re-derive the
-    // labels by noteId (node.attr("label/text", …)) without parsing the SVG text nodes.
     data: { kind: "embed", noteId, headline, preview },
     zIndex: 2,
   };

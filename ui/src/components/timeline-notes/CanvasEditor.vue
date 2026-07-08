@@ -8,12 +8,19 @@ import {
   buildCanvasSeedSnapshot,
   buildCardNode,
   buildCardPorts,
+  buildEmbedCardNode,
   CARD_DEFAULT_HEIGHT,
   CARD_DEFAULT_WIDTH,
+  EMBED_DEFAULT_HEIGHT,
+  EMBED_DEFAULT_WIDTH,
+  embedNoteIdsFromSnapshot,
+  isEmbedCard,
   isX6CanvasSnapshot,
   makeCanvasEdge,
   X6_CANVAS_FORMAT,
 } from "@/utils/canvasX6.js";
+import { EmbedTeleport } from "@/utils/embedCardShape.js";
+import { resolveEmbedPreviews } from "@/utils/embedPreviewStore.js";
 import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 
@@ -27,7 +34,7 @@ const props = defineProps({
   title: { type: String, default: "" },
   readOnly: { type: Boolean, default: false },
 });
-const emit = defineEmits(["update", "ready", "active"]);
+const emit = defineEmits(["update", "ready", "active", "open-embed"]);
 
 const themeStore = useThemeStore();
 
@@ -223,13 +230,40 @@ function addCard(x, y) {
   requestAnimationFrame(() => showEditOverlay(node));
 }
 
-function addCardAtCenter() {
+// Graph-local coordinates of the viewport center — where a toolbar-inserted node lands.
+function viewportCenterLocal() {
   const g = graph.value;
   const host = containerRef.value;
-  if (!g || !host) return;
+  if (!g || !host) return null;
   const rect = host.getBoundingClientRect();
-  const local = g.pageToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  addCard(local.x, local.y);
+  return g.pageToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
+function addCardAtCenter() {
+  const local = viewportCenterLocal();
+  if (local) addCard(local.x, local.y);
+}
+
+// Drop an embed card (a reference to another note) at the viewport center. The picker in
+// CanvasSurface supplies { noteId, headline }; the live title/preview arrive via the batch fetch
+// kicked off here, and the backend writes an `embed` link row on the next save (§7.5).
+function addEmbedCard({ noteId, headline = "" } = {}) {
+  const g = graph.value;
+  if (!g || props.readOnly || noteId == null) return;
+  const local = viewportCenterLocal();
+  if (!local) return;
+  const node = g.addNode(
+    buildEmbedCardNode({
+      x: local.x - EMBED_DEFAULT_WIDTH / 2,
+      y: local.y - EMBED_DEFAULT_HEIGHT / 2,
+      noteId,
+      headline,
+    })
+  );
+  graphSelection.value?.clean();
+  graphSelection.value?.select(node);
+  resolveEmbedPreviews([noteId]);
+  scheduleSave();
 }
 
 function deleteSelected() {
@@ -290,6 +324,7 @@ function flushPendingSave() {
 
 defineExpose({
   addCard: addCardAtCenter,
+  addEmbedCard,
   deleteSelected,
   undo,
   redo,
@@ -328,6 +363,9 @@ function applyGraphState(payload) {
   else g.clearBackground();
   applyCanvasColors(g, readColors(currentBackground));
   g.getNodes().forEach(ensureCardPorts);
+  // One batch fetch for every embedded note's title/preview so the cards render immediately;
+  // pan/zoom afterwards costs zero fetches (§7.4). Safe no-op when the board has no embeds.
+  resolveEmbedPreviews(embedNoteIdsFromSnapshot(cells));
   resizeGraph();
   // Prefer the per-device localStorage viewport; fall back to a legacy snapshot view
   // (canvases saved before viewport moved to localStorage), else centerContent below.
@@ -427,7 +465,21 @@ onMounted(() => {
   });
   g.on("scale", () => scheduleViewSave());
   g.on("translate", () => scheduleViewSave());
-  g.on("node:dblclick", ({ node }) => showEditOverlay(node));
+  g.on("node:dblclick", ({ node }) => {
+    // Text card → inline edit overlay; embed card → open the referenced note (its "activate"
+    // gesture). Single-click still just selects, so grabbing a card to move/delete never opens.
+    if (isEmbedCard(node)) {
+      const noteId = node.getData()?.noteId;
+      if (noteId != null) {
+        // The preview popover positions against a rect POJO (numeric top/left/right/height), so
+        // pass the card's screen rect — NOT the raw DOM node, whose reads would all be NaN.
+        const anchor = g.findViewByCell(node)?.container?.getBoundingClientRect?.() || null;
+        emit("open-embed", { id: noteId, anchor });
+      }
+      return;
+    }
+    showEditOverlay(node);
+  });
   g.on("blank:dblclick", ({ x, y }) => addCard(x, y));
   g.on("blank:click", () => {
     if (editingNodeId) commitEdit();
@@ -497,6 +549,9 @@ onBeforeUnmount(() => {
       @keydown.escape.prevent="cancelEdit"
       @blur="commitEdit"
     />
+    <!-- Renders each embed card's Vue instance into its X6 foreignObject (via @antv/x6-vue-shape
+         teleport); produces no layout of its own. Must stay mounted while the board is open. -->
+    <EmbedTeleport />
     <div v-if="loading" class="mm-loading">正在加载画布…</div>
   </div>
 </template>

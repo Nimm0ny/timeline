@@ -16,6 +16,7 @@
     "@antv/x6": "^2.19.2",
     "@antv/x6-plugin-history": "^2.2.4",
     "@antv/x6-plugin-selection": "^2.2.2",
+    "@antv/x6-vue-shape": "^2.1.2",
     "@chenglou/pretext": "^0.0.8",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",

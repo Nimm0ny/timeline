@@ -2909,6 +2909,7 @@ watch(
       @move-to-trash="trashMindmapNote"
       @restore="restoreMindmapNote"
       @permanent-delete="permanentlyDeleteMindmapNote"
+      @open-embed="pinRelatedEvent"
     />
 
     <TimelineFeed

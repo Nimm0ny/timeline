@@ -369,3 +369,16 @@ timeline_links(
 - pytest：batch-preview 查、`embed` links 读写、墓碑（target 删）路径。
 - 前端：`agent:check` / `build` / `test:ui`；**性能 QA 必做**——N=200 嵌入卡开图耗时、pan/zoom 帧率、进出视口无抖、T2 预算不超；归档 `docs/visual-qa/`。
 - Review gate：触发（§9 依赖例外 + 新契约 + 性能基准）→ 独立 subagent review。
+
+### 7.8 落地状态（W5-core，已实现 + 浏览器验证）
+
+本刀交付 **T0/T1 嵌入卡渲染 + 接线 + 后端 links/walker/墓碑**；视口裁剪 + T2/T3 + N=200 性能 QA 归为 **W5b**（见末尾）。
+
+- **依赖**：`@antv/x6-vue-shape@2.1.2`（**pin 在 x6@2 兼容线**——最新 3.x 强依赖 x6@3，会拖着 CanvasEditor/MindmapEditor 一起大版本迁移，否决；`@vue/composition-api` 为 optional peer，Vue 3 装干净）；登记进 `AGENTS.md §9` X6 例外簇。
+- **节点渲染**：`EmbedCardNode.vue`（vue-shape 组件，foreignObject 承 DOM）= accent 竖脊 + 标题 + 预览 + 容器 chip；三态 resolved / 缓存兜底 / 墓碑（`笔记已删除`）。`embedCardShape.js` 模块级 `register()` + `getTeleport()` 一次；teleport 容器挂在 CanvasEditor 让节点组件**共享主 app context**（主题/store/provide），否则每节点各自 `createApp` 拿不到。`canvasX6.js` 保持 Vue-free（只出 `{shape:"embed-card", data}`）。
+- **承重坑（浏览器实测才现）**：foreignObject 内 `%height` 在 Chrome resolve 到 **SVG viewport**（946px）而非节点框 → 卡 box 用 `node.getSize()` **px 显式定尺**（`.cv-canvas foreignObject>body{margin:0}` 复位）。**开图不脏快照**：显示走 reactive `embedPreviewStore`，node.data 只存 headline/preview 作 pre-fetch 兜底 + 搜索索引，从不 `setData` → 无 `history:change` → 看画布不 bump `updated_at`（守 §5.5）。
+- **数据/接线**：开画布 `embedNoteIdsFromSnapshot` → 一次 `POST /api/events/batch-preview` 灌 store（§7.4，pan/zoom 零 fetch）。工具栏「嵌入笔记」→ `EmbedCardPicker`（复用 CommandPalette 布局）→ `addEmbedCard`。dblclick 卡 → `open-embed` → `pinRelatedEvent`（**复用 W4 预览 popover，零新导航通道**；单击仍只选中）。后端 `sync_event_embeds`（镜像 `sync_event_links`，delete-then-insert `anchor_type="embed"`，按 target dedup，target 死→NULL 墓碑）挂 create/update；walker `collect_x6_snapshot_text` 折入 embed 卡 headline/preview 使画布可按所嵌内容被搜到（§5.5 seam #4）。
+- **测试**：`test_links.py` +5（`parse_snapshot_embeds` / embed backlink 写 / resync+按源 dedup / 悬空+墓碑 / walker 索引标题）。**pytest 61 / test:ui 206 / build / agent:check 全绿**；浏览器实测：teleport 渲 3 卡（标题+预览+容器 chip）、墓碑态、240×120 定尺、主题变量跟随（live 改 `--bg-surface` 卡随之）、batch-preview、embed backlink 行（`anchorType=embed`）、dblclick→popover **定位正确**、picker 搜索选中加卡、保存 round-trip（reload 卡复现）。
+- **Review gate 已跑（high，4 finder agent × 8 角）**——修全部确认项：① **dblclick 传原始 DOM 元素当 anchor** → `relatedPreviewPosition` 按数字读 `.top/.left` → 全 `NaN` → popover 错位到 `top:0`（改传 `container.getBoundingClientRect()`，实测 `354px/448px` 贴卡）；② **store 驱逐清屏上卡**（`Map.set` 命中已存在 key 不重排 → 重取的当前卡仍在队首被驱逐 → `getEmbedEntry` 返 undefined 闪空；改 `delete`-then-`set` 的 LRU-touch）；③ 刷新失败留旧墓碑（catch 清 wanted 的 `missing`，已删又恢复的笔记不卡在「已删除」）；④ `inFlight` 去重在拥有请求失败时吞 id（去掉 inFlight，重叠 fetch 无害）；⑤ `change:size` 死机器（embed 卡固定尺、画布无 resize → boxStyle 一次算）；+ 抽 `viewportCenterLocal` 去 addCard/addEmbedCard 中心算重复 + 订 `node:click`→`node:dblclick` 注释。
+- **未修（记录，接受）**：① **自嵌入**（画布嵌自己 → 自 backlink）与 wikilink 同类未守，一致性优先不特判；② 搜索索引用**缓存**标题 → 目标改名后陈旧至画布再存（设计取舍：显示走 batch 现查刷新，索引用缓存，同 §6.8 留债口径，非 `linkTargets` 式现查）；③ `EmbedCardPicker`↔`CommandPalette` 键盘/listbox 结构重叠（`bf07738` 已提交、非本刀 diff，可抽 `useListboxNav` composable）。
+- **W5b（下一刀，非本刀）**：视口裁剪（tldraw `display:none` + 可见集集中判定 + 分档 prop 下发，§7.3）+ T2 zoom-全文（复用读渲染器）+ T3 双击 CM6（全画布 ≤1）+ **N=200 性能 QA 归档 `docs/visual-qa/`**（§7.7 强制）；后端 `related_event_ids`→`manual` backfill、`relatedEvents` 走 links 表。

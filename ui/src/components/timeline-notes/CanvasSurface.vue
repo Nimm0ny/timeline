@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from "vue";
 import CanvasEditor from "@/components/timeline-notes/CanvasEditor.vue";
+import EmbedCardPicker from "@/components/timeline-notes/EmbedCardPicker.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 
 // Center-column host for a canvas note (mirrors MindmapSurface): owns the frame chrome
@@ -11,13 +12,14 @@ const props = defineProps({
   note: { type: Object, required: true },
   saving: { type: Boolean, default: false },
 });
-const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "restore", "permanent-delete"]);
+const emit = defineEmits(["back", "save", "toggle-favorite", "move-to-trash", "restore", "permanent-delete", "open-embed"]);
 
 const editor = ref(null);
 const fullscreen = ref(false);
 const openMenu = ref(""); // "" | "bg" | "color"
 const activeCount = ref(0);
 const currentBackground = ref("");
+const pickerOpen = ref(false);
 
 // Backgrounds + text colours are written into the persisted snapshot as raw hex, so
 // the editor stores concrete values instead of CSS variable references.
@@ -49,6 +51,10 @@ function pickBackground(value) {
 function pickTextColor(color) {
   editor.value?.setTextColor(color);
   openMenu.value = "";
+}
+function onPickEmbed({ id, headline } = {}) {
+  if (id != null) editor.value?.addEmbedCard?.({ noteId: id, headline });
+  pickerOpen.value = false;
 }
 function requestTrash() {
   editor.value?.cancelPendingSave?.();
@@ -117,6 +123,9 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       <button type="button" class="iconbtn sm primary" :disabled="note.deletedAt" title="新增卡片" @click="editor?.addCard()">
         <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
       </button>
+      <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="嵌入笔记" @click="pickerOpen = true">
+        <TimelineLucideIcon name="link" :stroke-width="1.5" />
+      </button>
 
       <span class="mm-sep"></span>
 
@@ -174,6 +183,9 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       @ready="onReady"
       @active="activeCount = $event"
       @update="emit('save', $event)"
+      @open-embed="emit('open-embed', $event)"
     />
+
+    <EmbedCardPicker :open="pickerOpen" @select="onPickEmbed" @close="pickerOpen = false" />
   </section>
 </template>
