@@ -9,7 +9,7 @@ import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.v
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
-import { useTimelineStore } from "@/composables/useTimelineStore";
+import { useNotesStore } from "@/composables/useNotesStore";
 import { usePaneSwapDrag } from "@/composables/usePaneSwapDrag";
 import { useViewport } from "@/composables/useViewport";
 import {
@@ -53,7 +53,7 @@ const feedPaneRef = ref(null);
 const mindmapSurfaceRef = ref(null);
 const canvasSurfaceRef = ref(null);
 const mobileFeedScrollTop = ref(0);
-const timelineStore = useTimelineStore();
+const notesStore = useNotesStore();
 const { isMobile, isCompactDesktop } = useViewport();
 
 const DETAIL_MODES = new Set(["view", "edit", "create"]);
@@ -330,7 +330,7 @@ async function refreshBookshelfTree({ syncTopics = false } = {}) {
   const tree = await api.listBookshelfTree();
   state.bookshelfTree = Array.isArray(tree) ? tree : [];
   state.bookshelves = flattenBookshelves(state.bookshelfTree);
-  if (syncTopics) timelineStore.setTopics(flattenTopicsFromTree(state.bookshelfTree));
+  if (syncTopics) notesStore.setTopics(flattenTopicsFromTree(state.bookshelfTree));
 }
 
 async function refreshSidebarData({ reloadTopics = false } = {}) {
@@ -384,7 +384,7 @@ const autoLoadContextKey = computed(() =>
 );
 
 const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
-const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(timelineStore.state.eventsIndex));
+const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(notesStore.state.notesIndex));
 const favoriteScope = computed(() => normalizeFavoriteScope(state.favoriteScope));
 const favoritesScopedEvents = computed(() =>
   filterFavoriteEventsByScope(globalFavoriteEvents.value, favoriteScope.value, state.topics, state.activeTopicId)
@@ -397,7 +397,7 @@ const favoriteTopicRows = computed(() => {
   for (const event of favoritesScopedEvents.value) {
     const topicId = Number(event?.topicId);
     if (!topicId) continue;
-    const topic = timelineStore.topicById(topicId) || state.topics.find((item) => item.id === topicId);
+    const topic = notesStore.topicById(topicId) || state.topics.find((item) => item.id === topicId);
     if (!topic) continue;
     const existing = counts.get(topicId) || {
       topicId,
@@ -414,7 +414,7 @@ const favoriteScopeLabel = computed(() => {
   if (scope.kind === "current-topic") return `当前笔记本收藏 · ${activeTopicTitle.value}`;
   if (scope.kind === "recent") return "最近加星";
   if (scope.kind === "topic") {
-    const topic = timelineStore.topicById(scope.topicId) || state.topics.find((item) => item.id === scope.topicId);
+    const topic = notesStore.topicById(scope.topicId) || state.topics.find((item) => item.id === scope.topicId);
     return `来源笔记本 · ${topic?.title || topic?.name || "未命名笔记本"}`;
   }
   if (scope.kind === "type") {
@@ -525,7 +525,7 @@ const feedFetchDir = computed(() => {
 // favorites sort rides app config (it has no owning notebook). Reload from those
 // sources whenever the owner changes (and on mount).
 function topicSortLevels(topicId) {
-  return normalizeSortLevels(timelineStore.topicById(topicId)?.sort);
+  return normalizeSortLevels(notesStore.topicById(topicId)?.sort);
 }
 
 function favoritesSortLevels() {
@@ -536,7 +536,7 @@ function favoritesSortLevels() {
 }
 
 function loadGroupBy(topicId) {
-  const raw = timelineStore.topicById(topicId)?.groupBy;
+  const raw = notesStore.topicById(topicId)?.groupBy;
   return ["era", "year", "month"].includes(raw) ? raw : "era";
 }
 
@@ -582,18 +582,18 @@ function changeGroupBy(groupBy) {
 // (like changeDisplayStyle) so a concurrent column-save PUT can't land out of
 // order and revert it. `patch` carries the camelCase field(s) to store + PUT.
 function persistTopicMetaField(topicId, patch) {
-  const topicMeta = timelineStore.topicById(topicId) || state.activeTopicMeta;
+  const topicMeta = notesStore.topicById(topicId) || state.activeTopicMeta;
   if (!topicMeta) return;
-  timelineStore.upsertTopic({ ...topicMeta, ...patch });
+  notesStore.upsertTopic({ ...topicMeta, ...patch });
   if (state.activeTopicId === topicId) syncActiveTopicFromStore();
   const task = async () => {
     try {
       const meta = await api.updateTopicMeta(topicId, patch);
-      timelineStore.upsertTopic({ ...meta, ...patch });
+      notesStore.upsertTopic({ ...meta, ...patch });
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
     } catch (error) {
       try {
-        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        notesStore.upsertTopic(await api.getTopicMeta(topicId));
         if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the error toast.
@@ -632,22 +632,22 @@ function persistFavoritesSort(sort) {
 // feed renders it even if every current row would show "—". This keeps the eye
 // toggle's behavior direct and predictable.
 const feedEmptyColumnKeys = computed(() => []);
-const selectedEventDetail = computed(() => timelineStore.detailById(state.selectedEventId));
+const selectedEventDetail = computed(() => notesStore.detailById(state.selectedEventId));
 const selectedEventIndex = computed(
   () =>
     state.events.find((event) => event.id === state.selectedEventId) ||
-    timelineStore.state.eventsIndex.find((event) => event.id === state.selectedEventId) ||
+    notesStore.state.notesIndex.find((event) => event.id === state.selectedEventId) ||
     null
 );
 const selectedEvent = computed(() => selectedEventDetail.value || selectedEventIndex.value);
-const relatedPreviewDetail = computed(() => timelineStore.detailById(state.relatedPreviewEventId));
+const relatedPreviewDetail = computed(() => notesStore.detailById(state.relatedPreviewEventId));
 const relatedPreviewIndex = computed(
-  () => timelineStore.state.eventsIndex.find((event) => event.id === Number(state.relatedPreviewEventId)) || null
+  () => notesStore.state.notesIndex.find((event) => event.id === Number(state.relatedPreviewEventId)) || null
 );
 const relatedPreviewEvent = computed(() => relatedPreviewDetail.value || relatedPreviewIndex.value);
 const relatedPreviewTopicTitle = computed(() => {
   const topicId = relatedPreviewEvent.value?.topicId;
-  return (topicId && timelineStore.topicById(topicId)?.title) || activeTopicTitle.value;
+  return (topicId && notesStore.topicById(topicId)?.title) || activeTopicTitle.value;
 });
 const detailRequiresFullEvent = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
 const detailPaneEvent = computed(() => {
@@ -666,13 +666,13 @@ const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.de
 // renders). The two computeds discriminate by note_type so the right surface mounts.
 const mindmapNote = computed(() => {
   if (!state.mindmapOpenId) return null;
-  const note = timelineStore.detailById(state.mindmapOpenId);
+  const note = notesStore.detailById(state.mindmapOpenId);
   if (!note || note.topicId !== state.activeTopicId || state.selectedEventId !== state.mindmapOpenId) return null;
   return note.noteType === "mindmap" ? note : null;
 });
 const canvasNote = computed(() => {
   if (!state.mindmapOpenId) return null;
-  const note = timelineStore.detailById(state.mindmapOpenId);
+  const note = notesStore.detailById(state.mindmapOpenId);
   if (!note || note.topicId !== state.activeTopicId || state.selectedEventId !== state.mindmapOpenId) return null;
   return note.noteType === "canvas" ? note : null;
 });
@@ -867,7 +867,7 @@ function buildRouteSelectionSpec() {
   const eventId = parseRouteNumber("event");
   const routeTopicId = parseRouteNumber("topic");
   const mode = parseRouteMode();
-  const event = eventId ? timelineStore.eventById(eventId) || null : null;
+  const event = eventId ? notesStore.noteById(eventId) || null : null;
   const topicId = event?.topicId || routeTopicId || null;
   const openMindmap = opensInCenterColumn(event);
   return {
@@ -906,14 +906,14 @@ function routeSelectionMatchesState(spec) {
 async function ensureTopicEventsReady(topicId, { force = false, throwOnError = false } = {}) {
   const id = Number(topicId);
   if (!id) return true;
-  if (timelineStore.isTopicEventsLoaded(id) && !force) {
+  if (notesStore.isTopicNotesLoaded(id) && !force) {
     if (state.activeTopicId === id) syncActiveTopicFromStore();
     return true;
   }
   const seq = ++topicEventsRequestSeq;
   state.eventsLoading = true;
   try {
-    await timelineStore.ensureTopicEvents(id, { force, dir: feedFetchDir.value });
+    await notesStore.ensureTopicNotes(id, { force, dir: feedFetchDir.value });
     if (state.activeTopicId === id) syncActiveTopicFromStore();
     state.error = "";
     return true;
@@ -934,14 +934,14 @@ async function loadMoreActiveTopicEvents({ auto = false } = {}) {
     !topicId ||
     state.loadingMore ||
     isGlobalFavoritesMode.value ||
-    !timelineStore.topicHasMore(topicId) ||
+    !notesStore.topicHasMore(topicId) ||
     (auto && state.autoLoadBlockedKey === autoLoadContextKey.value)
   ) {
     return;
   }
   state.loadingMore = true;
   try {
-    await timelineStore.ensureTopicEvents(topicId, { append: true, dir: feedFetchDir.value });
+    await notesStore.ensureTopicNotes(topicId, { append: true, dir: feedFetchDir.value });
     if (state.autoLoadBlockedKey === autoLoadContextKey.value) state.autoLoadBlockedKey = "";
     syncActiveTopicFromStore();
   } catch (error) {
@@ -953,11 +953,11 @@ async function loadMoreActiveTopicEvents({ auto = false } = {}) {
 }
 
 async function ensureGlobalIndexReady() {
-  if (timelineStore.state.indexLoaded) return true;
+  if (notesStore.state.indexLoaded) return true;
   const seq = ++topicEventsRequestSeq;
   state.eventsLoading = true;
   try {
-    await timelineStore.loadIndex();
+    await notesStore.loadIndex();
     syncActiveTopicFromStore();
     state.error = "";
     return true;
@@ -987,18 +987,18 @@ async function ensureRouteSelectionData() {
   const routeEventId = parseRouteNumber("event");
   if (routeTopicId) {
     const ready = await ensureTopicEventsReady(routeTopicId);
-    if (!ready || !routeEventId || timelineStore.eventById(routeEventId)) return ready;
+    if (!ready || !routeEventId || notesStore.noteById(routeEventId)) return ready;
     try {
-      await timelineStore.ensureEventDetail(routeEventId);
+      await notesStore.ensureNoteDetail(routeEventId);
       return true;
     } catch (error) {
       pushToast(`详情加载失败：${error.message}`, "error");
       return false;
     }
   }
-  if (!routeEventId || timelineStore.eventById(routeEventId)) return true;
+  if (!routeEventId || notesStore.noteById(routeEventId)) return true;
   try {
-    await timelineStore.ensureEventDetail(routeEventId);
+    await notesStore.ensureNoteDetail(routeEventId);
     return true;
   } catch (error) {
     pushToast(`详情加载失败：${error.message}`, "error");
@@ -1007,7 +1007,7 @@ async function ensureRouteSelectionData() {
 }
 
 async function applyRouteSelectionFromQuery() {
-  if (!timelineStore.state.topicsLoaded || !state.topics.length) return;
+  if (!notesStore.state.topicsLoaded || !state.topics.length) return;
   const routeReady = await ensureRouteSelectionData();
   if (!routeReady) return;
   const spec = buildRouteSelectionSpec();
@@ -1035,7 +1035,7 @@ async function applyRouteSelectionFromQuery() {
     state.detailError = "";
     state.rightOpen = false;
     state.mindmapOpenId = spec.eventId;
-    await timelineStore.ensureEventDetail(spec.eventId);
+    await notesStore.ensureNoteDetail(spec.eventId);
     return;
   }
 
@@ -1043,10 +1043,10 @@ async function applyRouteSelectionFromQuery() {
 }
 
 function syncActiveTopicFromStore() {
-  state.topics = [...timelineStore.state.topics];
-  state.activeTopicMeta = state.activeTopicId ? timelineStore.topicById(state.activeTopicId) : null;
+  state.topics = [...notesStore.state.topics];
+  state.activeTopicMeta = state.activeTopicId ? notesStore.topicById(state.activeTopicId) : null;
   ensureBookshelfExpandedForTopic(state.activeTopicId);
-  state.events = state.activeTopicId ? timelineStore.eventsForTopic(state.activeTopicId) : [];
+  state.events = state.activeTopicId ? notesStore.notesForTopic(state.activeTopicId) : [];
   state.eventBounds = state.activeTopicMeta
     ? {
         eventCount: state.activeTopicMeta.eventCount,
@@ -1056,8 +1056,8 @@ function syncActiveTopicFromStore() {
         maxDate: state.activeTopicMeta.maxDate,
       }
     : null;
-  state.hasMore = state.activeTopicId ? timelineStore.topicHasMore(state.activeTopicId) : false;
-  state.nextCursor = state.activeTopicId ? timelineStore.topicNextCursor(state.activeTopicId) : null;
+  state.hasMore = state.activeTopicId ? notesStore.topicHasMore(state.activeTopicId) : false;
+  state.nextCursor = state.activeTopicId ? notesStore.topicNextCursor(state.activeTopicId) : null;
 }
 
 function applyWorkspaceSelection(options = {}) {
@@ -1067,7 +1067,7 @@ function applyWorkspaceSelection(options = {}) {
     preferredMode = parseRouteMode(),
     openDetail = preferredMode !== "view" || preferredEventId !== null,
   } = options;
-  const topics = timelineStore.state.topics;
+  const topics = notesStore.state.topics;
   const routeTopicId = parseRouteNumber("topic");
   const resolvedTopicId =
     preferredTopicId && topics.some((topic) => topic.id === preferredTopicId)
@@ -1293,7 +1293,7 @@ function selectCommandEvent(result) {
       openDetail: false,
     });
     if (!ready) return;
-    const event = timelineStore.eventById(eventId);
+    const event = notesStore.noteById(eventId);
     if (!event) {
       pushToast("未找到目标笔记", "error");
       return;
@@ -1388,10 +1388,10 @@ function saveAndContinue() {
 async function applyEventSelection(eventId) {
   const id = Number(eventId);
   rememberMobileFeedScroll();
-  let event = timelineStore.eventById(id);
+  let event = notesStore.noteById(id);
   if (!event) {
     try {
-      event = await timelineStore.ensureEventDetail(id);
+      event = await notesStore.ensureNoteDetail(id);
     } catch (error) {
       pushToast(`详情加载失败：${error.message}`, "error");
       return;
@@ -1469,7 +1469,7 @@ async function openMindmap(eventId) {
   state.detailError = "";
   state.rightOpen = false;
   state.mindmapOpenId = id;
-  await timelineStore.ensureEventDetail(id);
+  await notesStore.ensureNoteDetail(id);
   await syncRouteState({ eventId: id, mode: "view" });
 }
 
@@ -1507,7 +1507,7 @@ function createMindmapNote(topicId = state.activeTopicId) {
         noteType: "mindmap",
         bodyJson: buildX6SeedSnapshot("中心主题"),
       });
-      timelineStore.upsertEvent(result);
+      notesStore.upsertNote(result);
       syncActiveTopicFromStore();
       await openMindmap(result.id);
       pushToast("已创建思维导图");
@@ -1546,7 +1546,7 @@ function createCanvasNote(topicId = state.activeTopicId) {
         noteType: "canvas",
         bodyJson: buildCanvasSeedSnapshot(),
       });
-      timelineStore.upsertEvent(result);
+      notesStore.upsertNote(result);
       syncActiveTopicFromStore();
       await openMindmap(result.id);
       pushToast("已创建画布");
@@ -1577,7 +1577,7 @@ function saveMindmapTree(payload) {
 }
 
 async function persistMindmapTree({ id, tree } = {}) {
-  const note = id ? timelineStore.detailById(id) : null;
+  const note = id ? notesStore.detailById(id) : null;
   if (!note || note.deletedAt) return;
   state.mindmapSaving = true;
   try {
@@ -1601,7 +1601,7 @@ async function persistMindmapTree({ id, tree } = {}) {
       payload.dateDay = note.dateParts.day;
     }
     const result = await api.updateEvent(id, payload);
-    timelineStore.upsertEvent(result);
+    notesStore.upsertNote(result);
     syncActiveTopicFromStore();
   } catch (error) {
     pushToast(`保存失败：${error.message}`, "error");
@@ -1620,7 +1620,7 @@ function saveCanvasSnapshot(payload) {
 }
 
 async function persistCanvasSnapshot({ id, tree } = {}) {
-  const note = id ? timelineStore.detailById(id) : null;
+  const note = id ? notesStore.detailById(id) : null;
   if (!note || note.deletedAt) return;
   state.mindmapSaving = true;
   try {
@@ -1643,7 +1643,7 @@ async function persistCanvasSnapshot({ id, tree } = {}) {
       payload.dateDay = note.dateParts.day;
     }
     const result = await api.updateEvent(id, payload);
-    timelineStore.upsertEvent(result);
+    notesStore.upsertNote(result);
     syncActiveTopicFromStore();
   } catch (error) {
     pushToast(`保存失败：${error.message}`, "error");
@@ -1709,14 +1709,14 @@ async function openRelatedPreview(payload, { pinned = false } = {}) {
   state.relatedPreviewStyle = position.style;
   state.relatedPreviewError = "";
 
-  if (timelineStore.detailById(id)) {
+  if (notesStore.detailById(id)) {
     state.relatedPreviewLoading = false;
     return;
   }
 
   state.relatedPreviewLoading = true;
   try {
-    await timelineStore.ensureEventDetail(id);
+    await notesStore.ensureNoteDetail(id);
     if (seq === relatedPreviewRequestSeq) syncActiveTopicFromStore();
   } catch (error) {
     if (seq === relatedPreviewRequestSeq) {
@@ -1842,7 +1842,7 @@ async function saveEvent(payload) {
     await cleanupDeletedImages(payload.imageOps, payload.data.image);
     detailPaneRef.value?.markSaved?.();
     state.detailDirty = false;
-    timelineStore.upsertEvent(result);
+    notesStore.upsertNote(result);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     state.selectedEventId = result.id;
@@ -1896,7 +1896,7 @@ async function createTopic(input) {
   if (!topicName) return;
   try {
     const created = await api.createTopic(topicName, request.bookshelfId);
-    timelineStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
+    notesStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
     await refreshSidebarData({ reloadTopics: true });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
     const ready = await applyWorkspaceSelectionWithEvents({
@@ -1953,7 +1953,7 @@ async function renameTopic({ id, title } = {}) {
   if (!id || !name) return;
   try {
     const meta = await api.updateTopicMeta(id, { title: name });
-    timelineStore.upsertTopic(meta);
+    notesStore.upsertTopic(meta);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     pushToast(`已重命名为：${meta.title}`);
@@ -2036,7 +2036,7 @@ async function toggleFavorite(event) {
   try {
     const wasGlobalFavorites = isGlobalFavoritesMode.value;
     const result = await api.updateEventFavorite(event.id, !event.favorite);
-    timelineStore.upsertEvent(result);
+    notesStore.upsertNote(result);
     syncActiveTopicFromStore();
     if (wasGlobalFavorites) setDefaultSelection();
   } catch (error) {
@@ -2057,7 +2057,7 @@ async function moveEventToTrash(event) {
   if (!event?.id) return false;
   try {
     const result = await api.softDeleteEvent(event.id);
-    timelineStore.patchEvent(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
+    notesStore.patchNote(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
@@ -2075,7 +2075,7 @@ async function restoreEvent(event) {
   if (!event?.id) return false;
   try {
     const result = await api.restoreEvent(event.id);
-    timelineStore.upsertEvent(result);
+    notesStore.upsertNote(result);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
@@ -2093,7 +2093,7 @@ async function permanentlyDeleteEvent(event) {
   if (!event?.id) return false;
   try {
     await api.permanentlyDeleteEvent(event.id);
-    timelineStore.removeEvent(event.id);
+    notesStore.removeNote(event.id);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
     closeEventMenu();
@@ -2172,11 +2172,11 @@ async function runBatch(ids, perEvent, doneLabel) {
       const ran = await perEvent(event);
       if (ran !== false) {
         if (ran?.permanentDeletedId) {
-          timelineStore.removeEvent(ran.permanentDeletedId);
+          notesStore.removeNote(ran.permanentDeletedId);
         } else if (ran?.id) {
-          timelineStore.upsertEvent(ran);
+          notesStore.upsertNote(ran);
         } else if ("deletedAt" in (ran || {})) {
-          timelineStore.patchEvent(event.id, { deletedAt: ran.deletedAt || new Date().toISOString() });
+          notesStore.patchNote(event.id, { deletedAt: ran.deletedAt || new Date().toISOString() });
         }
         done += 1;
       }
@@ -2243,7 +2243,7 @@ function focusFeedSearch() {
 // persisted to the topic immediately (optimistic local update first).
 async function addPropertyOption({ key, option }) {
   if (!state.activeTopicId || !key || !option?.id) return;
-  const topicEvents = timelineStore.eventsForTopic(state.activeTopicId);
+  const topicEvents = notesStore.notesForTopic(state.activeTopicId);
   const orphanIds = new Set();
   for (const event of topicEvents) {
     const raw = event?.extra?.[key];
@@ -2272,7 +2272,7 @@ async function addPropertyOption({ key, option }) {
       subtitle: state.activeTopicMeta?.subtitle || "",
       columns,
     });
-    timelineStore.upsertTopic(meta);
+    notesStore.upsertTopic(meta);
     syncActiveTopicFromStore();
   } catch (error) {
     pushToast(`选项保存失败：${error.message}`, "error");
@@ -2331,7 +2331,7 @@ async function confirmDeleteTopicNow() {
   try {
     for (const topic of topics) {
       await api.deleteTopic(topic.id);
-      timelineStore.removeTopic(topic.id);
+      notesStore.removeTopic(topic.id);
       deleted += 1;
     }
     await refreshSidebarData({ reloadTopics: true });
@@ -2359,13 +2359,13 @@ async function confirmDeleteTopicNow() {
 async function persistTopicColumns(topicId, columns, { silentSuccess = false } = {}) {
   if (!topicId) return;
   const normalized = normalizeTopicColumns(columns);
-  const topicMeta = timelineStore.topicById(topicId) || (state.activeTopicId === topicId ? state.activeTopicMeta : null);
+  const topicMeta = notesStore.topicById(topicId) || (state.activeTopicId === topicId ? state.activeTopicMeta : null);
   const title = topicMeta?.title || "";
   const subtitle = topicMeta?.subtitle || "";
   const revision = (latestColumnSaveRevisionByTopic.get(topicId) || 0) + 1;
   latestColumnSaveRevisionByTopic.set(topicId, revision);
   if (topicMeta) {
-    timelineStore.upsertTopic({
+    notesStore.upsertTopic({
       ...topicMeta,
       columns: normalized,
     });
@@ -2384,12 +2384,12 @@ async function persistTopicColumns(topicId, columns, { silentSuccess = false } =
       // A column-save snapshot may carry a stale displayStyle / sort / groupBy if a
       // view switch or sort change is in flight — keep the store's current values
       // rather than reverting them.
-      const current = timelineStore.topicById(topicId);
+      const current = notesStore.topicById(topicId);
       const preserved = {};
       if (current?.displayStyle) preserved.displayStyle = current.displayStyle;
       if (current?.sort) preserved.sort = current.sort;
       if (current?.groupBy) preserved.groupBy = current.groupBy;
-      timelineStore.upsertTopic({ ...meta, ...preserved });
+      notesStore.upsertTopic({ ...meta, ...preserved });
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       if (!silentSuccess) pushToast("列定义已保存");
       return meta;
@@ -2397,7 +2397,7 @@ async function persistTopicColumns(topicId, columns, { silentSuccess = false } =
       if (revision !== latestColumnSaveRevisionByTopic.get(topicId)) return null;
       try {
         const freshMeta = await api.getTopicMeta(topicId);
-        timelineStore.upsertTopic(freshMeta);
+        notesStore.upsertTopic(freshMeta);
         if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the original error toast.
@@ -2423,21 +2423,21 @@ async function saveTopicColumns(payload) {
 async function changeDisplayStyle(style) {
   const topicId = state.activeTopicId;
   if (!topicId || !style) return;
-  const topicMeta = timelineStore.topicById(topicId) || state.activeTopicMeta;
+  const topicMeta = notesStore.topicById(topicId) || state.activeTopicMeta;
   if (!topicMeta || topicMeta.displayStyle === style) return;
   // Optimistic: reflect the new view immediately.
-  timelineStore.upsertTopic({ ...topicMeta, displayStyle: style });
+  notesStore.upsertTopic({ ...topicMeta, displayStyle: style });
   if (state.activeTopicId === topicId) syncActiveTopicFromStore();
   // Serialize through the shared meta-save chain so a concurrent column-save PUT
   // (or a rapid second view switch) can't land out of order and revert the view.
   const task = async () => {
     try {
       const meta = await api.updateTopicMeta(topicId, { displayStyle: style });
-      timelineStore.upsertTopic({ ...meta, displayStyle: style });
+      notesStore.upsertTopic({ ...meta, displayStyle: style });
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
     } catch (error) {
       try {
-        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        notesStore.upsertTopic(await api.getTopicMeta(topicId));
         if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the error toast.
@@ -2456,11 +2456,11 @@ async function changeContainerType({ id, containerType } = {}) {
   const topicId = Number(id);
   if (!topicId || !containerType) return;
   const topicMeta =
-    timelineStore.topicById(topicId) || (topicId === state.activeTopicId ? state.activeTopicMeta : null);
+    notesStore.topicById(topicId) || (topicId === state.activeTopicId ? state.activeTopicMeta : null);
   if (!topicMeta || topicMeta.containerType === containerType) return;
   const views = containerTypeViews(containerType);
   const nextDisplay = views.includes(topicMeta.displayStyle) ? topicMeta.displayStyle : views[0];
-  timelineStore.upsertTopic({
+  notesStore.upsertTopic({
     ...topicMeta,
     containerType,
     views,
@@ -2471,11 +2471,11 @@ async function changeContainerType({ id, containerType } = {}) {
   const task = async () => {
     try {
       const meta = await api.updateTopicMeta(topicId, { containerType });
-      timelineStore.upsertTopic(meta);
+      notesStore.upsertTopic(meta);
       if (state.activeTopicId === topicId) syncActiveTopicFromStore();
     } catch (error) {
       try {
-        timelineStore.upsertTopic(await api.getTopicMeta(topicId));
+        notesStore.upsertTopic(await api.getTopicMeta(topicId));
         if (state.activeTopicId === topicId) syncActiveTopicFromStore();
       } catch {
         // Best-effort rollback to server truth; keep the error toast.
@@ -2656,9 +2656,9 @@ function scheduleDetailPrefetch(eventId) {
   const run = async () => {
     detailPrefetchHandle = null;
     for (const targetId of targets) {
-      if (timelineStore.detailById(targetId)) continue;
+      if (notesStore.detailById(targetId)) continue;
       try {
-        await timelineStore.ensureEventDetail(targetId);
+        await notesStore.ensureNoteDetail(targetId);
       } catch (error) {
         if (error?.name === "AbortError") return;
       }
@@ -2679,8 +2679,8 @@ function scheduleDetailPrefetch(eventId) {
 async function loadSelectedEventDetail(eventId) {
   const id = Number(eventId);
   const seq = ++detailRequestSeq;
-  timelineStore.setProtectedDetailId(id || null);
-  if (!id || timelineStore.detailById(id)) {
+  notesStore.setProtectedDetailId(id || null);
+  if (!id || notesStore.detailById(id)) {
     cancelDetailRequest();
     state.detailLoading = false;
     state.detailError = "";
@@ -2693,7 +2693,7 @@ async function loadSelectedEventDetail(eventId) {
   state.detailLoading = true;
   state.detailError = "";
   try {
-    await timelineStore.ensureEventDetail(id, { signal: controller.signal });
+    await notesStore.ensureNoteDetail(id, { signal: controller.signal });
     if (seq === detailRequestSeq) {
       syncActiveTopicFromStore();
     }
@@ -2738,7 +2738,7 @@ watch(
 watch(
   () => [state.selectedEventId, state.rightOpen, state.detailMode],
   ([eventId, rightOpen, mode]) => {
-    timelineStore.setProtectedDetailId(rightOpen ? eventId : null);
+    notesStore.setProtectedDetailId(rightOpen ? eventId : null);
     if (!rightOpen) {
       cancelDetailRequest();
       clearDetailPrefetch();
@@ -2840,7 +2840,7 @@ watch(
       :brand="state.config.brandName"
       :topics="state.topics"
       :events="state.events"
-      :all-events="timelineStore.state.eventsIndex"
+      :all-events="notesStore.state.notesIndex"
       :bookshelf-tree="sortedBookshelfTree"
       :sidebar-sort="state.config.sidebarSort"
       :bookshelf-collapsed="state.bookshelfCollapsed"
@@ -2852,7 +2852,7 @@ watch(
       :favorites-panel="favoritesPanel"
       :columns="topicColumns"
       :property-filter="state.propertyFilter"
-      :property-data-ready="timelineStore.state.indexLoaded"
+      :property-data-ready="notesStore.state.indexLoaded"
       :loading="state.loading"
       :error="state.error"
       :column-saving="state.columnSaving"
@@ -2903,7 +2903,7 @@ watch(
       ref="canvasSurfaceRef"
       :note="canvasNote"
       :saving="state.mindmapSaving"
-      :resolve-detail="timelineStore.ensureEventDetail"
+      :resolve-detail="notesStore.ensureNoteDetail"
       @back="closeMindmap"
       @save="saveCanvasSnapshot"
       @toggle-favorite="toggleFavorite"

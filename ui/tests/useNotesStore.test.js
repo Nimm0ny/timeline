@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { api } from "../src/composables/useApi.js";
-import { useTimelineStore } from "../src/composables/useTimelineStore.js";
+import { useNotesStore } from "../src/composables/useNotesStore.js";
 
 function detailEvent(id) {
   return {
@@ -28,7 +28,7 @@ function detailEvent(id) {
 }
 
 test("ensureEventDetail forwards AbortSignal to api.getEvent", async () => {
-  const store = useTimelineStore();
+  const store = useNotesStore();
   const original = api.getEvent;
   const controller = new AbortController();
   let seenSignal = null;
@@ -38,7 +38,7 @@ test("ensureEventDetail forwards AbortSignal to api.getEvent", async () => {
   };
 
   try {
-    const event = await store.ensureEventDetail(9, { signal: controller.signal });
+    const event = await store.ensureNoteDetail(9, { signal: controller.signal });
     assert.equal(event.id, 9);
     assert.equal(seenSignal, controller.signal);
   } finally {
@@ -47,10 +47,10 @@ test("ensureEventDetail forwards AbortSignal to api.getEvent", async () => {
 });
 
 test("detail cache is capped and keeps the protected entry", () => {
-  const store = useTimelineStore();
+  const store = useNotesStore();
   store.setProtectedDetailId(1);
   for (let index = 1; index <= 45; index += 1) {
-    store.upsertEvent(detailEvent(index));
+    store.upsertNote(detailEvent(index));
   }
 
   assert.equal(store.state.detailCache.size, 40);

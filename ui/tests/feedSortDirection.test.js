@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { api } from "../src/composables/useApi.js";
-import { useTimelineStore } from "../src/composables/useTimelineStore.js";
+import { useNotesStore } from "../src/composables/useNotesStore.js";
 
 function indexPage(ids) {
   return {
@@ -24,7 +24,7 @@ function indexPage(ids) {
 // toggle puts two forced page-1 fetches in flight; if the earlier (ascending)
 // one resolves last it must NOT clobber the current (descending) page.
 test("ensureTopicEvents drops a superseded opposite-direction response", async () => {
-  const store = useTimelineStore();
+  const store = useNotesStore();
   const original = api.getTimelineEvents;
   const resolvers = {};
   api.getTimelineEvents = (_topicId, { dir } = {}) =>
@@ -33,8 +33,8 @@ test("ensureTopicEvents drops a superseded opposite-direction response", async (
     });
 
   try {
-    const ascending = store.ensureTopicEvents(1, { force: true, dir: 1 }); // A (stale-to-be)
-    const descending = store.ensureTopicEvents(1, { force: true, dir: -1 }); // B (current)
+    const ascending = store.ensureTopicNotes(1, { force: true, dir: 1 }); // A (stale-to-be)
+    const descending = store.ensureTopicNotes(1, { force: true, dir: -1 }); // B (current)
 
     resolvers[-1](indexPage([201, 202])); // B (current) resolves first
     await descending;
@@ -42,7 +42,7 @@ test("ensureTopicEvents drops a superseded opposite-direction response", async (
     await ascending;
 
     const ids = store
-      .eventsForTopic(1)
+      .notesForTopic(1)
       .map((event) => event.id)
       .sort((a, b) => a - b);
     assert.deepEqual(ids, [201, 202]); // descending page survived; ascending was dropped

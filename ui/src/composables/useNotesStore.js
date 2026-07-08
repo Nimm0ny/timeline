@@ -33,74 +33,74 @@ function normalizeTopic(topic = {}) {
   };
 }
 
-function normalizeIndexEvent(event = {}, fallbackTopicId = null) {
-  const rawDateKey = event.dateKey == null || event.dateKey === "" ? null : Number.parseInt(event.dateKey, 10);
+function normalizeIndexNote(note = {}, fallbackTopicId = null) {
+  const rawDateKey = note.dateKey == null || note.dateKey === "" ? null : Number.parseInt(note.dateKey, 10);
   const dateKey = Number.isFinite(rawDateKey) ? rawDateKey : null;
-  const topicId = Number(event.topicId ?? event.topic_id ?? fallbackTopicId);
+  const topicId = Number(note.topicId ?? note.topic_id ?? fallbackTopicId);
   return {
-    ...event,
-    id: Number(event.id),
+    ...note,
+    id: Number(note.id),
     topicId,
     dateKey,
-    hasDate: event.hasDate !== false && dateKey != null,
-    dateParts: event.dateParts || (dateKey != null ? datePartsFromKey(dateKey) : { year: null, month: null, day: null }),
-    noteType: event.noteType || "entry",
-    extra: event.extra && typeof event.extra === "object" ? event.extra : {},
-    favorite: Boolean(event.favorite),
-    favoriteAt: event.favoriteAt ?? null,
-    deletedAt: event.deletedAt ?? null,
-    preview: String(event.preview || ""),
-    attachmentCount: Number(event.attachmentCount || event.attachments?.length || 0),
+    hasDate: note.hasDate !== false && dateKey != null,
+    dateParts: note.dateParts || (dateKey != null ? datePartsFromKey(dateKey) : { year: null, month: null, day: null }),
+    noteType: note.noteType || "entry",
+    extra: note.extra && typeof note.extra === "object" ? note.extra : {},
+    favorite: Boolean(note.favorite),
+    favoriteAt: note.favoriteAt ?? null,
+    deletedAt: note.deletedAt ?? null,
+    preview: String(note.preview || ""),
+    attachmentCount: Number(note.attachmentCount || note.attachments?.length || 0),
   };
 }
 
-function normalizeDetailEvent(event = {}, fallbackTopicId = null) {
+function normalizeDetailNote(note = {}, fallbackTopicId = null) {
   return {
-    ...event,
-    id: Number(event.id),
-    topicId: Number(event.topicId ?? event.topic_id ?? fallbackTopicId),
+    ...note,
+    id: Number(note.id),
+    topicId: Number(note.topicId ?? note.topic_id ?? fallbackTopicId),
   };
 }
 
-function hasFullEventDetail(event = {}) {
+function hasFullNoteDetail(note = {}) {
   return (
-    "bodyMarkdown" in event ||
-    "bodyJson" in event ||
-    "attachments" in event ||
-    "items" in event ||
-    "relatedEvents" in event
+    "bodyMarkdown" in note ||
+    "bodyJson" in note ||
+    "attachments" in note ||
+    "items" in note ||
+    "relatedEvents" in note
   );
 }
 
-function detailToIndexEvent(event = {}) {
-  return normalizeIndexEvent({
-    id: event.id,
-    topicId: event.topicId,
-    dateKey: event.dateKey,
-    isoDate: event.isoDate,
-    dateParts: event.dateParts,
-    displayLabel: event.displayLabel,
-    headline: event.headline,
-    era: event.era,
+function detailToIndexNote(note = {}) {
+  return normalizeIndexNote({
+    id: note.id,
+    topicId: note.topicId,
+    dateKey: note.dateKey,
+    isoDate: note.isoDate,
+    dateParts: note.dateParts,
+    displayLabel: note.displayLabel,
+    headline: note.headline,
+    era: note.era,
     // Keep the note kind so the feed still flags a mindmap (and routes its click to
     // the canvas) after an edit round-trips through here.
-    noteType: event.noteType || "entry",
-    hasDate: event.hasDate !== false && event.dateKey != null,
+    noteType: note.noteType || "entry",
+    hasDate: note.hasDate !== false && note.dateKey != null,
     // Keep the primary image so a gallery card doesn't lose its thumbnail after
-    // the event is edited (this is the index event the gallery reads). The detail
+    // the note is edited (this is the index note the gallery reads). The detail
     // DTO has no separate thumb for the primary image — fall back to the full URL.
-    image: event.image ?? null,
-    imageUrl: event.imageUrl ?? null,
-    thumbUrl: event.thumbUrl ?? event.imageUrl ?? null,
-    extra: event.extra,
-    favorite: event.favorite,
-    favoriteAt: event.favoriteAt ?? null,
-    deletedAt: event.deletedAt,
-    createdAt: event.createdAt,
-    updatedAt: event.updatedAt,
-    preview: buildEventPreview(event, 120),
-    searchText: detailSearchText(event),
-    attachmentCount: Array.isArray(event.attachments) ? event.attachments.length : 0,
+    image: note.image ?? null,
+    imageUrl: note.imageUrl ?? null,
+    thumbUrl: note.thumbUrl ?? note.imageUrl ?? null,
+    extra: note.extra,
+    favorite: note.favorite,
+    favoriteAt: note.favoriteAt ?? null,
+    deletedAt: note.deletedAt,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    preview: buildEventPreview(note, 120),
+    searchText: detailSearchText(note),
+    attachmentCount: Array.isArray(note.attachments) ? note.attachments.length : 0,
   });
 }
 
@@ -111,32 +111,32 @@ function flattenSearchValues(value) {
   return [String(value)];
 }
 
-function detailSearchText(event = {}) {
-  const attachments = Array.isArray(event.attachments) ? event.attachments : [];
+function detailSearchText(note = {}) {
+  const attachments = Array.isArray(note.attachments) ? note.attachments : [];
   const parts = [
-    event.headline,
-    event.displayLabel,
-    event.legacyYear,
-    event.era,
-    mindmapPlainText(event.bodyJson),
-    plainTextFromMarkdown(event.bodyMarkdown || ""),
-    ...(event.items || []).map((item) => item?.text || ""),
-    ...flattenSearchValues(event.extra),
+    note.headline,
+    note.displayLabel,
+    note.legacyYear,
+    note.era,
+    mindmapPlainText(note.bodyJson),
+    plainTextFromMarkdown(note.bodyMarkdown || ""),
+    ...(note.items || []).map((item) => item?.text || ""),
+    ...flattenSearchValues(note.extra),
     ...attachments.map((attachment) => `${attachment?.name || ""} ${attachment?.filename || ""}`),
   ];
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function minMaxEvents(events) {
-  if (!events.length) return { min: null, max: null };
-  const sorted = [...events].sort(compareTimelineEvents);
+function minMaxNotes(notes) {
+  if (!notes.length) return { min: null, max: null };
+  const sorted = [...notes].sort(compareTimelineEvents);
   return { min: sorted[0], max: sorted[sorted.length - 1] };
 }
 
-export function useTimelineStore() {
+export function useNotesStore() {
   const state = reactive({
     topics: [],
-    eventsIndex: [],
+    notesIndex: [],
     detailCache: new Map(),
     topicPages: {},
     indexLoaded: false,
@@ -144,7 +144,7 @@ export function useTimelineStore() {
     loadedTopicIds: new Set(),
     loading: false,
   });
-  const topicEventRequests = new Map();
+  const topicNoteRequests = new Map();
   // Monotonic per-topic fetch generation. A reset fetch (initial / forced page-1)
   // bumps it, so a slower superseded response — e.g. the ascending page from a
   // rapid 正序⇄倒序 toggle landing after the descending one — is dropped instead of
@@ -203,26 +203,26 @@ export function useTimelineStore() {
     state.topicsLoaded = true;
   }
 
-  function replaceEvents(events) {
-    state.eventsIndex.splice(0, state.eventsIndex.length, ...(events || []).map(normalizeIndexEvent).sort(compareTimelineEvents));
+  function replaceNotes(notes) {
+    state.notesIndex.splice(0, state.notesIndex.length, ...(notes || []).map(normalizeIndexNote).sort(compareTimelineEvents));
   }
 
   function topicPageState(topicId) {
     return state.topicPages[Number(topicId)] || { loaded: false, hasMore: false, nextCursor: null };
   }
 
-  function replaceTopicEvents(topicId, events = [], bounds = null, { append = false, hasMore = false, nextCursor = null } = {}) {
+  function replaceTopicNotes(topicId, notes = [], bounds = null, { append = false, hasMore = false, nextCursor = null } = {}) {
     const id = Number(topicId);
     if (!id) return;
-    const normalized = (events || []).map((event) => normalizeIndexEvent(event, id));
-    const existingTopicEvents = append ? state.eventsIndex.filter((event) => event.topicId === id) : [];
-    const mergedTopicEvents = mergeTopicEventPage(existingTopicEvents, normalized, { append });
-    const others = state.eventsIndex.filter((event) => event.topicId !== id);
-    state.eventsIndex.splice(0, state.eventsIndex.length, ...others, ...mergedTopicEvents);
-    state.eventsIndex.sort(compareTimelineEvents);
-    for (const event of events || []) {
-      if (!hasFullEventDetail(event)) continue;
-      const detail = normalizeDetailEvent(event, id);
+    const normalized = (notes || []).map((note) => normalizeIndexNote(note, id));
+    const existingTopicNotes = append ? state.notesIndex.filter((note) => note.topicId === id) : [];
+    const mergedTopicNotes = mergeTopicEventPage(existingTopicNotes, normalized, { append });
+    const others = state.notesIndex.filter((note) => note.topicId !== id);
+    state.notesIndex.splice(0, state.notesIndex.length, ...others, ...mergedTopicNotes);
+    state.notesIndex.sort(compareTimelineEvents);
+    for (const note of notes || []) {
+      if (!hasFullNoteDetail(note)) continue;
+      const detail = normalizeDetailNote(note, id);
       if (detail.id) writeDetailCache(detail);
     }
     state.loadedTopicIds.add(id);
@@ -239,21 +239,21 @@ export function useTimelineStore() {
     return state.topics.find((topic) => topic.id === id) || null;
   }
 
-  function detailById(eventId) {
-    const id = Number(eventId);
+  function detailById(noteId) {
+    const id = Number(noteId);
     const cached = state.detailCache.get(id) || null;
     if (cached) markDetailUsed(id);
-    return cached && hasFullEventDetail(cached) ? cached : null;
+    return cached && hasFullNoteDetail(cached) ? cached : null;
   }
 
-  function eventById(eventId) {
-    const id = Number(eventId);
-    return state.eventsIndex.find((event) => event.id === id) || detailById(id);
+  function noteById(noteId) {
+    const id = Number(noteId);
+    return state.notesIndex.find((note) => note.id === id) || detailById(id);
   }
 
-  function eventsForTopic(topicId) {
+  function notesForTopic(topicId) {
     const id = Number(topicId);
-    return state.eventsIndex.filter((event) => event.topicId === id).sort(compareTimelineEvents);
+    return state.notesIndex.filter((note) => note.topicId === id).sort(compareTimelineEvents);
   }
 
   function applyTopicBounds(topic, bounds) {
@@ -276,16 +276,16 @@ export function useTimelineStore() {
     }
     if (!state.loadedTopicIds.has(id)) return;
     if (topicPageState(id).hasMore) return;
-    const events = eventsForTopic(id);
-    const { min, max } = minMaxEvents(events);
-    topic.eventCount = events.length;
+    const notes = notesForTopic(id);
+    const { min, max } = minMaxNotes(notes);
+    topic.eventCount = notes.length;
     topic.minDateKey = min?.dateKey ?? null;
     topic.maxDateKey = max?.dateKey ?? null;
     topic.minDate = min?.isoDate ?? null;
     topic.maxDate = max?.isoDate ?? null;
   }
 
-  function isTopicEventsLoaded(topicId) {
+  function isTopicNotesLoaded(topicId) {
     return state.loadedTopicIds.has(Number(topicId));
   }
 
@@ -314,7 +314,7 @@ export function useTimelineStore() {
     try {
       const payload = await api.getIndex();
       replaceTopics(payload.topics || []);
-      replaceEvents(payload.events || []);
+      replaceNotes(payload.events || []);
       state.loadedTopicIds.clear();
       for (const topic of state.topics) state.loadedTopicIds.add(topic.id);
       state.topicPages = Object.fromEntries(state.topics.map((topic) => [topic.id, { loaded: true, hasMore: false, nextCursor: null }]));
@@ -325,21 +325,21 @@ export function useTimelineStore() {
     }
   }
 
-  async function ensureTopicEvents(topicId, { force = false, append = false, cursor = null, limit = DEFAULT_TOPIC_PAGE_SIZE, dir = 1 } = {}) {
+  async function ensureTopicNotes(topicId, { force = false, append = false, cursor = null, limit = DEFAULT_TOPIC_PAGE_SIZE, dir = 1 } = {}) {
     const id = Number(topicId);
     if (!id) return [];
     const fetchDir = Number(dir) < 0 ? -1 : 1;
     const currentPage = topicPageState(id);
     const plan = planTopicPageFetch(
-      { loaded: isTopicEventsLoaded(id), hasMore: currentPage.hasMore, nextCursor: currentPage.nextCursor },
+      { loaded: isTopicNotesLoaded(id), hasMore: currentPage.hasMore, nextCursor: currentPage.nextCursor },
       { append, cursor, force }
     );
-    if (!plan.shouldFetch) return eventsForTopic(id);
+    if (!plan.shouldFetch) return notesForTopic(id);
     const requestCursor = plan.requestCursor;
     // dir rides the request key so a forced re-fetch under a new direction is a
     // distinct in-flight request, never deduped against the old-direction one.
     const requestKey = `${id}:${fetchDir}:${append ? requestCursor || "append" : force ? "force" : "initial"}`;
-    const existing = topicEventRequests.get(requestKey);
+    const existing = topicNoteRequests.get(requestKey);
     if (existing && !force) return existing;
     // Bump only when we actually issue a new request (after the dedup return above,
     // so a deduped initial load doesn't strand the in-flight one under a newer gen).
@@ -347,32 +347,32 @@ export function useTimelineStore() {
     const request = api
       .getTimelineEvents(id, { cursor: requestCursor, limit, dir: fetchDir })
       .then((payload) => {
-        if (gen !== topicGen(id)) return eventsForTopic(id); // superseded by a newer reset — drop
+        if (gen !== topicGen(id)) return notesForTopic(id); // superseded by a newer reset — drop
         const items = Array.isArray(payload) ? payload : payload?.items || [];
-        replaceTopicEvents(id, items, Array.isArray(payload) ? null : payload?.bounds || null, {
+        replaceTopicNotes(id, items, Array.isArray(payload) ? null : payload?.bounds || null, {
           append,
           hasMore: Array.isArray(payload) ? false : payload?.hasMore || false,
           nextCursor: Array.isArray(payload) ? null : payload?.nextCursor || null,
         });
-        return eventsForTopic(id);
+        return notesForTopic(id);
       })
       .finally(() => {
-        topicEventRequests.delete(requestKey);
+        topicNoteRequests.delete(requestKey);
       });
-    topicEventRequests.set(requestKey, request);
+    topicNoteRequests.set(requestKey, request);
     return request;
   }
 
-  async function ensureEventDetail(eventId, options = {}) {
-    const id = Number(eventId);
+  async function ensureNoteDetail(noteId, options = {}) {
+    const id = Number(noteId);
     if (!id) return null;
     const cached = detailById(id);
     if (cached) return cached;
-    return upsertEvent(await api.getEvent(id, options));
+    return upsertNote(await api.getEvent(id, options));
   }
 
-  function setProtectedDetailId(eventId) {
-    const id = Number(eventId);
+  function setProtectedDetailId(noteId) {
+    const id = Number(noteId);
     protectedDetailId = Number.isInteger(id) && id > 0 ? id : null;
     evictDetailCache();
   }
@@ -392,47 +392,47 @@ export function useTimelineStore() {
   function removeTopic(topicId) {
     const id = Number(topicId);
     replaceTopics(state.topics.filter((topic) => topic.id !== id));
-    replaceEvents(state.eventsIndex.filter((event) => event.topicId !== id));
+    replaceNotes(state.notesIndex.filter((note) => note.topicId !== id));
     state.loadedTopicIds.delete(id);
     delete state.topicPages[id];
-    for (const eventId of [...state.detailCache.keys()]) {
-      const cached = state.detailCache.get(eventId);
+    for (const noteId of [...state.detailCache.keys()]) {
+      const cached = state.detailCache.get(noteId);
       if (cached?.topicId === id) {
-        state.detailCache.delete(eventId);
-        detailTouchedAt.delete(eventId);
+        state.detailCache.delete(noteId);
+        detailTouchedAt.delete(noteId);
       }
     }
   }
 
-  function upsertEvent(event) {
-    const detail = normalizeDetailEvent(event);
-    const indexEvent = detailToIndexEvent(detail);
-    const index = state.eventsIndex.findIndex((item) => item.id === indexEvent.id);
+  function upsertNote(note) {
+    const detail = normalizeDetailNote(note);
+    const indexNote = detailToIndexNote(detail);
+    const index = state.notesIndex.findIndex((item) => item.id === indexNote.id);
     if (index >= 0) {
-      state.eventsIndex[index] = { ...state.eventsIndex[index], ...indexEvent };
+      state.notesIndex[index] = { ...state.notesIndex[index], ...indexNote };
     } else {
-      state.eventsIndex.push(indexEvent);
+      state.notesIndex.push(indexNote);
     }
-    state.eventsIndex.sort(compareTimelineEvents);
+    state.notesIndex.sort(compareTimelineEvents);
     writeDetailCache(detail);
-    updateTopicSummary(indexEvent.topicId);
+    updateTopicSummary(indexNote.topicId);
     return detail;
   }
 
-  function patchEvent(eventId, patch) {
-    const id = Number(eventId);
-    const index = state.eventsIndex.findIndex((event) => event.id === id);
-    const topicId = index >= 0 ? state.eventsIndex[index].topicId : detailById(id)?.topicId;
-    if (index >= 0) state.eventsIndex[index] = { ...state.eventsIndex[index], ...patch };
+  function patchNote(noteId, patch) {
+    const id = Number(noteId);
+    const index = state.notesIndex.findIndex((note) => note.id === id);
+    const topicId = index >= 0 ? state.notesIndex[index].topicId : detailById(id)?.topicId;
+    if (index >= 0) state.notesIndex[index] = { ...state.notesIndex[index], ...patch };
     const cached = state.detailCache.get(id);
     if (cached) writeDetailCache({ ...cached, ...patch });
     updateTopicSummary(topicId);
   }
 
-  function removeEvent(eventId) {
-    const id = Number(eventId);
-    const existing = eventById(id);
-    replaceEvents(state.eventsIndex.filter((event) => event.id !== id));
+  function removeNote(noteId) {
+    const id = Number(noteId);
+    const existing = noteById(id);
+    replaceNotes(state.notesIndex.filter((note) => note.id !== id));
     state.detailCache.delete(id);
     detailTouchedAt.delete(id);
     updateTopicSummary(existing?.topicId);
@@ -441,22 +441,22 @@ export function useTimelineStore() {
   return {
     state,
     detailById,
-    ensureTopicEvents,
-    ensureEventDetail,
-    eventById,
-    eventsForTopic,
-    isTopicEventsLoaded,
+    ensureTopicNotes,
+    ensureNoteDetail,
+    noteById,
+    notesForTopic,
+    isTopicNotesLoaded,
     loadIndex,
     loadTopics,
-    patchEvent,
-    removeEvent,
+    patchNote,
+    removeNote,
     removeTopic,
     setProtectedDetailId,
     setTopics,
     topicById,
     topicHasMore,
     topicNextCursor,
-    upsertEvent,
+    upsertNote,
     upsertTopic,
   };
 }

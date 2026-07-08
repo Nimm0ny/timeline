@@ -39,7 +39,7 @@ const props = defineProps({
   title: { type: String, default: "" },
   readOnly: { type: Boolean, default: false },
   // Resolve one embedded note's full detail ({ bodyMarkdown, updatedAt, ... }) for the T2 tier.
-  // Threaded from TimelinePage = (id) => timelineStore.ensureEventDetail(id) so canvas full-text
+  // Threaded from TimelinePage = (id) => notesStore.ensureNoteDetail(id) so canvas full-text
   // rides the app's shared LRU-40 detail cache (§7.4/§7.8). Absent → T2 stays at preview.
   resolveDetail: { type: Function, default: null },
 });
