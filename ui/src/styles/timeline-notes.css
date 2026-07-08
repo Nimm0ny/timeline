@@ -6063,6 +6063,12 @@ button.prop-row-type.open .timeline-lucide-icon {
   color: var(--text-muted);
   font-style: italic;
 }
+/* W5b viewport culling (§7.3): an off-screen card paints nothing — display:none, but the Vue
+   node stays mounted (no unmount thrash on re-entry). The "shell" tier (on-screen but too
+   small) drops its preview line via v-if in EmbedCardNode; the box size is unchanged. */
+.cv-embed-card.is-hidden {
+  display: none;
+}
 
 .mm-loading {
   position: absolute;

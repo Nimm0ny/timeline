@@ -14,6 +14,10 @@ import {
   buildEmbedCardNode,
   isEmbedCard,
   embedNoteIdsFromSnapshot,
+  computeEmbedTier,
+  EMBED_TIER,
+  EMBED_READABLE_PX,
+  EMBED_MARGIN_RATIO,
 } from "../src/utils/canvasX6.js";
 
 test("isX6CanvasSnapshot only accepts the tagged canvas shape", () => {
@@ -106,4 +110,81 @@ test("embedNoteIdsFromSnapshot collects + dedupes embed noteIds and ignores othe
   // empty / nullish inputs
   assert.deepEqual(embedNoteIdsFromSnapshot(null), []);
   assert.deepEqual(embedNoteIdsFromSnapshot({ cells: [] }), []);
+});
+
+// ---- W5b viewport culling · computeEmbedTier ----
+// Card is the fixed embed size; a 1000x600 host. Screen mapping is X6's matrix: local*zoom + t.
+const BBOX = { x: 0, y: 0, width: EMBED_DEFAULT_WIDTH, height: EMBED_DEFAULT_HEIGHT }; // 240x120
+const HOST = { hostWidth: 1000, hostHeight: 600 };
+
+test("computeEmbedTier: on-screen and readable → preview", () => {
+  const tier = computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, tx: 0, ty: 0, zoom: 1, ...HOST });
+  assert.equal(tier, EMBED_TIER.PREVIEW);
+});
+
+test("computeEmbedTier: on-screen but zoomed too small → shell", () => {
+  // zoom 0.5 → on-screen width 120 < readable 140.
+  const tier = computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, tx: 0, ty: 0, zoom: 0.5, ...HOST });
+  assert.equal(tier, EMBED_TIER.SHELL);
+  // Right at the readable threshold width stays preview (240*0.6 = 144 ≥ 140).
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 0, y: 0 }, zoom: 0.6, ...HOST }),
+    EMBED_TIER.PREVIEW
+  );
+});
+
+test("computeEmbedTier: far off-screen (either axis) → hidden", () => {
+  // Far right: left 5000 > hostWidth 1000 + margin 500.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 5000, y: 100 }, zoom: 1, ...HOST }),
+    EMBED_TIER.HIDDEN
+  );
+  // Far below: top 2000 > hostHeight 600 + margin 300.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 2000 }, zoom: 1, ...HOST }),
+    EMBED_TIER.HIDDEN
+  );
+  // Panned far off the left via a large negative translate: right edge past -margin.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 100, y: 100 }, tx: -2000, zoom: 1, ...HOST }),
+    EMBED_TIER.HIDDEN
+  );
+});
+
+test("computeEmbedTier: the margin ring keeps a just-off-viewport card non-hidden", () => {
+  // hostWidth 1000, default margin ratio 0.5 → ring extends to x=1500.
+  // Card left at 1200 (off the literal viewport but inside the ring) → still classified.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 1200, y: 100 }, zoom: 1, ...HOST }),
+    EMBED_TIER.PREVIEW
+  );
+  // Push its left past the ring (1600 > 1500) → hidden. Tight boundary pair with the above.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 1600, y: 100 }, zoom: 1, ...HOST }),
+    EMBED_TIER.HIDDEN
+  );
+  // marginRatio 0 removes the ring → the 1200 card is now hidden.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 1200, y: 100 }, zoom: 1, marginRatio: 0, ...HOST }),
+    EMBED_TIER.HIDDEN
+  );
+});
+
+test("computeEmbedTier: readablePx / marginRatio thresholds are honoured", () => {
+  // A 120px-wide render (zoom 0.5) counts as readable when readablePx is lowered to 100.
+  assert.equal(
+    computeEmbedTier({ bbox: { ...BBOX, x: 0, y: 0 }, zoom: 0.5, readablePx: 100, ...HOST }),
+    EMBED_TIER.PREVIEW
+  );
+  assert.equal(EMBED_READABLE_PX, 140);
+  assert.equal(EMBED_MARGIN_RATIO, 0.5);
+});
+
+test("computeEmbedTier: fails open to preview on missing / malformed bbox / host", () => {
+  assert.equal(computeEmbedTier({}), EMBED_TIER.PREVIEW);
+  assert.equal(computeEmbedTier(), EMBED_TIER.PREVIEW);
+  assert.equal(computeEmbedTier({ bbox: BBOX, hostWidth: 0, hostHeight: 600 }), EMBED_TIER.PREVIEW);
+  // NaN geometry must fail OPEN (preview), never closed (hidden → blank card).
+  assert.equal(computeEmbedTier({ bbox: { x: NaN, y: 0, width: 240, height: 120 }, ...HOST }), EMBED_TIER.PREVIEW);
+  assert.equal(computeEmbedTier({ bbox: BBOX, tx: NaN, ...HOST }), EMBED_TIER.PREVIEW);
 });

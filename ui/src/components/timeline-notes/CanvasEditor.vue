@@ -11,6 +11,7 @@ import {
   buildEmbedCardNode,
   CARD_DEFAULT_HEIGHT,
   CARD_DEFAULT_WIDTH,
+  computeEmbedTier,
   EMBED_DEFAULT_HEIGHT,
   EMBED_DEFAULT_WIDTH,
   embedNoteIdsFromSnapshot,
@@ -21,6 +22,7 @@ import {
 } from "@/utils/canvasX6.js";
 import { EmbedTeleport } from "@/utils/embedCardShape.js";
 import { resolveEmbedPreviews } from "@/utils/embedPreviewStore.js";
+import { clearCardTiers, setCardTiers } from "@/utils/canvasTierStore.js";
 import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 
@@ -52,6 +54,7 @@ let resizeObserver = null;
 let resizeTimer = null;
 let saveTimer = null;
 let viewSaveTimer = null;
+let tierTimer = null;
 let savedJson = null;
 let suppressSaves = false;
 
@@ -96,11 +99,49 @@ function resizeGraph() {
   const g = graph.value;
   if (!host || !g) return;
   g.resize(host.clientWidth, host.clientHeight);
+  scheduleTierRecompute();
 }
 
 function scheduleResize() {
   if (resizeTimer) clearTimeout(resizeTimer);
   resizeTimer = setTimeout(resizeGraph, 80);
+}
+
+// ---- W5b viewport culling: classify each embed card by its on-screen geometry (§7.3) ----
+// Only readable, on-screen cards render the full preview; off-screen cards go "hidden"
+// (display:none, but stay mounted — no unmount thrash) and too-small ones drop to a bare
+// shell. Tiers ride the reactive canvasTierStore, NOT node.data, so this never schedules a
+// save or bumps updated_at (§5.5 / §7.8). Text cards are ignored (SVG, always cheap).
+function recomputeTiers() {
+  const g = graph.value;
+  const host = containerRef.value;
+  // Skip while the host is unmeasured (0-size, e.g. a not-yet-laid-out parent): every card would
+  // fail open to "preview" and we'd write a throwaway all-preview batch. Cards default to "preview"
+  // until the ResizeObserver fires the real classify once layout lands.
+  if (!g || !host || !host.clientWidth || !host.clientHeight) return;
+  // X6's zoom getter is zoom() (no getZoom()) — reading the wrong name silently pins zoom to 1,
+  // so the shell tier never triggers and off-screen detection is wrong at any non-1 zoom.
+  const zoom = g.zoom?.() ?? 1;
+  const { tx = 0, ty = 0 } = g.translate?.() || {};
+  const hostWidth = host.clientWidth;
+  const hostHeight = host.clientHeight;
+  const entries = [];
+  for (const node of g.getNodes()) {
+    if (!isEmbedCard(node)) continue;
+    entries.push([node.id, computeEmbedTier({ bbox: node.getBBox(), tx, ty, zoom, hostWidth, hostHeight })]);
+  }
+  setCardTiers(entries);
+}
+
+// Recompute only after the gesture settles (§7.3 "手势中不动档"): pan/zoom/model-change events
+// fire continuously, so debounce; the margin ring inside computeEmbedTier absorbs small pans
+// without churning cards in and out at the edge.
+function scheduleTierRecompute() {
+  if (tierTimer) clearTimeout(tierTimer);
+  tierTimer = setTimeout(() => {
+    tierTimer = null;
+    recomputeTiers();
+  }, 120);
 }
 
 function ensureCardPorts(node) {
@@ -387,6 +428,9 @@ function applyGraphState(payload) {
   suppressSaves = Boolean(props.readOnly);
   emit("active", 0);
   setSavedBaseline();
+  // Classify tiers synchronously now that the viewport is restored, so off-screen embeds
+  // start "hidden" on the FIRST paint (a big board must not render every card on open, §7.4).
+  recomputeTiers();
 }
 
 function onKeydown(event) {
@@ -457,14 +501,27 @@ onMounted(() => {
   resizeGraph();
 
   g.on("node:moved", () => scheduleSave());
-  g.on("history:change", () => scheduleSave());
+  // history:change fires on add / move / remove / undo / redo → a moved-or-added embed card
+  // may cross the viewport or readable-size boundary, so re-classify (debounced).
+  g.on("history:change", () => {
+    scheduleSave();
+    scheduleTierRecompute();
+  });
   // Count all selected cells (nodes AND edges) so the delete button enables for a lone
   // connector too; setTextColor is a no-op on edges, so an edge-only selection is safe.
   g.on("selection:changed", ({ selected }) => {
     emit("active", (selected || []).length);
   });
-  g.on("scale", () => scheduleViewSave());
-  g.on("translate", () => scheduleViewSave());
+  // Pan/zoom: persist the viewport (localStorage only) AND re-classify tiers — cards move in
+  // and out of the viewport ring, and zoom changes each card's on-screen pixel size.
+  g.on("scale", () => {
+    scheduleViewSave();
+    scheduleTierRecompute();
+  });
+  g.on("translate", () => {
+    scheduleViewSave();
+    scheduleTierRecompute();
+  });
   g.on("node:dblclick", ({ node }) => {
     // Text card → inline edit overlay; embed card → open the referenced note (its "activate"
     // gesture). Single-click still just selects, so grabbing a card to move/delete never opens.
@@ -525,11 +582,15 @@ watch(
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
   if (resizeTimer) clearTimeout(resizeTimer);
+  if (tierTimer) clearTimeout(tierTimer);
   resizeObserver?.disconnect();
   if (containerRef.value) containerRef.value.removeEventListener("keydown", onKeydown);
   cancelEdit();
   flushViewSave();
   flushSave();
+  // Drop this board's tiers so they can't bleed into the next note (CanvasSurface keys the
+  // editor by note.id → a switch remounts and re-classifies from scratch).
+  clearCardTiers();
   graph.value?.dispose();
   graph.value = null;
   graphHistory.value = null;

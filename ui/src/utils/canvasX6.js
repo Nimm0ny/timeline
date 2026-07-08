@@ -213,3 +213,52 @@ export function embedNoteIdsFromSnapshot(snapshot) {
   }
   return ids;
 }
+
+// ---- W5b viewport culling · fidelity tiers -------------------------------------
+// Embed cards render rich DOM (foreignObject + Vue), so a big board must NOT paint every
+// card at once (§7.1 Obsidian pain). Each card is classified into a fidelity tier from its
+// on-screen geometry; only readable, on-screen cards get the full preview. This file stays
+// Vue-free so the decider is unit-tested directly; CanvasEditor feeds it live X6 numbers and
+// writes results to the reactive canvasTierStore (which EmbedCardNode reads).
+export const EMBED_TIER = { HIDDEN: "hidden", SHELL: "shell", PREVIEW: "preview" };
+// On-screen width (in CSS px, i.e. after zoom) below which a card drops to the bare shell.
+export const EMBED_READABLE_PX = 140;
+// Viewport ring kept "on-screen" each side (fraction of the host), so a small pan doesn't
+// pop cards in/out at the edge (§7.3). 0.5 = +50% of the viewport on every side.
+export const EMBED_MARGIN_RATIO = 0.5;
+
+// Pure fidelity-tier decision for ONE embed card (§7.2/§7.3). Inputs: the card's LOCAL bbox
+// (X6 model coords, pre-transform — from node.getBBox()), the graph pan/zoom transform, and
+// the host viewport size. Screen mapping is X6's client matrix(zoom,0,0,zoom,tx,ty):
+// screenX = localX*zoom + tx. Returns "hidden" (off-screen ring), "shell" (on-screen but
+// narrower than readablePx), or "preview" (on-screen and readable). Fails open to "preview"
+// on missing inputs so a card is never wrongly hidden.
+// NOTE: the concurrent-rich budget cap (§7.3) is a batch/recompute concern (needs the whole
+// set) and lands with the T2 full-markdown tier; a single-card decider can't enforce it.
+export function computeEmbedTier({
+  bbox,
+  tx = 0,
+  ty = 0,
+  zoom = 1,
+  hostWidth,
+  hostHeight,
+  marginRatio = EMBED_MARGIN_RATIO,
+  readablePx = EMBED_READABLE_PX,
+} = {}) {
+  if (!bbox || !(hostWidth > 0) || !(hostHeight > 0)) return EMBED_TIER.PREVIEW;
+  const left = bbox.x * zoom + tx;
+  const top = bbox.y * zoom + ty;
+  const width = bbox.width * zoom;
+  const height = bbox.height * zoom;
+  // Malformed geometry (NaN) must fail OPEN to preview — never silently hide a card.
+  if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(width) || !Number.isFinite(height)) {
+    return EMBED_TIER.PREVIEW;
+  }
+  const mx = hostWidth * marginRatio;
+  const my = hostHeight * marginRatio;
+  const onScreen =
+    left + width >= -mx && left <= hostWidth + mx && top + height >= -my && top <= hostHeight + my;
+  if (!onScreen) return EMBED_TIER.HIDDEN;
+  if (width < readablePx) return EMBED_TIER.SHELL;
+  return EMBED_TIER.PREVIEW;
+}

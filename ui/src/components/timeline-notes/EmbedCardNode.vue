@@ -6,6 +6,7 @@
 // via node:dblclick, so this component never wires navigation and a drag is never read as a click.
 import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { getEmbedEntry } from "@/utils/embedPreviewStore.js";
+import { getCardTier } from "@/utils/canvasTierStore.js";
 
 const getNode = inject("getNode", null);
 const node = typeof getNode === "function" ? getNode() : null;
@@ -39,14 +40,25 @@ const preview = computed(() => {
   return entry.value?.preview ?? (data.value.preview || "").trim();
 });
 const container = computed(() => (isTombstone.value ? "" : entry.value?.container || ""));
+
+// Viewport-culling fidelity tier from the reactive canvasTierStore — CanvasEditor classifies
+// every embed card on pan/zoom settle (§7.3). "hidden" = off-screen (CSS display:none, stays
+// mounted), "shell" = on-screen but too small (title + chip, no preview), "preview" = full.
+// Default "preview" so a card mounted before the first recompute never renders blank.
+const tier = computed(() => getCardTier(node?.id) ?? "preview");
 </script>
 
 <template>
-  <div class="cv-embed-card" :class="{ 'is-tombstone': isTombstone }" :style="boxStyle" :title="title">
+  <div
+    class="cv-embed-card"
+    :class="{ 'is-tombstone': isTombstone, 'is-hidden': tier === 'hidden', 'is-shell': tier === 'shell' }"
+    :style="boxStyle"
+    :title="title"
+  >
     <span class="cv-embed-spine" aria-hidden="true"></span>
     <div class="cv-embed-main">
       <div class="cv-embed-headline">{{ title }}</div>
-      <p v-if="preview" class="cv-embed-preview">{{ preview }}</p>
+      <p v-if="preview && tier !== 'shell'" class="cv-embed-preview">{{ preview }}</p>
       <div v-if="container" class="cv-embed-container">{{ container }}</div>
     </div>
   </div>
