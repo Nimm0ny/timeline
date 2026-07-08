@@ -345,7 +345,7 @@ export function useNotesStore() {
     // so a deduped initial load doesn't strand the in-flight one under a newer gen).
     const gen = append ? topicGen(id) : bumpTopicGen(id);
     const request = api
-      .getTimelineEvents(id, { cursor: requestCursor, limit, dir: fetchDir })
+      .getNotes(id, { cursor: requestCursor, limit, dir: fetchDir })
       .then((payload) => {
         if (gen !== topicGen(id)) return notesForTopic(id); // superseded by a newer reset — drop
         const items = Array.isArray(payload) ? payload : payload?.items || [];
@@ -368,7 +368,7 @@ export function useNotesStore() {
     if (!id) return null;
     const cached = detailById(id);
     if (cached) return cached;
-    return upsertNote(await api.getEvent(id, options));
+    return upsertNote(await api.getNote(id, options));
   }
 
   function setProtectedDetailId(noteId) {

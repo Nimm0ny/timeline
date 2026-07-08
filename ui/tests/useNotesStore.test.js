@@ -27,12 +27,12 @@ function detailEvent(id) {
   };
 }
 
-test("ensureEventDetail forwards AbortSignal to api.getEvent", async () => {
+test("ensureNoteDetail forwards AbortSignal to api.getNote", async () => {
   const store = useNotesStore();
-  const original = api.getEvent;
+  const original = api.getNote;
   const controller = new AbortController();
   let seenSignal = null;
-  api.getEvent = async (id, options = {}) => {
+  api.getNote = async (id, options = {}) => {
     seenSignal = options.signal;
     return detailEvent(id);
   };
@@ -42,7 +42,7 @@ test("ensureEventDetail forwards AbortSignal to api.getEvent", async () => {
     assert.equal(event.id, 9);
     assert.equal(seenSignal, controller.signal);
   } finally {
-    api.getEvent = original;
+    api.getNote = original;
   }
 });
 

@@ -25,9 +25,9 @@ function indexPage(ids) {
 // one resolves last it must NOT clobber the current (descending) page.
 test("ensureTopicEvents drops a superseded opposite-direction response", async () => {
   const store = useNotesStore();
-  const original = api.getTimelineEvents;
+  const original = api.getNotes;
   const resolvers = {};
-  api.getTimelineEvents = (_topicId, { dir } = {}) =>
+  api.getNotes = (_topicId, { dir } = {}) =>
     new Promise((resolve) => {
       resolvers[dir] = resolve;
     });
@@ -47,6 +47,6 @@ test("ensureTopicEvents drops a superseded opposite-direction response", async (
       .sort((a, b) => a - b);
     assert.deepEqual(ids, [201, 202]); // descending page survived; ascending was dropped
   } finally {
-    api.getTimelineEvents = original;
+    api.getNotes = original;
   }
 });

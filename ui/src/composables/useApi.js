@@ -63,7 +63,7 @@ export const api = {
     if (params.limit) search.set("limit", String(params.limit));
     return request(`/api/search?${search.toString()}`);
   },
-  getEvent(id, options = {}) {
+  getNote(id, options = {}) {
     return request(`/api/events/${encodeURIComponent(id)}`, options);
   },
   // W4 backlinks: incoming [[wikilink]]s to a note (indexed lookup, lazy on panel expand).
@@ -75,7 +75,7 @@ export const api = {
     return request(`/api/events/${encodeURIComponent(id)}/backlinks${suffix}`);
   },
   // W5 canvas embeds: one round-trip {id,headline,container,preview} for all embedded ids.
-  getEventsBatchPreview(ids) {
+  getNotesBatchPreview(ids) {
     return request("/api/events/batch-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,7 +104,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
-  getTimelineEvents(topicId, params = {}) {
+  getNotes(topicId, params = {}) {
     const search = new URLSearchParams();
     if (params.from) search.set("from", params.from);
     if (params.to) search.set("to", params.to);
@@ -116,47 +116,47 @@ export const api = {
     const suffix = search.toString() ? `?${search.toString()}` : "";
     return request(`/api/topics/${encodeURIComponent(topicId)}/events${suffix}`);
   },
-  getTimelineSummary(topicId, params = {}) {
+  getNotesSummary(topicId, params = {}) {
     const search = new URLSearchParams();
     search.set("groupBy", params.groupBy || "year");
     if (params.from) search.set("from", params.from);
     if (params.to) search.set("to", params.to);
     return request(`/api/topics/${encodeURIComponent(topicId)}/summary?${search.toString()}`);
   },
-  createTopicEvent(topicId, payload) {
+  createTopicNote(topicId, payload) {
     return request(`/api/topics/${encodeURIComponent(topicId)}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   },
-  getEvents(topicId) {
+  getAllNotes(topicId) {
     return request(`/api/topics/${encodeURIComponent(topicId)}/events`);
   },
-  createEvent(topicId, payload) {
-    return api.createTopicEvent(topicId, payload);
+  createNote(topicId, payload) {
+    return api.createTopicNote(topicId, payload);
   },
-  updateEvent(id, payload) {
+  updateNote(id, payload) {
     return request(`/api/events/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   },
-  deleteEvent(id) {
+  deleteNote(id) {
     return request(`/api/events/${id}`, { method: "DELETE" });
   },
-  softDeleteEvent(id) {
-    return api.deleteEvent(id);
+  softDeleteNote(id) {
+    return api.deleteNote(id);
   },
-  permanentlyDeleteEvent(id) {
+  permanentlyDeleteNote(id) {
     return request(`/api/events/${id}?permanent=true`, { method: "DELETE" });
   },
-  restoreEvent(id) {
-    return api.updateEvent(id, { deletedAt: null });
+  restoreNote(id) {
+    return api.updateNote(id, { deletedAt: null });
   },
-  updateEventFavorite(id, favorite) {
-    return api.updateEvent(id, { favorite });
+  updateNoteFavorite(id, favorite) {
+    return api.updateNote(id, { favorite });
   },
   importData(topicId, file) {
     const formData = new FormData();

@@ -50,7 +50,7 @@ export async function resolveEmbedPreviews(ids) {
   }
   if (!wanted.length) return;
   try {
-    const rows = await api.getEventsBatchPreview(wanted.map((key) => Number(key)));
+    const rows = await api.getNotesBatchPreview(wanted.map((key) => Number(key)));
     const returned = new Set();
     for (const row of Array.isArray(rows) ? rows : []) {
       const key = String(row.id);

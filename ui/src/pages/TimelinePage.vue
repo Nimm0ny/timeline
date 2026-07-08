@@ -1502,7 +1502,7 @@ function createMindmapNote(topicId = state.activeTopicId) {
     }
     closeMobileSidebar();
     try {
-      const result = await api.createTopicEvent(targetTopicId, {
+      const result = await api.createTopicNote(targetTopicId, {
         headline: "未命名导图",
         noteType: "mindmap",
         bodyJson: buildX6SeedSnapshot("中心主题"),
@@ -1541,7 +1541,7 @@ function createCanvasNote(topicId = state.activeTopicId) {
     }
     closeMobileSidebar();
     try {
-      const result = await api.createTopicEvent(targetTopicId, {
+      const result = await api.createTopicNote(targetTopicId, {
         headline: "未命名画布",
         noteType: "canvas",
         bodyJson: buildCanvasSeedSnapshot(),
@@ -1590,7 +1590,7 @@ async function persistMindmapTree({ id, tree } = {}) {
       noteType: "mindmap",
       bodyJson: tree,
       extra: note.extra || {},
-      // updateEvent is a full replace — forward the note's existing attachments and
+      // updateNote is a full replace — forward the note's existing attachments and
       // related links so a tree autosave can't blank them.
       attachments: note.attachments || [],
       relatedEventIds: note.relatedEventIds || [],
@@ -1600,7 +1600,7 @@ async function persistMindmapTree({ id, tree } = {}) {
       payload.dateMonth = note.dateParts.month;
       payload.dateDay = note.dateParts.day;
     }
-    const result = await api.updateEvent(id, payload);
+    const result = await api.updateNote(id, payload);
     notesStore.upsertNote(result);
     syncActiveTopicFromStore();
   } catch (error) {
@@ -1632,7 +1632,7 @@ async function persistCanvasSnapshot({ id, tree } = {}) {
       noteType: "canvas",
       bodyJson: tree,
       extra: note.extra || {},
-      // updateEvent is a full replace — forward existing attachments/links so a board
+      // updateNote is a full replace — forward existing attachments/links so a board
       // autosave can't blank them.
       attachments: note.attachments || [],
       relatedEventIds: note.relatedEventIds || [],
@@ -1642,7 +1642,7 @@ async function persistCanvasSnapshot({ id, tree } = {}) {
       payload.dateMonth = note.dateParts.month;
       payload.dateDay = note.dateParts.day;
     }
-    const result = await api.updateEvent(id, payload);
+    const result = await api.updateNote(id, payload);
     notesStore.upsertNote(result);
     syncActiveTopicFromStore();
   } catch (error) {
@@ -1836,8 +1836,8 @@ async function saveEvent(payload) {
   state.saving = true;
   try {
     const result = payload.id
-      ? await api.updateEvent(payload.id, payload.data)
-      : await api.createTopicEvent(state.activeTopicId, payload.data);
+      ? await api.updateNote(payload.id, payload.data)
+      : await api.createTopicNote(state.activeTopicId, payload.data);
 
     await cleanupDeletedImages(payload.imageOps, payload.data.image);
     detailPaneRef.value?.markSaved?.();
@@ -2035,7 +2035,7 @@ async function toggleFavorite(event) {
   if (!event || event.deletedAt) return;
   try {
     const wasGlobalFavorites = isGlobalFavoritesMode.value;
-    const result = await api.updateEventFavorite(event.id, !event.favorite);
+    const result = await api.updateNoteFavorite(event.id, !event.favorite);
     notesStore.upsertNote(result);
     syncActiveTopicFromStore();
     if (wasGlobalFavorites) setDefaultSelection();
@@ -2056,7 +2056,7 @@ function closeEventMenu() {
 async function moveEventToTrash(event) {
   if (!event?.id) return false;
   try {
-    const result = await api.softDeleteEvent(event.id);
+    const result = await api.softDeleteNote(event.id);
     notesStore.patchNote(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
@@ -2074,7 +2074,7 @@ async function moveEventToTrash(event) {
 async function restoreEvent(event) {
   if (!event?.id) return false;
   try {
-    const result = await api.restoreEvent(event.id);
+    const result = await api.restoreNote(event.id);
     notesStore.upsertNote(result);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
@@ -2092,7 +2092,7 @@ async function restoreEvent(event) {
 async function permanentlyDeleteEvent(event) {
   if (!event?.id) return false;
   try {
-    await api.permanentlyDeleteEvent(event.id);
+    await api.permanentlyDeleteNote(event.id);
     notesStore.removeNote(event.id);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
@@ -2194,15 +2194,15 @@ async function runBatch(ids, perEvent, doneLabel) {
 }
 
 function batchFavoriteEvents(ids) {
-  return runBatch(ids, (event) => (event.favorite ? false : api.updateEventFavorite(event.id, true)), "已收藏");
+  return runBatch(ids, (event) => (event.favorite ? false : api.updateNoteFavorite(event.id, true)), "已收藏");
 }
 
 function batchTrashEvents(ids) {
-  return runBatch(ids, (event) => (event.deletedAt ? false : api.softDeleteEvent(event.id)), "已移入回收站");
+  return runBatch(ids, (event) => (event.deletedAt ? false : api.softDeleteNote(event.id)), "已移入回收站");
 }
 
 function batchRestoreEvents(ids) {
-  return runBatch(ids, (event) => (event.deletedAt ? api.restoreEvent(event.id) : false), "已恢复");
+  return runBatch(ids, (event) => (event.deletedAt ? api.restoreNote(event.id) : false), "已恢复");
 }
 
 // Permanent batch delete is irreversible — gate it behind an in-app confirm.
@@ -2222,7 +2222,7 @@ async function confirmBatchPurgeNow() {
     await runBatch(
       ids,
       async (event) => {
-        await api.permanentlyDeleteEvent(event.id);
+        await api.permanentlyDeleteNote(event.id);
         return { permanentDeletedId: event.id };
       },
       "已永久删除"
