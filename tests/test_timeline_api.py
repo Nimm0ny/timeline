@@ -217,12 +217,12 @@ def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
     }
     created = client.post(f"/api/topics/{seeded_topic.id}/events", json=payload)
     assert created.status_code == 200
-    event_id = created.json()["id"]
+    note_id = created.json()["id"]
 
     matched = client.get("/api/search", params={"q": "uniqueneedle", "limit": 5})
     assert matched.status_code == 200
     rows = matched.json()
-    assert rows[0]["id"] == event_id
+    assert rows[0]["id"] == note_id
     assert rows[0]["topicId"] == seeded_topic.id
     assert rows[0]["headline"] == "Command Palette Treaty"
     assert rows[0]["isoDate"] == "1842-06-08"
@@ -231,7 +231,7 @@ def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
 
     extra_match = client.get("/api/search", params={"q": "Policy Label"})
     assert extra_match.status_code == 200
-    assert any(row["id"] == event_id for row in extra_match.json())
+    assert any(row["id"] == note_id for row in extra_match.json())
 
     relabeled = client.put(
         f"/api/topics/{seeded_topic.id}/meta",
@@ -250,26 +250,26 @@ def test_search_endpoint_matches_and_syncs_event_writes(client, seeded_topic):
         },
     )
     assert relabeled.status_code == 200
-    assert all(row["id"] != event_id for row in client.get("/api/search", params={"q": "Policy Label"}).json())
+    assert all(row["id"] != note_id for row in client.get("/api/search", params={"q": "Policy Label"}).json())
     relabeled_match = client.get("/api/search", params={"q": "Policy Renamed"})
     assert relabeled_match.status_code == 200
-    assert any(row["id"] == event_id for row in relabeled_match.json())
+    assert any(row["id"] == note_id for row in relabeled_match.json())
     listed = client.get(f"/api/topics/{seeded_topic.id}/events", params={"limit": 200})
     assert listed.status_code == 200
-    listed_event = next(row for row in listed.json()["items"] if row["id"] == event_id)
+    listed_event = next(row for row in listed.json()["items"] if row["id"] == note_id)
     assert "Policy Renamed" in listed_event["searchText"]
 
     updated = client.put(
-        f"/api/events/{event_id}",
+        f"/api/events/{note_id}",
         json={**payload, "headline": "Updated Search Event", "bodyMarkdown": "replacementneedle is now the indexed body."},
     )
     assert updated.status_code == 200
-    assert all(row["id"] != event_id for row in client.get("/api/search", params={"q": "uniqueneedle"}).json())
-    assert any(row["id"] == event_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
+    assert all(row["id"] != note_id for row in client.get("/api/search", params={"q": "uniqueneedle"}).json())
+    assert any(row["id"] == note_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
 
-    deleted = client.delete(f"/api/events/{event_id}")
+    deleted = client.delete(f"/api/events/{note_id}")
     assert deleted.status_code == 200
-    assert all(row["id"] != event_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
+    assert all(row["id"] != note_id for row in client.get("/api/search", params={"q": "replacementneedle"}).json())
 
 
 def test_structured_event_creation_and_range_fetch(client, seeded_topic):
@@ -578,29 +578,29 @@ def test_event_contract_persists_markdown_properties_attachments_and_related_eve
 
 def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanent_delete(client, seeded_topic):
     events = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
-    event_id = events[0]["id"]
+    note_id = events[0]["id"]
 
-    favorite = client.put(f"/api/events/{event_id}", json={"favorite": True})
+    favorite = client.put(f"/api/events/{note_id}", json={"favorite": True})
     assert favorite.status_code == 200
     assert favorite.json()["favorite"] is True
     assert favorite.json()["favoriteAt"]
     assert favorite.json()["deletedAt"] is None
 
-    deleted = client.delete(f"/api/events/{event_id}")
+    deleted = client.delete(f"/api/events/{note_id}")
     assert deleted.status_code == 200
     assert deleted.json()["deletedAt"]
     assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 3
     assert next(item for item in client.get("/api/bookshelves").json() if item["name"] == "default")["eventCount"] == 3
 
     after_delete = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
-    deleted_event = next(item for item in after_delete if item["id"] == event_id)
+    deleted_event = next(item for item in after_delete if item["id"] == note_id)
     assert deleted_event["deletedAt"]
 
-    blocked_favorite = client.put(f"/api/events/{event_id}", json={"favorite": False})
+    blocked_favorite = client.put(f"/api/events/{note_id}", json={"favorite": False})
     assert blocked_favorite.status_code == 409
 
     blocked_edit = client.put(
-        f"/api/events/{event_id}",
+        f"/api/events/{note_id}",
         json={
             "dateYear": 1840,
             "dateMonth": 1,
@@ -615,22 +615,22 @@ def test_event_state_contract_supports_favorite_soft_delete_restore_and_permanen
     )
     assert blocked_edit.status_code == 409
 
-    restored = client.put(f"/api/events/{event_id}", json={"deletedAt": None})
+    restored = client.put(f"/api/events/{note_id}", json={"deletedAt": None})
     assert restored.status_code == 200
     assert restored.json()["deletedAt"] is None
     assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 4
 
-    unfavorite = client.put(f"/api/events/{event_id}", json={"favorite": False})
+    unfavorite = client.put(f"/api/events/{note_id}", json={"favorite": False})
     assert unfavorite.status_code == 200
     assert unfavorite.json()["favorite"] is False
     assert unfavorite.json()["favoriteAt"] is None
 
-    permanent = client.delete(f"/api/events/{event_id}", params={"permanent": "true"})
+    permanent = client.delete(f"/api/events/{note_id}", params={"permanent": "true"})
     assert permanent.status_code == 200
     assert next(item for item in client.get("/api/topics").json() if item["id"] == seeded_topic.id)["eventCount"] == 3
 
     after_permanent = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
-    assert event_id not in [item["id"] for item in after_permanent]
+    assert note_id not in [item["id"] for item in after_permanent]
 
 
 def test_topic_era_stats_merges_normalized_eras(db_session):
@@ -675,23 +675,23 @@ def test_topic_era_stats_merges_normalized_eras(db_session):
 
 def test_topic_stat_favorite_count_tracks_soft_delete(client, seeded_topic, db_session):
     events = client.get(f"/api/topics/{seeded_topic.id}/events").json()["items"]
-    event_id = events[0]["id"]
+    note_id = events[0]["id"]
 
-    client.put(f"/api/events/{event_id}", json={"favorite": True})
+    client.put(f"/api/events/{note_id}", json={"favorite": True})
     stat = db_session.get(TopicStat, seeded_topic.id)
     db_session.refresh(stat)
     assert stat.live_event_count == 4
     assert stat.favorite_count == 1
 
     # Soft-deleting the favorited event drops live + favorite and bumps deleted.
-    client.delete(f"/api/events/{event_id}")
+    client.delete(f"/api/events/{note_id}")
     db_session.refresh(stat)
     assert stat.live_event_count == 3
     assert stat.deleted_event_count == 1
     assert stat.favorite_count == 0
 
     # Restore brings the (still-favorited) event back into the live/favorite counts.
-    client.put(f"/api/events/{event_id}", json={"deletedAt": None})
+    client.put(f"/api/events/{note_id}", json={"deletedAt": None})
     db_session.refresh(stat)
     assert stat.live_event_count == 4
     assert stat.deleted_event_count == 0

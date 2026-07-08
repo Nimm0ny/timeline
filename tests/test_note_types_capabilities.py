@@ -303,17 +303,17 @@ def test_mindmap_tree_text_flows_into_index_preview_and_search(client, seeded_to
         json={"headline": "导图检索", "noteType": "mindmap", "bodyJson": tree},
     )
     assert created.status_code == 200
-    event_id = created.json()["id"]
+    note_id = created.json()["id"]
 
     indexed = client.get("/api/index").json()["events"]
-    row = next(item for item in indexed if item["id"] == event_id)
+    row = next(item for item in indexed if item["id"] == note_id)
     assert row["preview"] == "中心主题 分支甲 细节点"
     assert "分支甲" in row["searchText"]
     assert row["dateKey"] is None
 
     matched = client.get("/api/search", params={"q": "细节点"})
     assert matched.status_code == 200
-    result = next(item for item in matched.json() if item["id"] == event_id)
+    result = next(item for item in matched.json() if item["id"] == note_id)
     assert result["isoDate"] is None
 
 
@@ -360,16 +360,16 @@ def test_x6_snapshot_text_flows_into_search(client, seeded_topic):
         f"/api/topics/{seeded_topic.id}/events",
         json={"headline": "画布检索", "noteType": "canvas", "bodyJson": snapshot},
     )
-    event_id = created.json()["id"]
+    note_id = created.json()["id"]
 
     indexed = client.get("/api/index").json()["events"]
-    row = next(item for item in indexed if item["id"] == event_id)
+    row = next(item for item in indexed if item["id"] == note_id)
     assert "海报灵感" in row["searchText"]
     assert "配色方案" in row["searchText"]
     assert "偏冷色" in row["searchText"]
 
     matched = client.get("/api/search", params={"q": "配色方案"})
-    assert any(item["id"] == event_id for item in matched.json())
+    assert any(item["id"] == note_id for item in matched.json())
 
 
 def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_topic):
@@ -426,11 +426,11 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
         conn.execute(text("CREATE TABLE topics (id INTEGER PRIMARY KEY, name TEXT, columns_json TEXT DEFAULT '[]')"))
         conn.execute(
             text(
-                "CREATE TABLE timeline_events ("
+                "CREATE TABLE notes ("
                 "id INTEGER PRIMARY KEY, topic_id INTEGER, year TEXT, sort_key REAL, date_key INTEGER, "
                 "date_year INTEGER, date_month INTEGER, date_day INTEGER, headline TEXT, era TEXT, "
                 "body_markdown TEXT DEFAULT '', extra_json TEXT DEFAULT '{}', "
-                "attachments_json TEXT DEFAULT '[]', related_event_ids_json TEXT DEFAULT '[]', "
+                "attachments_json TEXT DEFAULT '[]', related_note_ids_json TEXT DEFAULT '[]', "
                 "image_id INTEGER, created_at DATETIME, updated_at DATETIME, "
                 "favorite BOOLEAN DEFAULT 0 NOT NULL, deleted_at DATETIME)"
             )
@@ -438,7 +438,7 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
         conn.execute(text("INSERT INTO topics (id, name) VALUES (1, 'history')"))
         conn.execute(
             text(
-                "INSERT INTO timeline_events "
+                "INSERT INTO notes "
                 "(id, topic_id, year, sort_key, date_key, date_year, date_month, date_day, headline, era, "
                 "created_at, updated_at) "
                 "VALUES (1, 1, '1840', 18400101, 18400101, 1840, 1, 1, 'Opium War', 'Modern China', "
@@ -453,9 +453,9 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
     inspector = inspect(test_engine)
     topic_cols = {column["name"] for column in inspector.get_columns("topics")}
     assert {"display_style", "container_type", "sort_json", "group_by"}.issubset(topic_cols)
-    event_cols = {column["name"] for column in inspector.get_columns("timeline_events")}
+    event_cols = {column["name"] for column in inspector.get_columns("notes")}
     assert {"note_type", "body_json", "preview_text", "search_text"}.issubset(event_cols)
-    assert "ix_timeline_events_live_topic_date" in {index["name"] for index in inspector.get_indexes("timeline_events")}
+    assert "ix_notes_live_topic_date" in {index["name"] for index in inspector.get_indexes("notes")}
 
     # Existing rows backfill to defaults (zero-break migration).
     with test_engine.begin() as conn:
@@ -463,7 +463,7 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
             text("SELECT display_style, container_type, sort_json, group_by FROM topics WHERE id=1")
         ).one()
         note_type, body_json, preview_text, search_text = conn.execute(
-            text("SELECT note_type, body_json, preview_text, search_text FROM timeline_events WHERE id=1")
+            text("SELECT note_type, body_json, preview_text, search_text FROM notes WHERE id=1")
         ).one()
     assert (display_style, container_type, sort_json, group_by) == ("timeline", "notebook", "[]", "era")
     assert note_type == "entry"

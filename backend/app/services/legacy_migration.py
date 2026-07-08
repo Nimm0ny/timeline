@@ -8,7 +8,7 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG, encode_config_value
 from backend.app.db.session import Base, SessionLocal, engine
-from backend.app.models.entities import AppConfigEntry, NoteItem, ImageAsset, Note, Topic
+from backend.app.models.entities import AppConfigEntry, NoteItem, NoteLink, ImageAsset, Note, Topic
 from backend.app.services.date_utils import (
     date_key_to_parts,
     extract_headline_from_legacy_label,
@@ -52,11 +52,100 @@ def build_tag_options(values: list[str]) -> list[dict]:
 
 
 def init_database():
+    migrate_timeline_events_to_notes()
     Base.metadata.create_all(bind=engine)
     ensure_image_asset_schema()
     ensure_note_schema()
     migrate_to_property_model()
     drop_legacy_auth_artifacts()
+
+
+def migrate_timeline_events_to_notes():
+    """W6-1b (docs/notes-app-pivot-design.md §7): rename the legacy timeline-vocabulary
+    schema (timeline_events / event_items / timeline_links + event-named columns) to
+    note vocabulary in place, preserving data. Runs BEFORE create_all so an existing DB
+    is transformed rather than shadowed by an empty `notes` table. Idempotent: no-op once
+    `notes` exists (already migrated) or when neither table exists (fresh DB — create_all
+    builds `notes` directly). SQLite (>=3.26, here 3.53) rewrites the child tables'
+    foreign keys to follow the parent rename, so `note_items`/`note_links` FKs re-point at
+    `notes` automatically. Old indexes are dropped and recreated under the new names from
+    the ORM index definitions (create_all's checkfirst then skips them)."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "notes" in tables:
+        return
+    if "timeline_events" not in tables:
+        return
+
+    old_indexes = [
+        "ix_timeline_events_live_topic_date", "ix_timeline_events_topic_id",
+        "ix_timeline_events_date_year", "ix_timeline_events_date_key",
+        "ix_timeline_events_sort_key", "ix_timeline_events_topic_date_id",
+        "ix_timeline_events_topic_year_month", "ix_timeline_events_topic_deleted",
+        "ix_event_items_event_id",
+        "ix_timeline_links_target_event_id", "ix_timeline_links_source",
+        "ix_timeline_links_target_source", "ix_timeline_links_source_event_id",
+    ]
+    def table_exists(conn, name):
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone() is not None
+
+    def column_names(conn, name):
+        return {row[1] for row in conn.execute(f'PRAGMA table_info("{name}")').fetchall()}
+
+    connection = sqlite3.connect(str(DB_FILE))
+    connection.isolation_level = None
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("BEGIN")
+        # The FTS5 search index is a derived table rebuilt from `notes` on every
+        # startup (rebuild_search_index); drop the stale one (and its shadow tables)
+        # so it is recreated fresh under the new name/columns instead of colliding
+        # with the renamed `note_id` column via CREATE ... IF NOT EXISTS.
+        connection.execute('DROP TABLE IF EXISTS "timeline_events_fts"')
+        for index_name in old_indexes:
+            connection.execute(f'DROP INDEX IF EXISTS "{index_name}"')
+        # Rename whichever legacy tables are present. An older/partial DB (e.g. one
+        # predating the W4 link system) may lack a child table; create_all builds any
+        # genuinely-missing table afterward. Guarding avoids a boot crash-loop.
+        connection.execute('ALTER TABLE "timeline_events" RENAME TO "notes"')
+        if table_exists(connection, "event_items"):
+            connection.execute('ALTER TABLE "event_items" RENAME TO "note_items"')
+        if table_exists(connection, "timeline_links"):
+            connection.execute('ALTER TABLE "timeline_links" RENAME TO "note_links"')
+        # Rename columns only where the legacy name is still present (ensure_note_schema
+        # treats related_event_ids_json as optionally-absent, so never assume it exists).
+        if "related_event_ids_json" in column_names(connection, "notes"):
+            connection.execute('ALTER TABLE "notes" RENAME COLUMN "related_event_ids_json" TO "related_note_ids_json"')
+        if table_exists(connection, "note_items") and "event_id" in column_names(connection, "note_items"):
+            connection.execute('ALTER TABLE "note_items" RENAME COLUMN "event_id" TO "note_id"')
+        if table_exists(connection, "note_links"):
+            link_columns = column_names(connection, "note_links")
+            if "source_event_id" in link_columns:
+                connection.execute('ALTER TABLE "note_links" RENAME COLUMN "source_event_id" TO "source_note_id"')
+            if "target_event_id" in link_columns:
+                connection.execute('ALTER TABLE "note_links" RENAME COLUMN "target_event_id" TO "target_note_id"')
+        # Recreate indexes for whichever target tables now exist. Skip any index whose
+        # column is absent on an older/partial DB (ensure_note_schema backfills such
+        # columns afterward); indexes are performance-only, never correctness.
+        for model in (Note, NoteItem, NoteLink):
+            if not table_exists(connection, model.__table__.name):
+                continue
+            for index in model.__table__.indexes:
+                statement = str(CreateIndex(index).compile(dialect=engine.dialect)).strip()
+                try:
+                    connection.execute(statement)
+                except sqlite3.OperationalError as exc:
+                    if "no such column" not in str(exc):
+                        raise
+        connection.execute("COMMIT")
+    except Exception:
+        connection.execute("ROLLBACK")
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.close()
 
 
 def ensure_image_asset_schema():
@@ -111,83 +200,83 @@ def ensure_note_schema():
                     connection.execute(text(statement))
                 connection.execute(text("CREATE INDEX IF NOT EXISTS ix_topics_bookshelf_id ON topics(bookshelf_id)"))
 
-    if "timeline_events" not in inspector.get_table_names():
+    if "notes" not in inspector.get_table_names():
         return
 
-    existing = {column["name"] for column in inspector.get_columns("timeline_events")}
+    existing = {column["name"] for column in inspector.get_columns("notes")}
     statements = []
     if "date_key" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN date_key INTEGER")
+        statements.append("ALTER TABLE notes ADD COLUMN date_key INTEGER")
     if "date_year" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN date_year INTEGER")
+        statements.append("ALTER TABLE notes ADD COLUMN date_year INTEGER")
     if "date_month" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN date_month INTEGER")
+        statements.append("ALTER TABLE notes ADD COLUMN date_month INTEGER")
     if "date_day" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN date_day INTEGER")
+        statements.append("ALTER TABLE notes ADD COLUMN date_day INTEGER")
     if "headline" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN headline VARCHAR(255)")
+        statements.append("ALTER TABLE notes ADD COLUMN headline VARCHAR(255)")
     if "body_markdown" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN body_markdown TEXT DEFAULT ''")
+        statements.append("ALTER TABLE notes ADD COLUMN body_markdown TEXT DEFAULT ''")
     if "preview_text" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN preview_text TEXT DEFAULT ''")
+        statements.append("ALTER TABLE notes ADD COLUMN preview_text TEXT DEFAULT ''")
     if "search_text" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN search_text TEXT DEFAULT ''")
+        statements.append("ALTER TABLE notes ADD COLUMN search_text TEXT DEFAULT ''")
     if "extra_json" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN extra_json TEXT DEFAULT '{}'")
+        statements.append("ALTER TABLE notes ADD COLUMN extra_json TEXT DEFAULT '{}'")
     if "attachments_json" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN attachments_json TEXT DEFAULT '[]'")
-    if "related_event_ids_json" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN related_event_ids_json TEXT DEFAULT '[]'")
+        statements.append("ALTER TABLE notes ADD COLUMN attachments_json TEXT DEFAULT '[]'")
+    if "related_note_ids_json" not in existing:
+        statements.append("ALTER TABLE notes ADD COLUMN related_note_ids_json TEXT DEFAULT '[]'")
     if "note_type" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN note_type VARCHAR(32) DEFAULT 'entry'")
+        statements.append("ALTER TABLE notes ADD COLUMN note_type VARCHAR(32) DEFAULT 'entry'")
     if "body_json" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN body_json TEXT")
+        statements.append("ALTER TABLE notes ADD COLUMN body_json TEXT")
     if "created_at" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN created_at DATETIME")
+        statements.append("ALTER TABLE notes ADD COLUMN created_at DATETIME")
     if "favorite" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN favorite BOOLEAN DEFAULT 0 NOT NULL")
+        statements.append("ALTER TABLE notes ADD COLUMN favorite BOOLEAN DEFAULT 0 NOT NULL")
     if "favorite_at" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN favorite_at DATETIME")
+        statements.append("ALTER TABLE notes ADD COLUMN favorite_at DATETIME")
     if "deleted_at" not in existing:
-        statements.append("ALTER TABLE timeline_events ADD COLUMN deleted_at DATETIME")
+        statements.append("ALTER TABLE notes ADD COLUMN deleted_at DATETIME")
 
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
         connection.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_timeline_events_date_key ON timeline_events(date_key)")
+            text("CREATE INDEX IF NOT EXISTS ix_notes_date_key ON notes(date_key)")
         )
         connection.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_timeline_events_date_year ON timeline_events(date_year)")
+            text("CREATE INDEX IF NOT EXISTS ix_notes_date_year ON notes(date_year)")
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_timeline_events_topic_date_id "
-                "ON timeline_events(topic_id, date_key, id)"
+                "CREATE INDEX IF NOT EXISTS ix_notes_topic_date_id "
+                "ON notes(topic_id, date_key, id)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_timeline_events_topic_year_month "
-                "ON timeline_events(topic_id, date_year, date_month)"
+                "CREATE INDEX IF NOT EXISTS ix_notes_topic_year_month "
+                "ON notes(topic_id, date_year, date_month)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_timeline_events_topic_deleted "
-                "ON timeline_events(topic_id, deleted_at)"
+                "CREATE INDEX IF NOT EXISTS ix_notes_topic_deleted "
+                "ON notes(topic_id, deleted_at)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS ix_timeline_events_live_topic_date "
-                "ON timeline_events(topic_id, date_key) WHERE deleted_at IS NULL"
+                "CREATE INDEX IF NOT EXISTS ix_notes_live_topic_date "
+                "ON notes(topic_id, date_key) WHERE deleted_at IS NULL"
             )
         )
         connection.execute(
             text(
                 """
-                UPDATE timeline_events
+                UPDATE notes
                 SET date_key = date_year * 10000 + date_month * 100 + date_day,
                     sort_key = date_year * 10000 + date_month * 100 + date_day
                 WHERE date_year < 0
@@ -201,7 +290,7 @@ def ensure_note_schema():
             text(
                 """
                 SELECT id, year, sort_key, date_key, date_year, date_month, date_day, headline
-                FROM timeline_events
+                FROM notes
                 WHERE date_key IS NULL OR date_year IS NULL OR date_month IS NULL OR date_day IS NULL OR headline IS NULL
                 """
             )
@@ -219,17 +308,17 @@ def ensure_note_schema():
             connection.execute(
                 text(
                     """
-                    UPDATE timeline_events
+                    UPDATE notes
                     SET date_key = :date_key,
                         date_year = :date_year,
                         date_month = :date_month,
                         date_day = :date_day,
                         headline = :headline
-                    WHERE id = :event_id
+                    WHERE id = :note_id
                     """
                 ),
                 {
-                    "event_id": row["id"],
+                    "note_id": row["id"],
                     "date_key": date_key,
                     "date_year": year,
                     "date_month": month,
@@ -240,13 +329,13 @@ def ensure_note_schema():
         connection.execute(
             text(
                 """
-                UPDATE timeline_events
+                UPDATE notes
                 SET body_markdown = COALESCE(body_markdown, ''),
                     preview_text = COALESCE(preview_text, ''),
                     search_text = COALESCE(search_text, ''),
                     extra_json = COALESCE(extra_json, '{}'),
                     attachments_json = COALESCE(attachments_json, '[]'),
-                    related_event_ids_json = COALESCE(related_event_ids_json, '[]'),
+                    related_note_ids_json = COALESCE(related_note_ids_json, '[]'),
                     created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP),
                     favorite = COALESCE(favorite, 0),
                     favorite_at = CASE
@@ -270,7 +359,7 @@ def drop_legacy_auth_artifacts():
 
     # Rebuild the FK-bearing tables first, then drop `users` last, so a mid-way
     # failure never leaves `users` gone while the orphan columns remain.
-    if "timeline_events" in tables and "created_by" in {c["name"] for c in inspector.get_columns("timeline_events")}:
+    if "notes" in tables and "created_by" in {c["name"] for c in inspector.get_columns("notes")}:
         rebuild_table_from_model(Note.__table__)
     if "images" in tables and "uploaded_by" in {c["name"] for c in inspector.get_columns("images")}:
         rebuild_table_from_model(ImageAsset.__table__)
@@ -357,16 +446,16 @@ def migrate_to_property_model():
     do not fabricate it. Idempotency signal: the tags_json column; once dropped,
     this is a no-op."""
     inspector = inspect(engine)
-    if "timeline_events" not in inspector.get_table_names():
+    if "notes" not in inspector.get_table_names():
         return
-    if "tags_json" not in {column["name"] for column in inspector.get_columns("timeline_events")}:
+    if "tags_json" not in {column["name"] for column in inspector.get_columns("notes")}:
         return  # already migrated
 
     session = SessionLocal()
     try:
         raw_tags = {
             row[0]: _safe_list(row[1])
-            for row in session.execute(text("SELECT id, tags_json FROM timeline_events")).all()
+            for row in session.execute(text("SELECT id, tags_json FROM notes")).all()
         }
         for topic in session.query(Topic).all():
             events = session.query(Note).filter(Note.topic_id == topic.id).all()
@@ -492,7 +581,7 @@ def import_topic_file(db: Session, path: Path):
             body_markdown="\n\n".join(str(item.get("text", "")).strip() for item in node.get("events", []) if str(item.get("text", "")).strip()),
             extra_json=json.dumps({"tags": event_tags}, ensure_ascii=False),
             attachments_json="[]",
-            related_event_ids_json="[]",
+            related_note_ids_json="[]",
             image=image,
         )
         db.add(event)
@@ -500,7 +589,7 @@ def import_topic_file(db: Session, path: Path):
         for index, item in enumerate(node.get("events", [])):
             db.add(
                 NoteItem(
-                    event_id=event.id,
+                    note_id=event.id,
                     tag=str(item.get("tag", "")).strip() or "note",
                     text=str(item.get("text", "")).strip(),
                     sort_order=index,

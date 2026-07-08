@@ -1,7 +1,7 @@
 """W4 link system: [[wikilink]] parse/resolve/sync + backlinks + batch preview.
 
 The link graph is keyed by note id, not title, so rename/move never breaks an edge;
-backlinks are one indexed lookup on timeline_links(target_event_id), not a body scan.
+backlinks are one indexed lookup on note_links(target_note_id), not a body scan.
 See docs/notes-app-pivot-design.md §6.
 """
 
@@ -70,10 +70,10 @@ def _canvas(db, topic_id, headline, cells):
     )
 
 
-def _resave_canvas(db, event_id, headline, cells):
+def _resave_canvas(db, note_id, headline, cells):
     return update_note(
         db,
-        event_id,
+        note_id,
         {
             "headline": headline,
             "era": "",
@@ -285,7 +285,7 @@ def test_canvas_embed_resync_drops_removed_card(tmp_path, monkeypatch):
         assert get_backlinks(db, target["id"])["total"] == 1
         rows = (
             db.query(NoteLink)
-            .filter(NoteLink.source_event_id == board["id"], NoteLink.anchor_type == "embed")
+            .filter(NoteLink.source_note_id == board["id"], NoteLink.anchor_type == "embed")
             .all()
         )
         assert len(rows) == 1
@@ -298,18 +298,18 @@ def test_canvas_embed_dangling_and_tombstone(tmp_path, monkeypatch):
     db, engine = _session(tmp_path, monkeypatch)
     try:
         topic = create_topic(db, "t1", None)
-        # Embed an id that does not exist → row stored with target_event_id NULL, canvas saves fine
+        # Embed an id that does not exist → row stored with target_note_id NULL, canvas saves fine
         # (no crash), keeping the cached title as the dangling label.
         board = _canvas(db, topic["id"], "Board", [_embed_cell(999999, "Ghost")])
         rows = (
             db.query(NoteLink)
-            .filter(NoteLink.source_event_id == board["id"], NoteLink.anchor_type == "embed")
+            .filter(NoteLink.source_note_id == board["id"], NoteLink.anchor_type == "embed")
             .all()
         )
-        assert len(rows) == 1 and rows[0].target_event_id is None and rows[0].target_title == "Ghost"
+        assert len(rows) == 1 and rows[0].target_note_id is None and rows[0].target_title == "Ghost"
 
         # Live target → resolved; then soft-delete the target and re-save → becomes a tombstone
-        # (target_event_id NULL), the same treatment as a dangling wikilink (§7.5).
+        # (target_note_id NULL), the same treatment as a dangling wikilink (§7.5).
         target = _entry(db, topic["id"], "Real")
         board2 = _canvas(db, topic["id"], "Board2", [_embed_cell(target["id"], "Real")])
         assert get_backlinks(db, target["id"])["total"] == 1
@@ -317,10 +317,10 @@ def test_canvas_embed_dangling_and_tombstone(tmp_path, monkeypatch):
         _resave_canvas(db, board2["id"], "Board2", [_embed_cell(target["id"], "Real")])
         rows2 = (
             db.query(NoteLink)
-            .filter(NoteLink.source_event_id == board2["id"], NoteLink.anchor_type == "embed")
+            .filter(NoteLink.source_note_id == board2["id"], NoteLink.anchor_type == "embed")
             .all()
         )
-        assert len(rows2) == 1 and rows2[0].target_event_id is None
+        assert len(rows2) == 1 and rows2[0].target_note_id is None
     finally:
         db.close()
         engine.dispose()
@@ -376,11 +376,11 @@ def test_manual_dangling_related_id_stays_null(tmp_path, monkeypatch):
         source = _related(db, topic["id"], "Source", [999999])  # no such note → dangling
         rows = (
             db.query(NoteLink)
-            .filter(NoteLink.source_event_id == source["id"], NoteLink.anchor_type == "manual")
+            .filter(NoteLink.source_note_id == source["id"], NoteLink.anchor_type == "manual")
             .all()
         )
         assert len(rows) == 1
-        assert rows[0].target_event_id is None
+        assert rows[0].target_note_id is None
     finally:
         db.close()
         engine.dispose()
@@ -421,17 +421,17 @@ def test_manual_links_drop_self_and_dedupe(tmp_path, monkeypatch):
         source = _related(db, topic["id"], "S", [target["id"]])
         # Simulate a legacy related list carrying a self-ref + a duplicate; re-sync the writer directly.
         row = db.get(Note, source["id"])
-        row.related_event_ids_json = json.dumps([source["id"], target["id"], target["id"]])
+        row.related_note_ids_json = json.dumps([source["id"], target["id"], target["id"]])
         db.flush()
         sync_note_manual_links(db, row)
         db.commit()
         links = (
             db.query(NoteLink)
-            .filter(NoteLink.source_event_id == source["id"], NoteLink.anchor_type == "manual")
+            .filter(NoteLink.source_note_id == source["id"], NoteLink.anchor_type == "manual")
             .all()
         )
         assert len(links) == 1  # self dropped, duplicate collapsed
-        assert links[0].target_event_id == target["id"]
+        assert links[0].target_note_id == target["id"]
     finally:
         db.close()
         engine.dispose()
@@ -447,7 +447,7 @@ def test_manual_links_backfill_is_guarded(tmp_path, monkeypatch):
         db.query(NoteLink).filter(NoteLink.anchor_type == "manual").delete()
         db.commit()
         assert get_backlinks(db, target["id"])["total"] == 0
-        # First backfill re-projects related_event_ids_json → manual rows.
+        # First backfill re-projects related_note_ids_json → manual rows.
         backfill_manual_links(db)
         db.commit()
         assert get_backlinks(db, target["id"])["total"] == 1
@@ -477,7 +477,7 @@ def test_manual_writer_leaves_wikilink_and_embed_intact(tmp_path, monkeypatch):
         )
         anchors = {
             row.anchor_type
-            for row in db.query(NoteLink).filter(NoteLink.source_event_id == source["id"]).all()
+            for row in db.query(NoteLink).filter(NoteLink.source_note_id == source["id"]).all()
         }
         assert anchors == {"wikilink", "manual"}  # both survive — manual writer didn't wipe wikilink
         # get_backlinks collapses the two anchors from one source to a single backlink row.

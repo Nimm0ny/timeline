@@ -81,13 +81,13 @@ class ImageAsset(Base):
 
 
 class Note(Base):
-    __tablename__ = "timeline_events"
+    __tablename__ = "notes"
     __table_args__ = (
-        Index("ix_timeline_events_topic_date_id", "topic_id", "date_key", "id"),
-        Index("ix_timeline_events_topic_year_month", "topic_id", "date_year", "date_month"),
-        Index("ix_timeline_events_topic_deleted", "topic_id", "deleted_at"),
+        Index("ix_notes_topic_date_id", "topic_id", "date_key", "id"),
+        Index("ix_notes_topic_year_month", "topic_id", "date_year", "date_month"),
+        Index("ix_notes_topic_deleted", "topic_id", "deleted_at"),
         Index(
-            "ix_timeline_events_live_topic_date",
+            "ix_notes_live_topic_date",
             "topic_id",
             "date_key",
             sqlite_where=text("deleted_at IS NULL"),
@@ -114,7 +114,7 @@ class Note(Base):
     body_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    related_event_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    related_note_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -135,10 +135,10 @@ class Note(Base):
 
 
 class NoteItem(Base):
-    __tablename__ = "event_items"
+    __tablename__ = "note_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(ForeignKey("timeline_events.id"), nullable=False, index=True)
+    note_id: Mapped[int] = mapped_column(ForeignKey("notes.id"), nullable=False, index=True)
     tag: Mapped[str] = mapped_column(String(64), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -180,21 +180,21 @@ class NoteLink(Base):
     """A `[[wikilink]]` edge from one note's body to another (W4 link system).
 
     The link graph is keyed by note id, not title, so renaming/moving a target never
-    breaks the edge (see docs/notes-app-pivot-design.md §6.1). `target_event_id` is NULL
+    breaks the edge (see docs/notes-app-pivot-design.md §6.1). `target_note_id` is NULL
     for a dangling link (`[[title]]` that resolves to no note yet). `context_text` is the
     surrounding line, precomputed at write time so the backlink panel never rescans source
     bodies. `anchor_type`: 'wikilink' (from body) | 'manual' (backfilled related ids) |
     'embed' (a canvas embedding the target — W5)."""
 
-    __tablename__ = "timeline_links"
+    __tablename__ = "note_links"
     __table_args__ = (
-        Index("ix_timeline_links_target_source", "target_event_id", "source_event_id"),
-        Index("ix_timeline_links_source", "source_event_id"),
+        Index("ix_note_links_target_source", "target_note_id", "source_note_id"),
+        Index("ix_note_links_source", "source_note_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_event_id: Mapped[int] = mapped_column(ForeignKey("timeline_events.id"), nullable=False, index=True)
-    target_event_id: Mapped[int | None] = mapped_column(ForeignKey("timeline_events.id"), nullable=True, index=True)
+    source_note_id: Mapped[int] = mapped_column(ForeignKey("notes.id"), nullable=False, index=True)
+    target_note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id"), nullable=True, index=True)
     target_title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     anchor_type: Mapped[str] = mapped_column(String(16), default="wikilink", nullable=False)
     position: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -85,7 +85,7 @@ ORIGINAL_IMAGE_EXTENSIONS = {".gif", ".svg"}
 SEARCH_LIMIT_DEFAULT = 20
 SEARCH_LIMIT_MAX = 50
 SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
-SEARCH_INDEX_TABLE = "timeline_events_fts"
+SEARCH_INDEX_TABLE = "notes_fts"
 DEFAULT_BOOKSHELF_NAME = "default"
 DEFAULT_BOOKSHELF_TITLE = "编年"
 QSTHEORY_BOOKSHELF_NAME = "qstheory"
@@ -749,11 +749,11 @@ def normalize_related_note_ids(payload: dict) -> list[int]:
     ids = []
     for value in raw:
         try:
-            event_id = int(value)
+            note_id = int(value)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="Related event ids must be integers") from exc
-        if event_id > 0:
-            ids.append(event_id)
+        if note_id > 0:
+            ids.append(note_id)
     return list(dict.fromkeys(ids))
 
 
@@ -789,7 +789,7 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
     thumb_filename = event.image.thumb_filename if event.image else None
     items = serialize_items(event)
     attachments = [build_attachment_payload(item) for item in deserialize_json_list(event.attachments_json)]
-    related_ids = [int(value) for value in deserialize_json_list(event.related_event_ids_json) if str(value).strip().isdigit()]
+    related_ids = [int(value) for value in deserialize_json_list(event.related_note_ids_json) if str(value).strip().isdigit()]
     return {
         "id": event.id,
         "topicId": event.topic_id,
@@ -814,7 +814,7 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
         "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
         "relatedEventIds": related_ids,
-        "relatedEvents": [related_lookup[event_id] for event_id in related_ids if related_lookup and event_id in related_lookup],
+        "relatedEvents": [related_lookup[note_id] for note_id in related_ids if related_lookup and note_id in related_lookup],
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
         "favorite": bool(event.favorite),
@@ -949,7 +949,7 @@ def build_search_payload(event: Note, data: dict | None = None, topic: Topic | N
         era = data.get("era")
 
     return {
-        "event_id": event.id,
+        "note_id": event.id,
         "topic_id": event.topic_id,
         "headline": headline,
         "body": " ".join(
@@ -971,7 +971,7 @@ def ensure_search_schema(db: Session) -> None:
             f"""
             CREATE VIRTUAL TABLE IF NOT EXISTS {SEARCH_INDEX_TABLE}
             USING fts5(
-              event_id UNINDEXED,
+              note_id UNINDEXED,
               topic_id UNINDEXED,
               headline,
               body,
@@ -984,9 +984,9 @@ def ensure_search_schema(db: Session) -> None:
     )
 
 
-def remove_search_index_row(db: Session, event_id: int) -> None:
+def remove_search_index_row(db: Session, note_id: int) -> None:
     ensure_search_schema(db)
-    db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE event_id = :event_id"), {"event_id": int(event_id)})
+    db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE} WHERE note_id = :note_id"), {"note_id": int(note_id)})
 
 
 def remove_search_index_topic(db: Session, topic_id: int) -> None:
@@ -998,8 +998,8 @@ def insert_search_index_row(db: Session, payload: dict) -> None:
     db.execute(
         text(
             f"""
-            INSERT INTO {SEARCH_INDEX_TABLE} (event_id, topic_id, headline, body, era, extra)
-            VALUES (:event_id, :topic_id, :headline, :body, :era, :extra)
+            INSERT INTO {SEARCH_INDEX_TABLE} (note_id, topic_id, headline, body, era, extra)
+            VALUES (:note_id, :topic_id, :headline, :body, :era, :extra)
             """
         ),
         payload,
@@ -1075,7 +1075,7 @@ def search_notes(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFAU
               snippet({SEARCH_INDEX_TABLE}, 5, '', '', '...', 12) AS extra_snippet,
               bm25({SEARCH_INDEX_TABLE}) AS rank
             FROM {SEARCH_INDEX_TABLE}
-            JOIN timeline_events e ON e.id = {SEARCH_INDEX_TABLE}.event_id
+            JOIN notes e ON e.id = {SEARCH_INDEX_TABLE}.note_id
             WHERE {SEARCH_INDEX_TABLE} MATCH :query
               AND e.deleted_at IS NULL
             ORDER BY rank ASC, CASE WHEN e.date_key IS NULL THEN 1 ELSE 0 END ASC, e.date_key ASC, e.id ASC
@@ -1241,7 +1241,7 @@ def note_to_index_dict(event: Note) -> dict:
 def build_related_lookup(db: Session, event_rows: list[Note]) -> dict[int, dict]:
     related_ids = set()
     for event in event_rows:
-        for value in deserialize_json_list(event.related_event_ids_json):
+        for value in deserialize_json_list(event.related_note_ids_json):
             try:
                 related_ids.add(int(value))
             except (TypeError, ValueError):
@@ -1287,7 +1287,7 @@ def serialize_note_rows(
 # Body tokens are id-anchored — `[[<id>|<alias>]]` — so renaming/moving a target never
 # breaks the edge (docs/notes-app-pivot-design.md §6.1). A bare `[[title]]` (hand-typed,
 # no id) is resolved to a note by a unique live-headline match at write time; no match →
-# dangling (target_event_id NULL). The links table is a query-optimized projection of the
+# dangling (target_note_id NULL). The links table is a query-optimized projection of the
 # bodies, so backlinks are one indexed lookup instead of a full-text scan.
 # The title class excludes newline so `[[Foo\nBar]]` is not one cross-line link — keeps the
 # backend in lockstep with the CM6/read-renderer regex (which also excludes \n); otherwise the
@@ -1342,7 +1342,7 @@ def sync_note_links(db: Session, event: Note) -> None:
     writers and are untouched. Call after the event is flushed (id present) with its
     body_markdown written, before commit."""
     db.query(NoteLink).filter(
-        NoteLink.source_event_id == event.id,
+        NoteLink.source_note_id == event.id,
         NoteLink.anchor_type == "wikilink",
     ).delete(synchronize_session=False)
     if event.deleted_at:
@@ -1350,8 +1350,8 @@ def sync_note_links(db: Session, event: Note) -> None:
     for parsed in parse_wikilinks(event.body_markdown or ""):
         db.add(
             NoteLink(
-                source_event_id=event.id,
-                target_event_id=resolve_wikilink_target(db, parsed),
+                source_note_id=event.id,
+                target_note_id=resolve_wikilink_target(db, parsed),
                 target_title=parsed["title"][:255],
                 anchor_type="wikilink",
                 position=parsed["position"],
@@ -1395,11 +1395,11 @@ def sync_note_embeds(db: Session, event: Note) -> None:
     Idempotent, mirroring sync_note_links: clears this source's embed rows and re-inserts one
     per distinct embedded note. `wikilink`/`manual` anchors belong to other writers and are
     untouched. A live target resolves the row (→ shows in the target's backlink panel as an
-    embed); a deleted/dangling target keeps target_event_id NULL — the tombstone case, same
+    embed); a deleted/dangling target keeps target_note_id NULL — the tombstone case, same
     treatment as a dangling wikilink. Call after flush (id present) with body_json written,
     before commit."""
     db.query(NoteLink).filter(
-        NoteLink.source_event_id == event.id,
+        NoteLink.source_note_id == event.id,
         NoteLink.anchor_type == "embed",
     ).delete(synchronize_session=False)
     if event.deleted_at:
@@ -1420,8 +1420,8 @@ def sync_note_embeds(db: Session, event: Note) -> None:
     for note_id, parsed in by_target.items():
         db.add(
             NoteLink(
-                source_event_id=event.id,
-                target_event_id=note_id if note_id in live_ids else None,
+                source_note_id=event.id,
+                target_note_id=note_id if note_id in live_ids else None,
                 target_title=(parsed["title"] or "")[:255],
                 anchor_type="embed",
                 position=parsed["position"],
@@ -1431,21 +1431,21 @@ def sync_note_embeds(db: Session, event: Note) -> None:
 
 
 def sync_note_manual_links(db: Session, event: Note) -> None:
-    """Re-derive a note's `manual` link rows from its legacy related_event_ids_json — the pre-
+    """Re-derive a note's `manual` link rows from its legacy related_note_ids_json — the pre-
     wikilink "关联事件" relationships, projected into the links table so they surface in the
     target's backlink panel (§6.4). Idempotent, mirroring sync_note_embeds: clears this source's
     manual rows and re-inserts one per distinct related id. `wikilink`/`embed` anchors belong to
     other writers and are untouched. A live target resolves the row; a deleted/missing target
-    stays dangling (target_event_id NULL). Call after flush (id present), before commit."""
+    stays dangling (target_note_id NULL). Call after flush (id present), before commit."""
     db.query(NoteLink).filter(
-        NoteLink.source_event_id == event.id,
+        NoteLink.source_note_id == event.id,
         NoteLink.anchor_type == "manual",
     ).delete(synchronize_session=False)
     if event.deleted_at:
         return
     related_ids: list[int] = []
     seen: set[int] = set()
-    for value in deserialize_json_list(event.related_event_ids_json):
+    for value in deserialize_json_list(event.related_note_ids_json):
         try:
             rid = int(value)
         except (TypeError, ValueError):
@@ -1467,8 +1467,8 @@ def sync_note_manual_links(db: Session, event: Note) -> None:
     for index, rid in enumerate(related_ids):
         db.add(
             NoteLink(
-                source_event_id=event.id,
-                target_event_id=rid if rid in live else None,
+                source_note_id=event.id,
+                target_note_id=rid if rid in live else None,
                 target_title=(live.get(rid) or "")[:255],
                 anchor_type="manual",
                 position=index,
@@ -1477,36 +1477,36 @@ def sync_note_manual_links(db: Session, event: Note) -> None:
         )
 
 
-def purge_note_links(db: Session, event_id: int) -> None:
+def purge_note_links(db: Session, note_id: int) -> None:
     """Drop every link row touching a note (as source or target) — for a permanent
     delete, so no dangling FK rows survive the row's removal."""
     db.query(NoteLink).filter(
-        (NoteLink.source_event_id == event_id) | (NoteLink.target_event_id == event_id)
+        (NoteLink.source_note_id == note_id) | (NoteLink.target_note_id == note_id)
     ).delete(synchronize_session=False)
 
 
-def get_backlinks(db: Session, event_id: int, *, offset: int = 0, limit: int = 50) -> dict:
+def get_backlinks(db: Session, note_id: int, *, offset: int = 0, limit: int = 50) -> dict:
     """Incoming links to a note: one entry per LIVE linking note (deduped — a source that
     references this target several times is ONE backlink, not N; otherwise the panel emits
     duplicate Vue keys on sourceId and inflates the count), newest-updated first. One indexed
-    lookup on (target_event_id) — the panel snippet rides context_text, no source rescans."""
+    lookup on (target_note_id) — the panel snippet rides context_text, no source rescans."""
     base = (
         db.query(NoteLink, Note, Topic)
-        .join(Note, Note.id == NoteLink.source_event_id)
+        .join(Note, Note.id == NoteLink.source_note_id)
         .join(Topic, Topic.id == Note.topic_id)
-        .filter(NoteLink.target_event_id == event_id, Note.deleted_at.is_(None))
+        .filter(NoteLink.target_note_id == note_id, Note.deleted_at.is_(None))
         # Collapse multiple links from the same source to one row (SQLite keeps an arbitrary
         # context_text/anchor_type per group — any single occurrence is a fine snippet).
-        .group_by(NoteLink.source_event_id)
+        .group_by(NoteLink.source_note_id)
     )
     total = (
-        db.query(func.count(func.distinct(NoteLink.source_event_id)))
-        .join(Note, Note.id == NoteLink.source_event_id)
-        .filter(NoteLink.target_event_id == event_id, Note.deleted_at.is_(None))
+        db.query(func.count(func.distinct(NoteLink.source_note_id)))
+        .join(Note, Note.id == NoteLink.source_note_id)
+        .filter(NoteLink.target_note_id == note_id, Note.deleted_at.is_(None))
         .scalar()
     )
     rows = (
-        base.order_by(Note.updated_at.desc(), NoteLink.source_event_id.desc())
+        base.order_by(Note.updated_at.desc(), NoteLink.source_note_id.desc())
         .offset(max(0, offset))
         .limit(max(1, min(limit, 200)))
         .all()
@@ -1575,10 +1575,10 @@ def build_link_targets(db: Session, events: list[Note]) -> dict[int, dict[str, s
         for row_id, headline, year in rows
     }
     result: dict[int, dict[str, str]] = {}
-    for event_id, ids in wanted.items():
+    for note_id, ids in wanted.items():
         targets = {str(tid): title_by_id[tid] for tid in ids if tid in title_by_id}
         if targets:
-            result[event_id] = targets
+            result[note_id] = targets
     return result
 
 
@@ -1735,7 +1735,7 @@ MANUAL_LINKS_BACKFILL_KEY = "manual_links_backfilled_v1"
 
 
 def backfill_manual_links(db: Session) -> None:
-    # One-time projection of legacy related_event_ids_json → `manual` link rows so pre-existing
+    # One-time projection of legacy related_note_ids_json → `manual` link rows so pre-existing
     # "关联事件" relationships appear in backlink panels (§6.4). Guarded by a marker like
     # backfill_note_text_fields; every create/update now runs sync_note_manual_links, so after
     # this pass the manual rows are authoritative. Only rows with a non-empty related list are scanned.
@@ -1744,9 +1744,9 @@ def backfill_manual_links(db: Session) -> None:
     rows = (
         db.query(Note)
         .filter(
-            Note.related_event_ids_json.isnot(None),
-            Note.related_event_ids_json != "",
-            Note.related_event_ids_json != "[]",
+            Note.related_note_ids_json.isnot(None),
+            Note.related_note_ids_json != "",
+            Note.related_note_ids_json != "[]",
         )
         .all()
     )
@@ -1798,11 +1798,11 @@ def get_topic_or_404(db: Session, topic_id: int) -> Topic:
     return topic
 
 
-def get_note_or_404(db: Session, event_id: int) -> Note:
+def get_note_or_404(db: Session, note_id: int) -> Note:
     event = (
         db.query(Note)
         .options(selectinload(Note.items), joinedload(Note.image), joinedload(Note.topic))
-        .filter(Note.id == event_id)
+        .filter(Note.id == note_id)
         .first()
     )
     if event is None:
@@ -2100,8 +2100,8 @@ def list_topic_notes(db: Session, topic_id: int) -> list[dict]:
     return serialize_note_rows(db, events)
 
 
-def get_note_detail(db: Session, event_id: int) -> dict:
-    return serialize_note_rows(db, [get_note_or_404(db, event_id)], with_link_targets=True)[0]
+def get_note_detail(db: Session, note_id: int) -> dict:
+    return serialize_note_rows(db, [get_note_or_404(db, note_id)], with_link_targets=True)[0]
 
 
 def build_timeline_index(db: Session) -> dict:
@@ -2464,7 +2464,7 @@ def write_note_model(event: Note, data: dict, image: ImageAsset | None, *, topic
     event.body_json = json.dumps(data["bodyJson"], ensure_ascii=False) if data.get("bodyJson") is not None else None
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
-    event.related_event_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)
+    event.related_note_ids_json = json.dumps(data["relatedEventIds"], ensure_ascii=False)
     event.image = image
     next_favorite = bool(data.get("favorite", event.favorite))
     if next_favorite and not event.favorite:
@@ -2485,7 +2485,7 @@ def create_note(db: Session, topic_id: int, payload: dict) -> dict:
     db.add(event)
     db.flush()
     for index, item in enumerate(data["items"]):
-        db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+        db.add(NoteItem(note_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
     sync_note_links(db, event)
     sync_note_embeds(db, event)
@@ -2496,8 +2496,8 @@ def create_note(db: Session, topic_id: int, payload: dict) -> dict:
     return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
 
 
-def update_note(db: Session, event_id: int, payload: dict) -> dict:
-    event = get_note_or_404(db, event_id)
+def update_note(db: Session, note_id: int, payload: dict) -> dict:
+    event = get_note_or_404(db, note_id)
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
@@ -2522,7 +2522,7 @@ def update_note(db: Session, event_id: int, payload: dict) -> dict:
         db.delete(item)
     db.flush()
     for index, item in enumerate(data["items"]):
-        db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+        db.add(NoteItem(note_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
     sync_note_links(db, event)
     sync_note_embeds(db, event)
@@ -2534,8 +2534,8 @@ def update_note(db: Session, event_id: int, payload: dict) -> dict:
     return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
 
 
-def delete_note(db: Session, event_id: int, *, permanent: bool = False):
-    event = get_note_or_404(db, event_id)
+def delete_note(db: Session, note_id: int, *, permanent: bool = False):
+    event = get_note_or_404(db, note_id)
     old_image_id = event.image_id
     if not permanent:
         event.deleted_at = datetime.now(timezone.utc)
@@ -2607,7 +2607,7 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
         db.add(event)
         db.flush()
         for index, item in enumerate(node["items"]):
-            db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+            db.add(NoteItem(note_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
         upsert_search_index_row(db, event, node, topic)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()

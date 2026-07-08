@@ -90,7 +90,7 @@ def seeded_topic(db_session: Session) -> Topic:
         db_session.add(event)
         db_session.flush()
         for index, item in enumerate(items):
-            db_session.add(NoteItem(event_id=event.id, tag=item[0], text=item[1], sort_order=index))
+            db_session.add(NoteItem(note_id=event.id, tag=item[0], text=item[1], sort_order=index))
 
     backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
