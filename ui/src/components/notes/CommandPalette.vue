@@ -32,7 +32,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["close", "update:query", "select-event", "select-topic", "command"]);
+const emit = defineEmits(["close", "update:query", "select-note", "select-topic", "command"]);
 
 const inputRef = ref(null);
 const activeIndex = ref(0);
@@ -91,7 +91,7 @@ function moveActive(delta) {
 
 function activate(item = flatItems.value[activeIndex.value]) {
   if (!item) return;
-  if (item.type === "event") emit("select-event", item.value);
+  if (item.type === "event") emit("select-note", item.value);
   if (item.type === "topic") emit("select-topic", item.value);
   if (item.type === "command") emit("command", item.value.id);
 }

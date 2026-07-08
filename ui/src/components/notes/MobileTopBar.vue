@@ -21,7 +21,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-event", "create-mindmap", "create-canvas"]);
+const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-note", "create-mindmap", "create-canvas"]);
 
 const searchInputRef = ref(null);
 const createMenuOpen = ref(false);
@@ -46,7 +46,7 @@ function toggleCreateMenu() {
 
 function pickNoteType(type) {
   createMenuOpen.value = false;
-  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-event");
+  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-note");
 }
 
 watch(

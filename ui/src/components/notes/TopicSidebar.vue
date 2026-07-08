@@ -32,7 +32,7 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  allEvents: {
+  allNotes: {
     type: Array,
     default: () => [],
   },
@@ -113,8 +113,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  "create-event",
-  "create-event-in-topic",
+  "create-note",
+  "create-note-in-topic",
   "create-mindmap-in-topic",
   "create-canvas-in-topic",
   "create-bookshelf",
@@ -132,7 +132,7 @@ const emit = defineEmits([
   "focus-search",
   "open-global-favorites",
   "update:favorite-scope",
-  "open-favorite-event",
+  "open-favorite-note",
   "open-settings",
   "select-ribbon",
   "toggle-bookshelf",
@@ -351,7 +351,7 @@ const CREATE_IN_TOPIC_EMIT = { mindmap: "create-mindmap-in-topic", canvas: "crea
 function createInTopic(topicId, noteType = "entry") {
   closeTopicMenu();
   closeCreateTopicMenu();
-  emit(CREATE_IN_TOPIC_EMIT[noteType] || "create-event-in-topic", topicId);
+  emit(CREATE_IN_TOPIC_EMIT[noteType] || "create-note-in-topic", topicId);
 }
 
 // Inline rename reuses the borderless create-row field (one list-edit grammar):
@@ -964,7 +964,7 @@ const quickFilters = computed(() => [
 const liveNotesByTopic = computed(() => {
   if (state.ribbon !== "tags" || !props.propertyDataReady) return new Map();
   const grouped = new Map();
-  for (const event of props.allEvents || []) {
+  for (const event of props.allNotes || []) {
     if (!event || event.deletedAt) continue;
     const topicId = Number(event.topicId);
     if (!grouped.has(topicId)) grouped.set(topicId, []);
@@ -1015,7 +1015,7 @@ function selectFavoriteScope(scope) {
 }
 
 function openFavoriteNote(id) {
-  emit("open-favorite-event", id);
+  emit("open-favorite-note", id);
 }
 
 function favoriteNoteTopicLabel(topicId) {

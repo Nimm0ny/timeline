@@ -1375,9 +1375,9 @@ export function sortBookshelfTree(tree, mode = "default") {
     .sort((x, y) => compareSidebarNodes(x, y, mode));
 }
 
-export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []) {
+export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = []) {
   const liveNotesByTopic = new Map();
-  for (const event of Array.isArray(allEvents) ? allEvents : []) {
+  for (const event of Array.isArray(allNotes) ? allNotes : []) {
     if (!event || event.deletedAt) continue;
     const topicId = Number(event.topicId);
     if (!liveNotesByTopic.has(topicId)) liveNotesByTopic.set(topicId, []);

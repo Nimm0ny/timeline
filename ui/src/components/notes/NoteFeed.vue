@@ -105,11 +105,11 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  allEvents: {
+  allNotes: {
     type: Array,
     default: () => [],
   },
-  selectedEventId: {
+  selectedNoteId: {
     type: Number,
     default: null,
   },
@@ -203,10 +203,10 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  "create-event",
+  "create-note",
   "create-mindmap",
   "create-canvas",
-  "select-event",
+  "select-note",
   "update:searchQuery",
   "locate-date",
   "toggle-favorite",
@@ -271,7 +271,7 @@ function toggleRowSelection(id) {
 
 function onRowClick(id) {
   if (selectMode.value) toggleRowSelection(id);
-  else emit("select-event", id);
+  else emit("select-note", id);
 }
 
 function submitBatch(action) {
@@ -330,7 +330,7 @@ function pickView(view) {
 // mindmap / canvas create + open their own center surface. The page owns the handlers.
 function pickNoteType(type) {
   activePopover.value = "";
-  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-event");
+  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-note");
 }
 
 function flatNotes() {
@@ -972,7 +972,7 @@ function focusDate(value) {
   const events = props.groups.flatMap((group) => group.items);
   const target = events.find((event) => event.dateKey >= targetKey) || events.at(-1);
   if (!target) return;
-  emit("select-event", target.id);
+  emit("select-note", target.id);
   nextTick(() => {
     const view = effectiveView();
     if (isLinearView(view)) {
@@ -1072,7 +1072,7 @@ watch(
 );
 
 watch(
-  () => props.selectedEventId,
+  () => props.selectedNoteId,
   (eventId) => {
     if (!eventId) return;
     nextTick(() => {
@@ -1312,7 +1312,7 @@ defineExpose({
           :key="props.topicId"
           :topic-id="props.topicId"
           :columns="props.columns"
-          :events="props.allEvents"
+          :events="props.allNotes"
           :saving="props.columnSaving"
           @save-columns="emit('save-columns', $event)"
         />
@@ -1512,7 +1512,7 @@ defineExpose({
               type="button"
               class="row"
               :class="{
-                active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+                active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedNoteId,
                 selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
               }"
               @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
@@ -1635,7 +1635,7 @@ defineExpose({
           type="button"
           class="row"
           :class="{
-            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedNoteId,
             selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
           }"
           @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
@@ -1728,7 +1728,7 @@ defineExpose({
               type="button"
               class="bd-card"
               :class="{
-                active: !selectMode && projected.event.id === props.selectedEventId,
+                active: !selectMode && projected.event.id === props.selectedNoteId,
                 selected: selectMode && isRowSelected(projected.event.id),
               }"
               @click="onRowClick(projected.event.id)"
@@ -1760,7 +1760,7 @@ defineExpose({
             type="button"
             class="gl-card"
             :class="{
-              active: !selectMode && projected.event.id === props.selectedEventId,
+              active: !selectMode && projected.event.id === props.selectedNoteId,
               selected: selectMode && isRowSelected(projected.event.id),
             }"
             @click="onRowClick(projected.event.id)"
@@ -1843,7 +1843,7 @@ defineExpose({
             type="button"
             class="ol-row"
             :class="{
-              active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+              active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedNoteId,
               selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
             }"
             @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
@@ -1870,7 +1870,7 @@ defineExpose({
           type="button"
           class="lv-row"
           :class="{
-            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedEventId,
+            active: !selectMode && activeLinearRows[vRow.index].projected.event.id === props.selectedNoteId,
             selected: selectMode && isRowSelected(activeLinearRows[vRow.index].projected.event.id),
           }"
           @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
