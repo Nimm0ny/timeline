@@ -198,7 +198,7 @@ const state = reactive({
   afterSaveAction: null,
   restoreRouteOnCancel: false,
   routeRestoreSnapshot: null,
-  menuEvent: null,
+  menuNote: null,
   settingsOpen: false,
   confirmDeleteBookshelf: null,
   confirmDeleteTopics: null,
@@ -222,7 +222,7 @@ const state = reactive({
   commandLoading: false,
   commandError: "",
   relatedPreviewOpen: false,
-  relatedPreviewEventId: null,
+  relatedPreviewNoteId: null,
   relatedPreviewLoading: false,
   relatedPreviewError: "",
   relatedPreviewPinned: false,
@@ -239,7 +239,7 @@ const state = reactive({
 
 let resizeCleanup = null;
 let detailRequestSeq = 0;
-let topicEventsRequestSeq = 0;
+let topicNotesRequestSeq = 0;
 let workspaceSelectionRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
@@ -384,17 +384,17 @@ const autoLoadContextKey = computed(() =>
 );
 
 const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
-const globalFavoriteEvents = computed(() => buildGlobalFavoriteNotes(notesStore.state.notesIndex));
+const globalFavoriteNotes = computed(() => buildGlobalFavoriteNotes(notesStore.state.notesIndex));
 const favoriteScope = computed(() => normalizeFavoriteScope(state.favoriteScope));
-const favoritesScopedEvents = computed(() =>
-  filterFavoriteNotesByScope(globalFavoriteEvents.value, favoriteScope.value, state.topics, state.activeTopicId)
+const favoritesScopedNotes = computed(() =>
+  filterFavoriteNotesByScope(globalFavoriteNotes.value, favoriteScope.value, state.topics, state.activeTopicId)
 );
-const favoritesRecentEvents = computed(() => buildRecentFavoriteNotes(favoritesScopedEvents.value, 5));
-const favoriteTypeRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "type"));
-const favoriteTagRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "tags"));
+const favoritesRecentNotes = computed(() => buildRecentFavoriteNotes(favoritesScopedNotes.value, 5));
+const favoriteTypeRows = computed(() => buildFavoriteFacetRows(favoritesScopedNotes.value, state.topics, "type"));
+const favoriteTagRows = computed(() => buildFavoriteFacetRows(favoritesScopedNotes.value, state.topics, "tags"));
 const favoriteTopicRows = computed(() => {
   const counts = new Map();
-  for (const event of favoritesScopedEvents.value) {
+  for (const event of favoritesScopedNotes.value) {
     const topicId = Number(event?.topicId);
     if (!topicId) continue;
     const topic = notesStore.topicById(topicId) || state.topics.find((item) => item.id === topicId);
@@ -428,12 +428,12 @@ const favoriteScopeLabel = computed(() => {
   return "全部收藏";
 });
 const favoritesPanel = computed(() => {
-  const recentAll = buildRecentFavoriteNotes(globalFavoriteEvents.value, 5);
-  const currentTopicCount = filterFavoriteNotesByScope(globalFavoriteEvents.value, { kind: "current-topic" }, state.topics, state.activeTopicId).length;
+  const recentAll = buildRecentFavoriteNotes(globalFavoriteNotes.value, 5);
+  const currentTopicCount = filterFavoriteNotesByScope(globalFavoriteNotes.value, { kind: "current-topic" }, state.topics, state.activeTopicId).length;
   const scope = favoriteScope.value;
   return {
     overview: [
-      { id: "all", label: "全部收藏", count: globalFavoriteEvents.value.length, scope: { kind: "all" }, active: scope.kind === "all" },
+      { id: "all", label: "全部收藏", count: globalFavoriteNotes.value.length, scope: { kind: "all" }, active: scope.kind === "all" },
       {
         id: "current-topic",
         label: "当前笔记本收藏",
@@ -458,9 +458,9 @@ const favoritesPanel = computed(() => {
       active: scope.kind === "tag" && scope.value === row.value && Number(scope.topicId) === Number(row.topicId),
       scope: { kind: "tag", value: row.value, topicId: row.topicId },
     })),
-    recent: favoritesRecentEvents.value,
-    emptyAll: globalFavoriteEvents.value.length === 0,
-    emptyScope: globalFavoriteEvents.value.length > 0 && favoritesScopedEvents.value.length === 0,
+    recent: favoritesRecentNotes.value,
+    emptyAll: globalFavoriteNotes.value.length === 0,
+    emptyScope: globalFavoriteNotes.value.length > 0 && favoritesScopedNotes.value.length === 0,
     contextLabel: favoriteScopeLabel.value,
     clearable: scope.kind !== "all",
   };
@@ -565,7 +565,7 @@ function changeSort(sort) {
     // events the first page holds — re-fetch from page 1. (Favorites is fully
     // in-memory and re-sorts client-side, so it needs no re-fetch.)
     if (feedFetchDir.value !== prevFetchDir) {
-      void ensureTopicEventsReady(state.activeTopicId, { force: true });
+      void ensureTopicNotesReady(state.activeTopicId, { force: true });
     }
   }
 }
@@ -632,30 +632,30 @@ function persistFavoritesSort(sort) {
 // feed renders it even if every current row would show "—". This keeps the eye
 // toggle's behavior direct and predictable.
 const feedEmptyColumnKeys = computed(() => []);
-const selectedEventDetail = computed(() => notesStore.detailById(state.selectedEventId));
-const selectedEventIndex = computed(
+const selectedNoteDetail = computed(() => notesStore.detailById(state.selectedEventId));
+const selectedNoteIndex = computed(
   () =>
     state.events.find((event) => event.id === state.selectedEventId) ||
     notesStore.state.notesIndex.find((event) => event.id === state.selectedEventId) ||
     null
 );
-const selectedEvent = computed(() => selectedEventDetail.value || selectedEventIndex.value);
-const relatedPreviewDetail = computed(() => notesStore.detailById(state.relatedPreviewEventId));
+const selectedNote = computed(() => selectedNoteDetail.value || selectedNoteIndex.value);
+const relatedPreviewDetail = computed(() => notesStore.detailById(state.relatedPreviewNoteId));
 const relatedPreviewIndex = computed(
-  () => notesStore.state.notesIndex.find((event) => event.id === Number(state.relatedPreviewEventId)) || null
+  () => notesStore.state.notesIndex.find((event) => event.id === Number(state.relatedPreviewNoteId)) || null
 );
-const relatedPreviewEvent = computed(() => relatedPreviewDetail.value || relatedPreviewIndex.value);
+const relatedPreviewNote = computed(() => relatedPreviewDetail.value || relatedPreviewIndex.value);
 const relatedPreviewTopicTitle = computed(() => {
-  const topicId = relatedPreviewEvent.value?.topicId;
+  const topicId = relatedPreviewNote.value?.topicId;
   return (topicId && notesStore.topicById(topicId)?.title) || activeTopicTitle.value;
 });
-const detailRequiresFullEvent = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
-const detailPaneEvent = computed(() => {
+const detailRequiresFullNote = computed(() => Boolean(state.rightOpen && state.selectedEventId && state.detailMode !== "create"));
+const detailPaneNote = computed(() => {
   if (state.detailMode === "create") return null;
-  if (detailRequiresFullEvent.value && !selectedEventDetail.value) return null;
-  return selectedEvent.value;
+  if (detailRequiresFullNote.value && !selectedNoteDetail.value) return null;
+  return selectedNote.value;
 });
-const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.detailLoading || (detailRequiresFullEvent.value && !selectedEventDetail.value))));
+const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.detailLoading || (detailRequiresFullNote.value && !selectedNoteDetail.value))));
 // The mindmap note whose canvas occupies the center column. Reads the full detail
 // (with bodyJson) from the cache; openMindmap ensures it is loaded first. The
 // topic+selection guard auto-hides a stale canvas after any context change (switch
@@ -746,13 +746,13 @@ function withPreviewOverlay(events) {
   return events.map((event) => (event.id === preview.id ? applyPreviewOverlay(event, preview) : event));
 }
 
-function previewedEvents() {
-  return withPreviewOverlay(isGlobalFavoritesMode.value ? favoritesScopedEvents.value : state.events);
+function previewedNotes() {
+  return withPreviewOverlay(isGlobalFavoritesMode.value ? favoritesScopedNotes.value : state.events);
 }
 
-function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
+function filterNotes({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
   if (isGlobalFavoritesMode.value) {
-    return [...previewedEvents()]
+    return [...previewedNotes()]
       .filter((event) => matchesNoteSearch(event, search, []))
       .sort(activeComparator.value);
   }
@@ -762,7 +762,7 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
   // Never exempt it into the trash view (a live row must not appear there).
   const editingId = filter === "trash" ? null : (state.editPreview?.id ?? null);
   const columns = topicColumns.value;
-  return [...previewedEvents()]
+  return [...previewedNotes()]
     .filter((event) => event.id === editingId || matchesMainFilter(event, filter))
     .filter((event) => event.id === editingId || !propertyFilter?.key || matchesPropertyFilter(event, propertyFilter))
     .filter((event) => event.id === editingId || !era || event.era === era)
@@ -770,8 +770,8 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
     .sort(activeComparator.value);
 }
 
-const visibleEvents = computed(() => filterEvents());
-const groupedEvents = computed(() => groupTimelineEvents(visibleEvents.value, state.groupBy, "", feedColumns.value, activeSort.value));
+const visibleNotes = computed(() => filterNotes());
+const groupedNotes = computed(() => groupTimelineEvents(visibleNotes.value, state.groupBy, "", feedColumns.value, activeSort.value));
 
 const feedEmptyReason = computed(() => {
   if (state.error) return "";
@@ -779,7 +779,7 @@ const feedEmptyReason = computed(() => {
   if (isGlobalFavoritesMode.value && favoritesPanel.value.emptyScope) return "当前筛选下没有收藏。";
   if (isGlobalFavoritesMode.value) return "暂无跨笔记本收藏。";
   if (!state.activeTopicId) return "先创建或选择一个笔记本。";
-  if (state.sidebarFilter === "trash" && visibleEvents.value.length === 0) return "回收站为空。";
+  if (state.sidebarFilter === "trash" && visibleNotes.value.length === 0) return "回收站为空。";
   if (state.searchQuery.trim()) return "当前搜索条件下没有找到记录。";
   if (state.activeEra) return "当前分组下没有记录。";
   if (state.propertyFilter?.key) return "当前属性筛选下没有记录。";
@@ -788,7 +788,7 @@ const feedEmptyReason = computed(() => {
 
 watch(
   () => [
-    visibleEvents.value.length,
+    visibleNotes.value.length,
     state.hasMore,
     state.eventsLoading,
     state.loadingMore,
@@ -807,7 +807,7 @@ watch(
         visibleCount,
       })
     ) {
-      void loadMoreActiveTopicEvents({ auto: true });
+      void loadMoreActiveTopicNotes({ auto: true });
     }
   }
 );
@@ -847,10 +847,10 @@ async function syncRouteState(overrides = {}) {
   });
 }
 
-function setDefaultSelection(preferredEventId = null) {
-  const items = filterEvents();
-  if (preferredEventId && items.some((event) => event.id === preferredEventId)) {
-    state.selectedEventId = preferredEventId;
+function setDefaultSelection(preferredNoteId = null) {
+  const items = filterNotes();
+  if (preferredNoteId && items.some((event) => event.id === preferredNoteId)) {
+    state.selectedEventId = preferredNoteId;
     return;
   }
   if (items.some((event) => event.id === state.selectedEventId)) return;
@@ -903,14 +903,14 @@ function routeSelectionMatchesState(spec) {
   );
 }
 
-async function ensureTopicEventsReady(topicId, { force = false, throwOnError = false } = {}) {
+async function ensureTopicNotesReady(topicId, { force = false, throwOnError = false } = {}) {
   const id = Number(topicId);
   if (!id) return true;
   if (notesStore.isTopicNotesLoaded(id) && !force) {
     if (state.activeTopicId === id) syncActiveTopicFromStore();
     return true;
   }
-  const seq = ++topicEventsRequestSeq;
+  const seq = ++topicNotesRequestSeq;
   state.eventsLoading = true;
   try {
     await notesStore.ensureTopicNotes(id, { force, dir: feedFetchDir.value });
@@ -924,11 +924,11 @@ async function ensureTopicEventsReady(topicId, { force = false, throwOnError = f
     pushToast(`事件加载失败：${message}`, "error");
     return false;
   } finally {
-    if (seq === topicEventsRequestSeq) state.eventsLoading = false;
+    if (seq === topicNotesRequestSeq) state.eventsLoading = false;
   }
 }
 
-async function loadMoreActiveTopicEvents({ auto = false } = {}) {
+async function loadMoreActiveTopicNotes({ auto = false } = {}) {
   const topicId = Number(state.activeTopicId);
   if (
     !topicId ||
@@ -954,7 +954,7 @@ async function loadMoreActiveTopicEvents({ auto = false } = {}) {
 
 async function ensureGlobalIndexReady() {
   if (notesStore.state.indexLoaded) return true;
-  const seq = ++topicEventsRequestSeq;
+  const seq = ++topicNotesRequestSeq;
   state.eventsLoading = true;
   try {
     await notesStore.loadIndex();
@@ -967,16 +967,16 @@ async function ensureGlobalIndexReady() {
     pushToast(`索引加载失败：${message}`, "error");
     return false;
   } finally {
-    if (seq === topicEventsRequestSeq) state.eventsLoading = false;
+    if (seq === topicNotesRequestSeq) state.eventsLoading = false;
   }
 }
 
-async function applyWorkspaceSelectionWithEvents(options = {}, loadOptions = {}) {
+async function applyWorkspaceSelectionWithNotes(options = {}, loadOptions = {}) {
   const seq = ++workspaceSelectionRequestSeq;
   applyWorkspaceSelection(options);
   const topicId = state.activeTopicId;
   if (!topicId) return seq === workspaceSelectionRequestSeq;
-  const ok = await ensureTopicEventsReady(topicId, loadOptions);
+  const ok = await ensureTopicNotesReady(topicId, loadOptions);
   if (!ok || seq !== workspaceSelectionRequestSeq || state.activeTopicId !== topicId) return false;
   if (ok) applyWorkspaceSelection(options);
   return ok;
@@ -984,21 +984,21 @@ async function applyWorkspaceSelectionWithEvents(options = {}, loadOptions = {})
 
 async function ensureRouteSelectionData() {
   const routeTopicId = parseRouteNumber("topic");
-  const routeEventId = parseRouteNumber("event");
+  const routeNoteId = parseRouteNumber("event");
   if (routeTopicId) {
-    const ready = await ensureTopicEventsReady(routeTopicId);
-    if (!ready || !routeEventId || notesStore.noteById(routeEventId)) return ready;
+    const ready = await ensureTopicNotesReady(routeTopicId);
+    if (!ready || !routeNoteId || notesStore.noteById(routeNoteId)) return ready;
     try {
-      await notesStore.ensureNoteDetail(routeEventId);
+      await notesStore.ensureNoteDetail(routeNoteId);
       return true;
     } catch (error) {
       pushToast(`详情加载失败：${error.message}`, "error");
       return false;
     }
   }
-  if (!routeEventId || notesStore.noteById(routeEventId)) return true;
+  if (!routeNoteId || notesStore.noteById(routeNoteId)) return true;
   try {
-    await notesStore.ensureNoteDetail(routeEventId);
+    await notesStore.ensureNoteDetail(routeNoteId);
     return true;
   } catch (error) {
     pushToast(`详情加载失败：${error.message}`, "error");
@@ -1022,8 +1022,8 @@ async function applyRouteSelectionFromQuery() {
     state.searchQuery = "";
   }
 
-  await applyWorkspaceSelectionWithEvents({
-    preferredEventId: spec.eventId,
+  await applyWorkspaceSelectionWithNotes({
+    preferredNoteId: spec.eventId,
     preferredMode: spec.mode,
     preferredTopicId: spec.topicId,
     openDetail: spec.openDetail,
@@ -1063,9 +1063,9 @@ function syncActiveTopicFromStore() {
 function applyWorkspaceSelection(options = {}) {
   const {
     preferredTopicId = null,
-    preferredEventId = parseRouteNumber("event"),
+    preferredNoteId = parseRouteNumber("event"),
     preferredMode = parseRouteMode(),
-    openDetail = preferredMode !== "view" || preferredEventId !== null,
+    openDetail = preferredMode !== "view" || preferredNoteId !== null,
   } = options;
   const topics = notesStore.state.topics;
   const routeTopicId = parseRouteNumber("topic");
@@ -1087,7 +1087,7 @@ function applyWorkspaceSelection(options = {}) {
     return;
   }
 
-  setDefaultSelection(preferredEventId);
+  setDefaultSelection(preferredNoteId);
   state.detailMode =
     preferredMode === "create"
       ? "create"
@@ -1126,7 +1126,7 @@ async function loadWorkspace(options = {}) {
     writeStorage(NAV_POSITION_KEY, state.config.navPosition);
     writeStorage(DETAIL_POSITION_KEY, state.config.detailPosition);
     writeStorage(SIDEBAR_SORT_KEY, state.config.sidebarSort);
-    await applyWorkspaceSelectionWithEvents(options, { throwOnError: true });
+    await applyWorkspaceSelectionWithNotes(options, { throwOnError: true });
     await applyRouteSelectionFromQuery();
   } catch (error) {
     state.error = error.message || "加载失败";
@@ -1274,7 +1274,7 @@ function handleGlobalKeydown(event) {
   openCommandPalette();
 }
 
-function selectCommandEvent(result) {
+function selectCommandNote(result) {
   const topicId = Number(result?.topicId);
   const eventId = Number(result?.id);
   if (!topicId || !eventId) return;
@@ -1286,9 +1286,9 @@ function selectCommandEvent(result) {
     state.activeEra = "";
     state.locateDate = "";
     state.searchQuery = "";
-    const ready = await applyWorkspaceSelectionWithEvents({
+    const ready = await applyWorkspaceSelectionWithNotes({
       preferredTopicId: topicId,
-      preferredEventId: eventId,
+      preferredNoteId: eventId,
       preferredMode: "view",
       openDetail: false,
     });
@@ -1328,9 +1328,9 @@ function selectCommandTopic(topic) {
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
-    const ready = await applyWorkspaceSelectionWithEvents({
+    const ready = await applyWorkspaceSelectionWithNotes({
       preferredTopicId: topicId,
-      preferredEventId: null,
+      preferredNoteId: null,
       preferredMode: "view",
       openDetail: false,
     });
@@ -1344,7 +1344,7 @@ function selectCommandTopic(topic) {
 function handleCommandPaletteCommand(command) {
   closeCommandPalette();
   if (command === "new-event") {
-    startCreateEvent();
+    startCreateNote();
     return;
   }
   if (command === "new-topic") {
@@ -1385,7 +1385,7 @@ function saveAndContinue() {
   state.routeRestoreSnapshot = null;
 }
 
-async function applyEventSelection(eventId) {
+async function applyNoteSelection(eventId) {
   const id = Number(eventId);
   rememberMobileFeedScroll();
   let event = notesStore.noteById(id);
@@ -1407,9 +1407,9 @@ async function applyEventSelection(eventId) {
       state.activeEra = "";
       state.locateDate = "";
       state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithEvents({
+      const ready = await applyWorkspaceSelectionWithNotes({
         preferredTopicId: event.topicId,
-        preferredEventId: id,
+        preferredNoteId: id,
         preferredMode: "view",
         openDetail: false,
       });
@@ -1425,9 +1425,9 @@ async function applyEventSelection(eventId) {
     state.activeEra = "";
     state.locateDate = "";
     state.searchQuery = "";
-    const ready = await applyWorkspaceSelectionWithEvents({
+    const ready = await applyWorkspaceSelectionWithNotes({
       preferredTopicId: event.topicId,
-      preferredEventId: event.id,
+      preferredNoteId: event.id,
       preferredMode: "view",
       openDetail: true,
     });
@@ -1454,8 +1454,8 @@ async function applyEventSelection(eventId) {
   await syncRouteState({ eventId: id, mode: "view" });
 }
 
-function selectEvent(eventId) {
-  runOrConfirm(() => applyEventSelection(eventId));
+function selectNote(eventId) {
+  runOrConfirm(() => applyNoteSelection(eventId));
 }
 
 // Open a structured note's surface in the center column (no markdown detail pane).
@@ -1492,9 +1492,9 @@ function createMindmapNote(topicId = state.activeTopicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithEvents({
+      const ready = await applyWorkspaceSelectionWithNotes({
         preferredTopicId: targetTopicId,
-        preferredEventId: null,
+        preferredNoteId: null,
         preferredMode: "view",
         openDetail: false,
       });
@@ -1531,9 +1531,9 @@ function createCanvasNote(topicId = state.activeTopicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithEvents({
+      const ready = await applyWorkspaceSelectionWithNotes({
         preferredTopicId: targetTopicId,
-        preferredEventId: null,
+        preferredNoteId: null,
         preferredMode: "view",
         openDetail: false,
       });
@@ -1702,7 +1702,7 @@ async function openRelatedPreview(payload, { pinned = false } = {}) {
   if (!id) return;
   const seq = ++relatedPreviewRequestSeq;
   const position = relatedPreviewPosition(payload?.anchor);
-  state.relatedPreviewEventId = id;
+  state.relatedPreviewNoteId = id;
   state.relatedPreviewOpen = true;
   state.relatedPreviewPinned = Boolean(pinned);
   state.relatedPreviewPlacement = position.placement;
@@ -1727,24 +1727,24 @@ async function openRelatedPreview(payload, { pinned = false } = {}) {
   }
 }
 
-function previewRelatedEvent(payload) {
+function previewRelatedNote(payload) {
   openRelatedPreview(payload, { pinned: false });
 }
 
-function pinRelatedEvent(payload) {
+function pinRelatedNote(payload) {
   openRelatedPreview(payload, { pinned: true });
 }
 
 function hideRelatedPreview(eventId) {
   if (state.relatedPreviewPinned) return;
-  if (eventId && Number(eventId) !== Number(state.relatedPreviewEventId)) return;
+  if (eventId && Number(eventId) !== Number(state.relatedPreviewNoteId)) return;
   closeRelatedPreview();
 }
 
 function closeRelatedPreview() {
   relatedPreviewRequestSeq += 1;
   state.relatedPreviewOpen = false;
-  state.relatedPreviewEventId = null;
+  state.relatedPreviewNoteId = null;
   state.relatedPreviewLoading = false;
   state.relatedPreviewError = "";
   state.relatedPreviewPinned = false;
@@ -1752,10 +1752,10 @@ function closeRelatedPreview() {
 }
 
 function openRelatedPreviewFull() {
-  const id = Number(state.relatedPreviewEventId);
+  const id = Number(state.relatedPreviewNoteId);
   if (!id) return;
   closeRelatedPreview();
-  runOrConfirm(() => applyEventSelection(id));
+  runOrConfirm(() => applyNoteSelection(id));
 }
 
 function closeDetailPane() {
@@ -1766,7 +1766,7 @@ function closeDetailPane() {
   });
 }
 
-function startCreateEvent() {
+function startCreateNote() {
   runOrConfirm(async () => {
     if (!state.activeTopicId) {
       pushToast("请先选择一个笔记本", "error");
@@ -1783,8 +1783,8 @@ function startCreateEvent() {
 }
 
 // Row "⊕" affordance: create a note inside a specific notebook, switching to it
-// first if it isn't already active (mirrors selectTopic + startCreateEvent).
-function createEventInTopic(topicId) {
+// first if it isn't already active (mirrors selectTopic + startCreateNote).
+function createNoteInTopic(topicId) {
   if (!topicId) return;
   runOrConfirm(async () => {
     exitGlobalFavoritesMode({ reselect: false });
@@ -1792,9 +1792,9 @@ function createEventInTopic(topicId) {
       state.propertyFilter = { key: "", value: "" };
       state.activeEra = "";
       state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithEvents({
+      const ready = await applyWorkspaceSelectionWithNotes({
         preferredTopicId: topicId,
-        preferredEventId: null,
+        preferredNoteId: null,
         preferredMode: "view",
         openDetail: false,
       });
@@ -1809,8 +1809,8 @@ function createEventInTopic(topicId) {
   });
 }
 
-function startEditSelectedEvent() {
-  if (!selectedEvent.value || selectedEvent.value.deletedAt) return;
+function startEditSelectedNote() {
+  if (!selectedNote.value || selectedNote.value.deletedAt) return;
   rememberMobileFeedScroll();
   state.detailMode = "edit";
   state.rightOpen = true;
@@ -1831,7 +1831,7 @@ async function cleanupDeletedImages(imageOps, currentImage) {
   await Promise.allSettled(pending.map((filename) => api.deleteImage(filename)));
 }
 
-async function saveEvent(payload) {
+async function saveNote(payload) {
   if (!state.activeTopicId) return;
   state.saving = true;
   try {
@@ -1873,9 +1873,9 @@ async function selectTopic(topicId) {
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
     state.searchQuery = "";
-    const ready = await applyWorkspaceSelectionWithEvents({
+    const ready = await applyWorkspaceSelectionWithNotes({
       preferredTopicId: topicId,
-      preferredEventId: null,
+      preferredNoteId: null,
       preferredMode: "view",
       openDetail: false,
     });
@@ -1899,9 +1899,9 @@ async function createTopic(input) {
     notesStore.upsertTopic({ ...created, eventCount: 0, minDateKey: null, maxDateKey: null, minDate: null, maxDate: null });
     await refreshSidebarData({ reloadTopics: true });
     if (created?.bookshelfName) state.focusedBookshelfName = created.bookshelfName;
-    const ready = await applyWorkspaceSelectionWithEvents({
+    const ready = await applyWorkspaceSelectionWithNotes({
       preferredTopicId: created.id,
-      preferredEventId: null,
+      preferredNoteId: null,
       preferredMode: "view",
       openDetail: false,
     });
@@ -1968,22 +1968,22 @@ function applyFilterState({ filter = state.sidebarFilter, propertyFilter = state
   state.activeEra = era;
   state.locateDate = date;
   setDefaultSelection();
-  if (!visibleEvents.value.length) {
+  if (!visibleNotes.value.length) {
     state.rightOpen = false;
     state.detailMode = "view";
-  } else if (state.rightOpen && !visibleEvents.value.some((event) => event.id === state.selectedEventId)) {
-    state.selectedEventId = visibleEvents.value[0].id;
+  } else if (state.rightOpen && !visibleNotes.value.some((event) => event.id === state.selectedEventId)) {
+    state.selectedEventId = visibleNotes.value[0].id;
   }
 }
 
 function applyFavoriteScope(scope = state.favoriteScope) {
   state.favoriteScope = normalizeFavoriteScope(scope);
   setDefaultSelection();
-  if (!visibleEvents.value.length) {
+  if (!visibleNotes.value.length) {
     state.rightOpen = false;
     state.detailMode = "view";
-  } else if (state.rightOpen && !visibleEvents.value.some((event) => event.id === state.selectedEventId)) {
-    state.selectedEventId = visibleEvents.value[0].id;
+  } else if (state.rightOpen && !visibleNotes.value.some((event) => event.id === state.selectedEventId)) {
+    state.selectedEventId = visibleNotes.value[0].id;
   }
 }
 
@@ -2008,7 +2008,7 @@ function updatePropertyFilter(propertyFilter) {
 function updateSearchQuery(value) {
   state.searchQuery = value;
   setDefaultSelection();
-  if (!visibleEvents.value.length) {
+  if (!visibleNotes.value.length) {
     state.rightOpen = false;
   }
 }
@@ -2044,23 +2044,23 @@ async function toggleFavorite(event) {
   }
 }
 
-function openEventMenu(event) {
+function openNoteMenu(event) {
   if (!event?.id) return;
-  state.menuEvent = event;
+  state.menuNote = event;
 }
 
-function closeEventMenu() {
-  state.menuEvent = null;
+function closeNoteMenu() {
+  state.menuNote = null;
 }
 
-async function moveEventToTrash(event) {
+async function moveNoteToTrash(event) {
   if (!event?.id) return false;
   try {
     const result = await api.softDeleteNote(event.id);
     notesStore.patchNote(event.id, { deletedAt: result.deletedAt || new Date().toISOString() });
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
-    closeEventMenu();
+    closeNoteMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已移入回收站");
@@ -2071,14 +2071,14 @@ async function moveEventToTrash(event) {
   }
 }
 
-async function restoreEvent(event) {
+async function restoreNote(event) {
   if (!event?.id) return false;
   try {
     const result = await api.restoreNote(event.id);
     notesStore.upsertNote(result);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
-    closeEventMenu();
+    closeNoteMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已恢复");
@@ -2089,14 +2089,14 @@ async function restoreEvent(event) {
   }
 }
 
-async function permanentlyDeleteEvent(event) {
+async function permanentlyDeleteNote(event) {
   if (!event?.id) return false;
   try {
     await api.permanentlyDeleteNote(event.id);
     notesStore.removeNote(event.id);
     await refreshSidebarData({ reloadTopics: true });
     syncActiveTopicFromStore();
-    closeEventMenu();
+    closeNoteMenu();
     applyFilterState();
     await syncRouteState({ eventId: state.rightOpen ? state.selectedEventId : null });
     pushToast("已永久删除");
@@ -2121,7 +2121,7 @@ async function trashMindmapNote(event) {
   activeCenterSurface()?.flushAutosave?.();
   activeCenterSurface()?.pauseAutosave?.();
   await settleCenterSaves();
-  const ok = await moveEventToTrash(event);
+  const ok = await moveNoteToTrash(event);
   if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
     closeMindmap();
     setDefaultSelection();
@@ -2132,7 +2132,7 @@ async function trashMindmapNote(event) {
 }
 
 async function restoreMindmapNote(event) {
-  await restoreEvent(event);
+  await restoreNote(event);
   if (Number(event?.id) === Number(state.mindmapOpenId)) {
     closeMindmap();
     setDefaultSelection();
@@ -2143,7 +2143,7 @@ async function permanentlyDeleteMindmapNote(event) {
   activeCenterSurface()?.flushAutosave?.();
   activeCenterSurface()?.pauseAutosave?.();
   await settleCenterSaves();
-  const ok = await permanentlyDeleteEvent(event);
+  const ok = await permanentlyDeleteNote(event);
   if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
     closeMindmap();
     setDefaultSelection();
@@ -2160,16 +2160,16 @@ function togglePreview() {
 
 // Note-level batch ops: run the existing per-event state patches over the
 // selected ids, then reconcile the view. Each is resilient to partial failure.
-async function runBatch(ids, perEvent, doneLabel) {
-  const sourceEvents = isGlobalFavoritesMode.value ? globalFavoriteEvents.value : state.events;
-  const targets = sourceEvents.filter((event) => ids.includes(event.id));
+async function runBatch(ids, perNote, doneLabel) {
+  const sourceNotes = isGlobalFavoritesMode.value ? globalFavoriteNotes.value : state.events;
+  const targets = sourceNotes.filter((event) => ids.includes(event.id));
   if (!targets.length) return;
   let done = 0;
   try {
     for (const event of targets) {
-      // perEvent returns false for a no-op skip (e.g. already in target state),
+      // perNote returns false for a no-op skip (e.g. already in target state),
       // so the toast counts only events actually changed.
-      const ran = await perEvent(event);
+      const ran = await perNote(event);
       if (ran !== false) {
         if (ran?.permanentDeletedId) {
           notesStore.removeNote(ran.permanentDeletedId);
@@ -2193,15 +2193,15 @@ async function runBatch(ids, perEvent, doneLabel) {
   }
 }
 
-function batchFavoriteEvents(ids) {
+function batchFavoriteNotes(ids) {
   return runBatch(ids, (event) => (event.favorite ? false : api.updateNoteFavorite(event.id, true)), "已收藏");
 }
 
-function batchTrashEvents(ids) {
+function batchTrashNotes(ids) {
   return runBatch(ids, (event) => (event.deletedAt ? false : api.softDeleteNote(event.id)), "已移入回收站");
 }
 
-function batchRestoreEvents(ids) {
+function batchRestoreNotes(ids) {
   return runBatch(ids, (event) => (event.deletedAt ? api.restoreNote(event.id) : false), "已恢复");
 }
 
@@ -2344,9 +2344,9 @@ async function confirmDeleteTopicNow() {
     // mid-loop failure never leaves the card open over already-deleted notebooks.
     state.confirmDeleteTopics = null;
     if (deleted) {
-      await applyWorkspaceSelectionWithEvents({
+      await applyWorkspaceSelectionWithNotes({
         preferredTopicId: state.topics[0]?.id ?? null,
-        preferredEventId: null,
+        preferredNoteId: null,
         preferredMode: "view",
         openDetail: false,
       });
@@ -2643,7 +2643,7 @@ function scheduleDetailPrefetch(eventId) {
   clearDetailPrefetch();
   const id = Number(eventId);
   if (!id || !state.rightOpen || state.detailMode === "create") return;
-  const items = visibleEvents.value;
+  const items = visibleNotes.value;
   const index = items.findIndex((event) => event.id === id);
   if (index < 0) return;
   const distance = isMobile.value ? 1 : 2;
@@ -2676,7 +2676,7 @@ function scheduleDetailPrefetch(eventId) {
   }, 120);
 }
 
-async function loadSelectedEventDetail(eventId) {
+async function loadSelectedNoteDetail(eventId) {
   const id = Number(eventId);
   const seq = ++detailRequestSeq;
   notesStore.setProtectedDetailId(id || null);
@@ -2752,7 +2752,7 @@ watch(
       state.detailError = "";
       return;
     }
-    loadSelectedEventDetail(eventId);
+    loadSelectedNoteDetail(eventId);
   }
 );
 
@@ -2778,9 +2778,9 @@ watch(
       state.locateDate = parseRouteString("date");
     };
     if (state.loading) return;
-    const [nextTopic, nextEvent, nextMode] = next;
-    const [prevTopic, prevEvent, prevMode] = prev;
-    if (nextTopic !== prevTopic || nextEvent !== prevEvent || nextMode !== prevMode) {
+    const [nextTopic, nextNote, nextMode] = next;
+    const [prevTopic, prevNote, prevMode] = prev;
+    if (nextTopic !== prevTopic || nextNote !== prevNote || nextMode !== prevMode) {
       const spec = buildRouteSelectionSpec();
       if (routeSelectionMatchesState(spec)) {
         applyRouteFilterState();
@@ -2823,11 +2823,11 @@ watch(
     <MobileTopBar
       v-if="isMobile"
       :title="feedTitle"
-      :count="visibleEvents.length"
+      :count="visibleNotes.length"
       :search-query="state.searchQuery"
       :search-open="state.mobileSearchOpen"
       @open-drawer="openMobileSidebar"
-      @create-event="startCreateEvent"
+      @create-event="startCreateNote"
       @create-mindmap="createMindmapNote"
       @create-canvas="createCanvasNote"
       @update:searchQuery="updateSearchQuery"
@@ -2847,7 +2847,7 @@ watch(
       :active-bookshelf-name="activeBookshelfName"
       :active-topic-id="state.activeTopicId"
       :active-filter="state.sidebarFilter"
-      :global-favorite-count="globalFavoriteEvents.length"
+      :global-favorite-count="globalFavoriteNotes.length"
       :global-favorites-active="isGlobalFavoritesMode"
       :favorites-panel="favoritesPanel"
       :columns="topicColumns"
@@ -2858,8 +2858,8 @@ watch(
       :column-saving="state.columnSaving"
       :create-topic-request-key="state.topicCreateRequestKey"
       @create-bookshelf="createBookshelf"
-      @create-event="startCreateEvent"
-      @create-event-in-topic="createEventInTopic"
+      @create-event="startCreateNote"
+      @create-event-in-topic="createNoteInTopic"
       @create-mindmap-in-topic="createMindmapNote"
       @create-canvas-in-topic="createCanvasNote"
       @create-topic="createTopic"
@@ -2874,7 +2874,7 @@ watch(
       @open-settings="openSettings"
       @open-global-favorites="openGlobalFavorites"
       @update:favorite-scope="updateFavoriteScope"
-      @open-favorite-event="selectEvent"
+      @open-favorite-event="selectNote"
       @toggle-bookshelf="toggleBookshelf"
       @set-all-bookshelves-collapsed="setAllBookshelvesCollapsed"
       @select-ribbon="handleSidebarRibbon"
@@ -2910,7 +2910,7 @@ watch(
       @move-to-trash="trashMindmapNote"
       @restore="restoreMindmapNote"
       @permanent-delete="permanentlyDeleteMindmapNote"
-      @open-embed="pinRelatedEvent"
+      @open-embed="pinRelatedNote"
     />
 
     <NoteFeed
@@ -2924,10 +2924,10 @@ watch(
       :filter-context-clearable="isGlobalFavoritesMode && favoritesPanel.clearable"
       :topic-id="state.activeTopicId"
       :topics="state.topics"
-      :event-count="visibleEvents.length"
+      :event-count="visibleNotes.length"
       :empty-reason="feedEmptyReason"
       :search-query="state.searchQuery"
-      :groups="groupedEvents"
+      :groups="groupedNotes"
       :all-events="state.events"
       :selected-event-id="state.selectedEventId"
       :locate-date="state.locateDate"
@@ -2957,33 +2957,33 @@ watch(
         !state.loadingMore &&
         state.autoLoadBlockedKey === autoLoadContextKey
       "
-      @create-event="startCreateEvent"
+      @create-event="startCreateNote"
       @locate-date="locateDate"
       @save-columns="saveTopicColumns"
       @change-view="changeDisplayStyle"
       @change-sort="changeSort"
       @change-group-by="changeGroupBy"
       @resize-column="resizeTopicColumn"
-      @select-event="selectEvent"
+      @select-event="selectNote"
       @toggle-favorite="toggleFavorite"
       @toggle-preview="togglePreview"
       @update:searchQuery="updateSearchQuery"
-      @batch-favorite="batchFavoriteEvents"
-      @batch-trash="batchTrashEvents"
-      @batch-restore="batchRestoreEvents"
+      @batch-favorite="batchFavoriteNotes"
+      @batch-trash="batchTrashNotes"
+      @batch-restore="batchRestoreNotes"
       @batch-permanent-delete="requestBatchPurge"
       @open-command-palette="openCommandPalette"
       @clear-context-filter="clearFavoriteScope"
       @create-mindmap="createMindmapNote"
       @create-canvas="createCanvasNote"
-      @load-more="loadMoreActiveTopicEvents($event || { auto: false })"
+      @load-more="loadMoreActiveTopicNotes($event || { auto: false })"
       @pane-drag-start="paneSwap.onPaneDragStart"
     />
 
     <NoteDetailPane
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
-      :event="detailPaneEvent"
+      :event="detailPaneNote"
       :topic-title="activeTopicTitle"
       :topic-columns="topicColumns"
       :loading="detailPaneLoading"
@@ -2996,13 +2996,13 @@ watch(
       @pane-drag-start="paneSwap.onPaneDragStart"
       @cancel="cancelDetailEdit"
       @close="closeDetailPane"
-      @edit="startEditSelectedEvent"
-      @open-menu="openEventMenu"
-      @move-to-trash="moveEventToTrash"
-      @preview-related="previewRelatedEvent"
+      @edit="startEditSelectedNote"
+      @open-menu="openNoteMenu"
+      @move-to-trash="moveNoteToTrash"
+      @preview-related="previewRelatedNote"
       @hide-related-preview="hideRelatedPreview"
-      @pin-related="pinRelatedEvent"
-      @save="saveEvent"
+      @pin-related="pinRelatedNote"
+      @save="saveNote"
       @toggle-favorite="toggleFavorite"
       @create-option="addPropertyOption"
       @dirty-change="state.detailDirty = $event"
@@ -3011,7 +3011,7 @@ watch(
 
     <RelatedNotePreviewPopover
       :open="state.relatedPreviewOpen"
-      :event="relatedPreviewEvent"
+      :event="relatedPreviewNote"
       :topic-title="relatedPreviewTopicTitle"
       :loading="state.relatedPreviewLoading"
       :error="state.relatedPreviewError"
@@ -3042,21 +3042,21 @@ watch(
       <span>{{ paneDragGhostLabel }}</span>
     </div>
 
-    <div v-if="state.menuEvent" class="timeline-menu-backdrop" @click="closeEventMenu">
+    <div v-if="state.menuNote" class="timeline-menu-backdrop" @click="closeNoteMenu">
       <div class="popover timeline-action-menu" @click.stop>
-        <template v-if="state.menuEvent.deletedAt">
-          <button type="button" class="pop-item" @click="restoreEvent(state.menuEvent)">
+        <template v-if="state.menuNote.deletedAt">
+          <button type="button" class="pop-item" @click="restoreNote(state.menuNote)">
             <LucideIcon name="restore" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">恢复</span>
           </button>
           <span class="pop-divider"></span>
-          <button type="button" class="pop-item danger" @click="permanentlyDeleteEvent(state.menuEvent)">
+          <button type="button" class="pop-item danger" @click="permanentlyDeleteNote(state.menuNote)">
             <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">永久删除</span>
           </button>
         </template>
         <template v-else>
-          <button type="button" class="pop-item" @click="moveEventToTrash(state.menuEvent)">
+          <button type="button" class="pop-item" @click="moveNoteToTrash(state.menuNote)">
             <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">移入回收站</span>
           </button>
@@ -3136,7 +3136,7 @@ watch(
       :error="state.commandError"
       @close="closeCommandPalette"
       @update:query="state.commandQuery = $event"
-      @select-event="selectCommandEvent"
+      @select-event="selectCommandNote"
       @select-topic="selectCommandTopic"
       @command="handleCommandPaletteCommand"
     />
