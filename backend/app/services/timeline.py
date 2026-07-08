@@ -17,10 +17,10 @@ from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MED
 from backend.app.models.entities import (
     AppConfigEntry,
     Bookshelf,
-    EventItem,
+    NoteItem,
     ImageAsset,
-    TimelineEvent,
-    TimelineLink,
+    Note,
+    NoteLink,
     Topic,
     TopicEraStat,
     TopicStat,
@@ -462,7 +462,7 @@ def parse_optional_datetime(value):
         raise HTTPException(status_code=400, detail="Invalid deletedAt datetime") from exc
 
 
-def apply_event_state(event: TimelineEvent, payload: dict):
+def apply_note_state(event: Note, payload: dict):
     if "favorite" in payload:
         next_favorite = bool(payload.get("favorite"))
         if next_favorite and not event.favorite:
@@ -505,7 +505,7 @@ def parse_cursor_token(value: str | None) -> tuple[int | None, int | None] | Non
     return cursor_key, cursor_id
 
 
-def event_display_label(event: TimelineEvent) -> str:
+def note_display_label(event: Note) -> str:
     if event.date_key is None:
         return event.year or undated_display_label()
     return build_display_label(
@@ -516,7 +516,7 @@ def event_display_label(event: TimelineEvent) -> str:
     )
 
 
-def serialize_items(event: TimelineEvent) -> list[dict]:
+def serialize_items(event: Note) -> list[dict]:
     return [{"tag": item.tag, "text": item.text} for item in sorted(event.items, key=lambda value: value.sort_order)]
 
 
@@ -742,7 +742,7 @@ def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | No
     return {**preserved, **next_extra}
 
 
-def normalize_related_event_ids(payload: dict) -> list[int]:
+def normalize_related_note_ids(payload: dict) -> list[int]:
     raw = payload.get("relatedEventIds") or []
     if not isinstance(raw, list):
         raise HTTPException(status_code=400, detail="Related events must be an array")
@@ -782,9 +782,9 @@ def build_attachment_payload(attachment: dict) -> dict:
     return payload
 
 
-def event_to_dict(event: TimelineEvent, related_lookup: dict[int, dict] | None = None) -> dict:
+def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> dict:
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
-    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
+    date_payload = note_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     image_filename = event.image.filename if event.image else None
     thumb_filename = event.image.thumb_filename if event.image else None
     items = serialize_items(event)
@@ -831,8 +831,8 @@ def markdown_plain_text(source: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def markdown_preview_text(event: TimelineEvent, *, max_length: int = 120) -> str:
-    preview_text = str(event.preview_text or "").strip() or derive_event_text_fields_for_event(event)[0]
+def markdown_preview_text(event: Note, *, max_length: int = 120) -> str:
+    preview_text = str(event.preview_text or "").strip() or derive_note_text_fields_for_note(event)[0]
     return preview_text[:max_length].rstrip()
 
 
@@ -867,7 +867,7 @@ def extra_search_text(extra: dict, topic: Topic | None) -> str:
     return " ".join(parts)
 
 
-def derive_event_text_fields(
+def derive_note_text_fields(
     *,
     note_type: str,
     body_markdown: str,
@@ -897,8 +897,8 @@ def derive_event_text_fields(
     return preview_text, search_text
 
 
-def derive_event_text_fields_for_event(
-    event: TimelineEvent,
+def derive_note_text_fields_for_note(
+    event: Note,
     *,
     data: dict | None = None,
     topic: Topic | None = None,
@@ -918,7 +918,7 @@ def derive_event_text_fields_for_event(
         body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
         body_json = data.get("bodyJson")
         note_type = normalize_note_type(data.get("noteType"))
-    return derive_event_text_fields(
+    return derive_note_text_fields(
         note_type=note_type,
         body_markdown=str(body_markdown or ""),
         body_json=body_json,
@@ -929,7 +929,7 @@ def derive_event_text_fields_for_event(
     )
 
 
-def build_search_payload(event: TimelineEvent, data: dict | None = None, topic: Topic | None = None) -> dict:
+def build_search_payload(event: Note, data: dict | None = None, topic: Topic | None = None) -> dict:
     if data is None:
         items = serialize_items(event)
         extra = deserialize_json_dict(event.extra_json)
@@ -1006,7 +1006,7 @@ def insert_search_index_row(db: Session, payload: dict) -> None:
     )
 
 
-def upsert_search_index_row(db: Session, event: TimelineEvent, data: dict | None = None, topic: Topic | None = None) -> None:
+def upsert_search_index_row(db: Session, event: Note, data: dict | None = None, topic: Topic | None = None) -> None:
     remove_search_index_row(db, event.id)
     if event.deleted_at:
         return
@@ -1017,10 +1017,10 @@ def rebuild_search_index(db: Session) -> None:
     ensure_search_schema(db)
     db.execute(text(f"DELETE FROM {SEARCH_INDEX_TABLE}"))
     rows = (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.topic))
-        .filter(TimelineEvent.deleted_at.is_(None))
-        .order_by(TimelineEvent.topic_id.asc(), *timeline_event_order_clauses())
+        db.query(Note)
+        .options(selectinload(Note.items), joinedload(Note.topic))
+        .filter(Note.deleted_at.is_(None))
+        .order_by(Note.topic_id.asc(), *note_order_clauses())
         .all()
     )
     for event in rows:
@@ -1031,7 +1031,7 @@ def search_index_needs_rebuild(db: Session) -> bool:
     ensure_search_schema(db)
     row = db.execute(text(f"SELECT COUNT(*) AS count FROM {SEARCH_INDEX_TABLE}")).mappings().first()
     indexed_count = int(row["count"] if row else 0)
-    live_count = db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.deleted_at.is_(None)).scalar() or 0
+    live_count = db.query(func.count(Note.id)).filter(Note.deleted_at.is_(None)).scalar() or 0
     return live_count > 0 and indexed_count < live_count
 
 
@@ -1048,7 +1048,7 @@ def normalize_search_snippet(*parts: str | None) -> str:
     return ""
 
 
-def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFAULT) -> list[dict]:
+def search_notes(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFAULT) -> list[dict]:
     match_query = build_fts_query(query)
     if not match_query:
         return []
@@ -1087,7 +1087,7 @@ def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFA
 
     results = []
     for row in rows:
-        date_key = resolve_event_date_key(row["date_key"], row["sort_key"])
+        date_key = resolve_note_date_key(row["date_key"], row["sort_key"])
         headline = (row["headline"] or "").strip() or extract_headline_from_legacy_label(row["legacy_year"] or "")
         results.append(
             {
@@ -1110,7 +1110,7 @@ def search_events(db: Session, query: str | None, limit: int = SEARCH_LIMIT_DEFA
     return results
 
 
-def resolve_event_date_key(date_key: int | None, sort_key) -> int | None:
+def resolve_note_date_key(date_key: int | None, sort_key) -> int | None:
     if date_key is not None:
         return int(date_key)
     if sort_key in {None, "", 0, 0.0, "0"}:
@@ -1122,8 +1122,8 @@ def resolve_event_date_key(date_key: int | None, sort_key) -> int | None:
     return normalized if normalized > 0 else None
 
 
-def event_date_payload(*, date_key: int | None, sort_key, headline: str) -> dict:
-    resolved = resolve_event_date_key(date_key, sort_key)
+def note_date_payload(*, date_key: int | None, sort_key, headline: str) -> dict:
+    resolved = resolve_note_date_key(date_key, sort_key)
     if resolved is None:
         return {
             "hasDate": False,
@@ -1146,13 +1146,13 @@ def event_date_payload(*, date_key: int | None, sort_key, headline: str) -> dict
     }
 
 
-def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> str:
+def note_index_search_text(event: Note, attachments: list[dict]) -> str:
     search_text = str(event.search_text or "").strip()
     if search_text:
         return search_text
     items = serialize_items(event)
     extra = deserialize_json_dict(event.extra_json)
-    return derive_event_text_fields(
+    return derive_note_text_fields(
         note_type=normalize_note_type(event.note_type),
         body_markdown=event.body_markdown or default_body_markdown(items),
         body_json=deserialize_body_json(event.body_json),
@@ -1163,9 +1163,9 @@ def event_index_search_text(event: TimelineEvent, attachments: list[dict]) -> st
     )[1]
 
 
-def event_to_list_dict(event: TimelineEvent) -> dict:
+def note_to_list_dict(event: Note) -> dict:
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
-    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
+    date_payload = note_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     image_filename = event.image.filename if event.image else None
     thumb_filename = event.image.thumb_filename if event.image else None
     attachments = deserialize_json_list(event.attachments_json)
@@ -1202,10 +1202,10 @@ def event_to_list_dict(event: TimelineEvent) -> dict:
     }
 
 
-def event_to_index_dict(event: TimelineEvent) -> dict:
+def note_to_index_dict(event: Note) -> dict:
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     attachments = deserialize_json_list(event.attachments_json)
-    date_payload = event_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
+    date_payload = note_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     # The gallery view renders the event's primary image; the index list is the
     # only payload it sees, so carry the image URLs here (thumb preferred for the
     # grid). The build_timeline_index query joinedloads `image`, so this is a join,
@@ -1233,12 +1233,12 @@ def event_to_index_dict(event: TimelineEvent) -> dict:
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
         "preview": str(event.preview_text or "").strip() or markdown_preview_text(event),
-        "searchText": str(event.search_text or "").strip() or event_index_search_text(event, attachments),
+        "searchText": str(event.search_text or "").strip() or note_index_search_text(event, attachments),
         "attachmentCount": len(attachments),
     }
 
 
-def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[int, dict]:
+def build_related_lookup(db: Session, event_rows: list[Note]) -> dict[int, dict]:
     related_ids = set()
     for event in event_rows:
         for value in deserialize_json_list(event.related_event_ids_json):
@@ -1251,15 +1251,15 @@ def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[i
         return {}
 
     related_rows = (
-        db.query(TimelineEvent)
-        .filter(TimelineEvent.id.in_(related_ids))
-        .order_by(*timeline_event_order_clauses())
+        db.query(Note)
+        .filter(Note.id.in_(related_ids))
+        .order_by(*note_order_clauses())
         .all()
     )
     lookup = {}
     for row in related_rows:
         headline = (row.headline or "").strip() or extract_headline_from_legacy_label(row.year or "")
-        date_payload = event_date_payload(date_key=row.date_key, sort_key=row.sort_key, headline=headline)
+        date_payload = note_date_payload(date_key=row.date_key, sort_key=row.sort_key, headline=headline)
         lookup[row.id] = {
             "id": row.id,
             "headline": headline,
@@ -1268,12 +1268,12 @@ def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[i
     return lookup
 
 
-def serialize_event_rows(
-    db: Session, rows: list[TimelineEvent], *, with_link_targets: bool = False
+def serialize_note_rows(
+    db: Session, rows: list[Note], *, with_link_targets: bool = False
 ) -> list[dict]:
     related_lookup = build_related_lookup(db, rows)
-    payloads = [event_to_dict(event, related_lookup) for event in rows]
-    # linkTargets rides only single-note detail payloads (get_event_detail + create/update
+    payloads = [note_to_dict(event, related_lookup) for event in rows]
+    # linkTargets rides only single-note detail payloads (get_note_detail + create/update
     # returns) so the CM6 editor can style [[<id>]] resolved vs dangling and refresh titles.
     # The feed/list/export serializers pass with_link_targets=False → no per-row body parse.
     if with_link_targets:
@@ -1327,29 +1327,29 @@ def resolve_wikilink_target(db: Session, parsed: dict) -> int | None:
     if not title:
         return None
     matches = (
-        db.query(TimelineEvent.id)
-        .filter(TimelineEvent.headline == title, TimelineEvent.deleted_at.is_(None))
+        db.query(Note.id)
+        .filter(Note.headline == title, Note.deleted_at.is_(None))
         .limit(2)
         .all()
     )
     return matches[0][0] if len(matches) == 1 else None
 
 
-def sync_event_links(db: Session, event: TimelineEvent) -> None:
+def sync_note_links(db: Session, event: Note) -> None:
     """Re-derive a source note's `wikilink` rows from its body. Idempotent: clears this
     source's wikilink rows and re-inserts the current set (a note has few links, so
     delete-then-insert beats a per-row diff). `manual`/`embed` anchors belong to other
     writers and are untouched. Call after the event is flushed (id present) with its
     body_markdown written, before commit."""
-    db.query(TimelineLink).filter(
-        TimelineLink.source_event_id == event.id,
-        TimelineLink.anchor_type == "wikilink",
+    db.query(NoteLink).filter(
+        NoteLink.source_event_id == event.id,
+        NoteLink.anchor_type == "wikilink",
     ).delete(synchronize_session=False)
     if event.deleted_at:
         return
     for parsed in parse_wikilinks(event.body_markdown or ""):
         db.add(
-            TimelineLink(
+            NoteLink(
                 source_event_id=event.id,
                 target_event_id=resolve_wikilink_target(db, parsed),
                 target_title=parsed["title"][:255],
@@ -1390,17 +1390,17 @@ def parse_snapshot_embeds(snapshot) -> list[dict]:
     return embeds
 
 
-def sync_event_embeds(db: Session, event: TimelineEvent) -> None:
+def sync_note_embeds(db: Session, event: Note) -> None:
     """Re-derive a note's `embed` rows from its X6 snapshot (canvas note-embed cards, §7.5).
-    Idempotent, mirroring sync_event_links: clears this source's embed rows and re-inserts one
+    Idempotent, mirroring sync_note_links: clears this source's embed rows and re-inserts one
     per distinct embedded note. `wikilink`/`manual` anchors belong to other writers and are
     untouched. A live target resolves the row (→ shows in the target's backlink panel as an
     embed); a deleted/dangling target keeps target_event_id NULL — the tombstone case, same
     treatment as a dangling wikilink. Call after flush (id present) with body_json written,
     before commit."""
-    db.query(TimelineLink).filter(
-        TimelineLink.source_event_id == event.id,
-        TimelineLink.anchor_type == "embed",
+    db.query(NoteLink).filter(
+        NoteLink.source_event_id == event.id,
+        NoteLink.anchor_type == "embed",
     ).delete(synchronize_session=False)
     if event.deleted_at:
         return
@@ -1413,13 +1413,13 @@ def sync_event_embeds(db: Session, event: TimelineEvent) -> None:
         return
     live_ids = {
         row[0]
-        for row in db.query(TimelineEvent.id)
-        .filter(TimelineEvent.id.in_(list(by_target)), TimelineEvent.deleted_at.is_(None))
+        for row in db.query(Note.id)
+        .filter(Note.id.in_(list(by_target)), Note.deleted_at.is_(None))
         .all()
     }
     for note_id, parsed in by_target.items():
         db.add(
-            TimelineLink(
+            NoteLink(
                 source_event_id=event.id,
                 target_event_id=note_id if note_id in live_ids else None,
                 target_title=(parsed["title"] or "")[:255],
@@ -1430,16 +1430,16 @@ def sync_event_embeds(db: Session, event: TimelineEvent) -> None:
         )
 
 
-def sync_event_manual_links(db: Session, event: TimelineEvent) -> None:
+def sync_note_manual_links(db: Session, event: Note) -> None:
     """Re-derive a note's `manual` link rows from its legacy related_event_ids_json — the pre-
     wikilink "关联事件" relationships, projected into the links table so they surface in the
-    target's backlink panel (§6.4). Idempotent, mirroring sync_event_embeds: clears this source's
+    target's backlink panel (§6.4). Idempotent, mirroring sync_note_embeds: clears this source's
     manual rows and re-inserts one per distinct related id. `wikilink`/`embed` anchors belong to
     other writers and are untouched. A live target resolves the row; a deleted/missing target
     stays dangling (target_event_id NULL). Call after flush (id present), before commit."""
-    db.query(TimelineLink).filter(
-        TimelineLink.source_event_id == event.id,
-        TimelineLink.anchor_type == "manual",
+    db.query(NoteLink).filter(
+        NoteLink.source_event_id == event.id,
+        NoteLink.anchor_type == "manual",
     ).delete(synchronize_session=False)
     if event.deleted_at:
         return
@@ -1450,7 +1450,7 @@ def sync_event_manual_links(db: Session, event: TimelineEvent) -> None:
             rid = int(value)
         except (TypeError, ValueError):
             continue
-        # positive ids only (match normalize_related_event_ids, which the raw column / backfill
+        # positive ids only (match normalize_related_note_ids, which the raw column / backfill
         # bypass), no self-reference, dedupe repeats.
         if rid <= 0 or rid == event.id or rid in seen:
             continue
@@ -1460,13 +1460,13 @@ def sync_event_manual_links(db: Session, event: TimelineEvent) -> None:
         return
     live = {
         row[0]: (row[1] or "").strip()
-        for row in db.query(TimelineEvent.id, TimelineEvent.headline)
-        .filter(TimelineEvent.id.in_(related_ids), TimelineEvent.deleted_at.is_(None))
+        for row in db.query(Note.id, Note.headline)
+        .filter(Note.id.in_(related_ids), Note.deleted_at.is_(None))
         .all()
     }
     for index, rid in enumerate(related_ids):
         db.add(
-            TimelineLink(
+            NoteLink(
                 source_event_id=event.id,
                 target_event_id=rid if rid in live else None,
                 target_title=(live.get(rid) or "")[:255],
@@ -1477,11 +1477,11 @@ def sync_event_manual_links(db: Session, event: TimelineEvent) -> None:
         )
 
 
-def purge_event_links(db: Session, event_id: int) -> None:
+def purge_note_links(db: Session, event_id: int) -> None:
     """Drop every link row touching a note (as source or target) — for a permanent
     delete, so no dangling FK rows survive the row's removal."""
-    db.query(TimelineLink).filter(
-        (TimelineLink.source_event_id == event_id) | (TimelineLink.target_event_id == event_id)
+    db.query(NoteLink).filter(
+        (NoteLink.source_event_id == event_id) | (NoteLink.target_event_id == event_id)
     ).delete(synchronize_session=False)
 
 
@@ -1491,22 +1491,22 @@ def get_backlinks(db: Session, event_id: int, *, offset: int = 0, limit: int = 5
     duplicate Vue keys on sourceId and inflates the count), newest-updated first. One indexed
     lookup on (target_event_id) — the panel snippet rides context_text, no source rescans."""
     base = (
-        db.query(TimelineLink, TimelineEvent, Topic)
-        .join(TimelineEvent, TimelineEvent.id == TimelineLink.source_event_id)
-        .join(Topic, Topic.id == TimelineEvent.topic_id)
-        .filter(TimelineLink.target_event_id == event_id, TimelineEvent.deleted_at.is_(None))
+        db.query(NoteLink, Note, Topic)
+        .join(Note, Note.id == NoteLink.source_event_id)
+        .join(Topic, Topic.id == Note.topic_id)
+        .filter(NoteLink.target_event_id == event_id, Note.deleted_at.is_(None))
         # Collapse multiple links from the same source to one row (SQLite keeps an arbitrary
         # context_text/anchor_type per group — any single occurrence is a fine snippet).
-        .group_by(TimelineLink.source_event_id)
+        .group_by(NoteLink.source_event_id)
     )
     total = (
-        db.query(func.count(func.distinct(TimelineLink.source_event_id)))
-        .join(TimelineEvent, TimelineEvent.id == TimelineLink.source_event_id)
-        .filter(TimelineLink.target_event_id == event_id, TimelineEvent.deleted_at.is_(None))
+        db.query(func.count(func.distinct(NoteLink.source_event_id)))
+        .join(Note, Note.id == NoteLink.source_event_id)
+        .filter(NoteLink.target_event_id == event_id, Note.deleted_at.is_(None))
         .scalar()
     )
     rows = (
-        base.order_by(TimelineEvent.updated_at.desc(), TimelineLink.source_event_id.desc())
+        base.order_by(Note.updated_at.desc(), NoteLink.source_event_id.desc())
         .offset(max(0, offset))
         .limit(max(1, min(limit, 200)))
         .all()
@@ -1525,16 +1525,16 @@ def get_backlinks(db: Session, event_id: int, *, offset: int = 0, limit: int = 5
     return {"items": items, "total": int(total or 0)}
 
 
-def batch_event_previews(db: Session, ids: list) -> list[dict]:
+def batch_note_previews(db: Session, ids: list) -> list[dict]:
     """Cheap {id, headline, container, preview} for a set of note ids in one query — seeds
     the canvas embed-card LRU on open (W5 §7.4) so N cards cost O(1) round-trips."""
     clean_ids = {int(v) for v in (ids or []) if str(v).strip().lstrip("-").isdigit()}
     if not clean_ids:
         return []
     rows = (
-        db.query(TimelineEvent, Topic)
-        .join(Topic, Topic.id == TimelineEvent.topic_id)
-        .filter(TimelineEvent.id.in_(clean_ids), TimelineEvent.deleted_at.is_(None))
+        db.query(Note, Topic)
+        .join(Topic, Topic.id == Note.topic_id)
+        .filter(Note.id.in_(clean_ids), Note.deleted_at.is_(None))
         .all()
     )
     return [
@@ -1550,7 +1550,7 @@ def batch_event_previews(db: Session, ids: list) -> list[dict]:
     ]
 
 
-def build_link_targets(db: Session, events: list[TimelineEvent]) -> dict[int, dict[str, str]]:
+def build_link_targets(db: Session, events: list[Note]) -> dict[int, dict[str, str]]:
     """Per-event ``{str(target_id): current_headline}`` for every id-anchored ``[[<id>|…]]``
     in the body whose target is still live. Drives the editor's resolved/dangling styling: an
     id referenced by the body but absent from this map reads as dangling (target deleted). One
@@ -1566,8 +1566,8 @@ def build_link_targets(db: Session, events: list[TimelineEvent]) -> dict[int, di
     if not all_ids:
         return {}
     rows = (
-        db.query(TimelineEvent.id, TimelineEvent.headline, TimelineEvent.year)
-        .filter(TimelineEvent.id.in_(all_ids), TimelineEvent.deleted_at.is_(None))
+        db.query(Note.id, Note.headline, Note.year)
+        .filter(Note.id.in_(all_ids), Note.deleted_at.is_(None))
         .all()
     )
     title_by_id = {
@@ -1584,13 +1584,13 @@ def build_link_targets(db: Session, events: list[TimelineEvent]) -> dict[int, di
 
 def live_topic_min_date_subquery():
     return (
-        select(TimelineEvent.date_key)
+        select(Note.date_key)
         .where(
-            TimelineEvent.topic_id == Topic.id,
-            TimelineEvent.deleted_at.is_(None),
-            TimelineEvent.date_key.is_not(None),
+            Note.topic_id == Topic.id,
+            Note.deleted_at.is_(None),
+            Note.date_key.is_not(None),
         )
-        .order_by(TimelineEvent.date_key.asc())
+        .order_by(Note.date_key.asc())
         .limit(1)
         .correlate(Topic)
         .scalar_subquery()
@@ -1599,13 +1599,13 @@ def live_topic_min_date_subquery():
 
 def live_topic_max_date_subquery():
     return (
-        select(TimelineEvent.date_key)
+        select(Note.date_key)
         .where(
-            TimelineEvent.topic_id == Topic.id,
-            TimelineEvent.deleted_at.is_(None),
-            TimelineEvent.date_key.is_not(None),
+            Note.topic_id == Topic.id,
+            Note.deleted_at.is_(None),
+            Note.date_key.is_not(None),
         )
-        .order_by(TimelineEvent.date_key.desc())
+        .order_by(Note.date_key.desc())
         .limit(1)
         .correlate(Topic)
         .scalar_subquery()
@@ -1626,18 +1626,18 @@ def rebuild_topic_stats_for_topic(db: Session, topic_id: int) -> TopicStat:
     db.flush()
     row = (
         db.query(
-            func.coalesce(func.sum(case((TimelineEvent.deleted_at.is_(None), 1), else_=0)), 0),
-            func.coalesce(func.sum(case((TimelineEvent.deleted_at.is_not(None), 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Note.deleted_at.is_(None), 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Note.deleted_at.is_not(None), 1), else_=0)), 0),
             func.coalesce(
-                func.sum(case((and_(TimelineEvent.deleted_at.is_(None), TimelineEvent.favorite.is_(True)), 1), else_=0)),
+                func.sum(case((and_(Note.deleted_at.is_(None), Note.favorite.is_(True)), 1), else_=0)),
                 0,
             ),
             func.coalesce(
-                func.sum(case((and_(TimelineEvent.deleted_at.is_(None), TimelineEvent.image_id.is_not(None)), 1), else_=0)),
+                func.sum(case((and_(Note.deleted_at.is_(None), Note.image_id.is_not(None)), 1), else_=0)),
                 0,
             ),
         )
-        .filter(TimelineEvent.topic_id == topic_id)
+        .filter(Note.topic_id == topic_id)
         .one()
     )
     stat = get_or_create_topic_stat(db, topic_id)
@@ -1660,16 +1660,16 @@ def rebuild_topic_era_stats_for_topic(db: Session, topic_id: int) -> None:
     # variants) collapse into one row instead of colliding on the (topic_id, era)
     # primary key. Mirrors tools/import_outline_docx.py's normalized GROUP BY.
     era_value = case(
-        (func.trim(func.coalesce(TimelineEvent.era, "")) == "", "未分组"),
-        else_=func.trim(TimelineEvent.era),
+        (func.trim(func.coalesce(Note.era, "")) == "", "未分组"),
+        else_=func.trim(Note.era),
     )
     rows = (
         db.query(
             era_value.label("era"),
-            func.count(TimelineEvent.id).label("live_event_count"),
-            func.min(TimelineEvent.date_key).label("min_date_key"),
+            func.count(Note.id).label("live_event_count"),
+            func.min(Note.date_key).label("min_date_key"),
         )
-        .filter(TimelineEvent.topic_id == topic_id, TimelineEvent.deleted_at.is_(None))
+        .filter(Note.topic_id == topic_id, Note.deleted_at.is_(None))
         .group_by(era_value)
         .all()
     )
@@ -1700,7 +1700,7 @@ def ensure_topic_read_models(db: Session) -> None:
     topic_count = db.query(func.count(Topic.id)).scalar() or 0
     stat_count = db.query(func.count(TopicStat.topic_id)).scalar() or 0
     live_event_count = (
-        db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.deleted_at.is_(None)).scalar() or 0
+        db.query(func.count(Note.id)).filter(Note.deleted_at.is_(None)).scalar() or 0
     )
     era_count = db.query(func.count(TopicEraStat.topic_id)).scalar() or 0
     if topic_count != stat_count or (live_event_count > 0 and era_count == 0):
@@ -1710,7 +1710,7 @@ def ensure_topic_read_models(db: Session) -> None:
 TEXT_FIELDS_BACKFILL_KEY = "text_fields_backfilled_v1"
 
 
-def backfill_event_text_fields(db: Session) -> None:
+def backfill_note_text_fields(db: Session) -> None:
     # Run once (guarded by a marker), not every startup. Every write path and the
     # docx importer already populate preview_text/search_text, so after this one-time
     # backfill of pre-existing rows the columns are authoritative; re-scanning rows
@@ -1718,13 +1718,13 @@ def backfill_event_text_fields(db: Session) -> None:
     if db.get(AppConfigEntry, TEXT_FIELDS_BACKFILL_KEY) is not None:
         return
     rows = (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.topic))
-        .filter(or_(TimelineEvent.preview_text == "", TimelineEvent.search_text == ""))
+        db.query(Note)
+        .options(selectinload(Note.items), joinedload(Note.topic))
+        .filter(or_(Note.preview_text == "", Note.search_text == ""))
         .all()
     )
     for event in rows:
-        preview_text, search_text = derive_event_text_fields_for_event(event)
+        preview_text, search_text = derive_note_text_fields_for_note(event)
         event.preview_text = preview_text
         event.search_text = search_text
     db.add(AppConfigEntry(key=TEXT_FIELDS_BACKFILL_KEY, value="1"))
@@ -1737,34 +1737,34 @@ MANUAL_LINKS_BACKFILL_KEY = "manual_links_backfilled_v1"
 def backfill_manual_links(db: Session) -> None:
     # One-time projection of legacy related_event_ids_json → `manual` link rows so pre-existing
     # "关联事件" relationships appear in backlink panels (§6.4). Guarded by a marker like
-    # backfill_event_text_fields; every create/update now runs sync_event_manual_links, so after
+    # backfill_note_text_fields; every create/update now runs sync_note_manual_links, so after
     # this pass the manual rows are authoritative. Only rows with a non-empty related list are scanned.
     if db.get(AppConfigEntry, MANUAL_LINKS_BACKFILL_KEY) is not None:
         return
     rows = (
-        db.query(TimelineEvent)
+        db.query(Note)
         .filter(
-            TimelineEvent.related_event_ids_json.isnot(None),
-            TimelineEvent.related_event_ids_json != "",
-            TimelineEvent.related_event_ids_json != "[]",
+            Note.related_event_ids_json.isnot(None),
+            Note.related_event_ids_json != "",
+            Note.related_event_ids_json != "[]",
         )
         .all()
     )
     for event in rows:
-        sync_event_manual_links(db, event)
+        sync_note_manual_links(db, event)
     db.add(AppConfigEntry(key=MANUAL_LINKS_BACKFILL_KEY, value="1"))
     db.flush()
 
 
 def rebuild_topic_text_fields_and_search(db: Session, topic: Topic) -> None:
     rows = (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items))
-        .filter(TimelineEvent.topic_id == topic.id)
+        db.query(Note)
+        .options(selectinload(Note.items))
+        .filter(Note.topic_id == topic.id)
         .all()
     )
     for event in rows:
-        preview_text, search_text = derive_event_text_fields_for_event(event, topic=topic)
+        preview_text, search_text = derive_note_text_fields_for_note(event, topic=topic)
         event.preview_text = preview_text
         event.search_text = search_text
         upsert_search_index_row(db, event, topic=topic)
@@ -1798,11 +1798,11 @@ def get_topic_or_404(db: Session, topic_id: int) -> Topic:
     return topic
 
 
-def get_event_or_404(db: Session, event_id: int) -> TimelineEvent:
+def get_note_or_404(db: Session, event_id: int) -> Note:
     event = (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image), joinedload(TimelineEvent.topic))
-        .filter(TimelineEvent.id == event_id)
+        db.query(Note)
+        .options(selectinload(Note.items), joinedload(Note.image), joinedload(Note.topic))
+        .filter(Note.id == event_id)
         .first()
     )
     if event is None:
@@ -1813,24 +1813,24 @@ def get_event_or_404(db: Session, event_id: int) -> TimelineEvent:
 def build_topic_bounds(db: Session, topic_id: int) -> dict:
     stat = db.get(TopicStat, topic_id)
     min_date_key = (
-        db.query(TimelineEvent.date_key)
+        db.query(Note.date_key)
         .filter(
-            TimelineEvent.topic_id == topic_id,
-            TimelineEvent.deleted_at.is_(None),
-            TimelineEvent.date_key.is_not(None),
+            Note.topic_id == topic_id,
+            Note.deleted_at.is_(None),
+            Note.date_key.is_not(None),
         )
-        .order_by(TimelineEvent.date_key.asc())
+        .order_by(Note.date_key.asc())
         .limit(1)
         .scalar()
     )
     max_date_key = (
-        db.query(TimelineEvent.date_key)
+        db.query(Note.date_key)
         .filter(
-            TimelineEvent.topic_id == topic_id,
-            TimelineEvent.deleted_at.is_(None),
-            TimelineEvent.date_key.is_not(None),
+            Note.topic_id == topic_id,
+            Note.deleted_at.is_(None),
+            Note.date_key.is_not(None),
         )
-        .order_by(TimelineEvent.date_key.desc())
+        .order_by(Note.date_key.desc())
         .limit(1)
         .scalar()
     )
@@ -1845,17 +1845,17 @@ def build_topic_bounds(db: Session, topic_id: int) -> dict:
     }
 
 
-def timeline_event_order_clauses(direction: int = 1):
+def note_order_clauses(direction: int = 1):
     """Feed ordering. `direction` (+1 asc / -1 desc) flips only the *dated* region:
     undated events always sink to the bottom (the `date_key IS NULL` bucket stays
     `.asc()` regardless of direction — a note with no date is not "the newest"), and
     `id` stays ascending as a stable tiebreak. Default +1 keeps every existing
     no-arg caller (index/search/related/list) byte-for-byte unchanged."""
-    date_clause = TimelineEvent.date_key.desc() if direction < 0 else TimelineEvent.date_key.asc()
+    date_clause = Note.date_key.desc() if direction < 0 else Note.date_key.asc()
     return (
-        case((TimelineEvent.date_key.is_(None), 1), else_=0).asc(),
+        case((Note.date_key.is_(None), 1), else_=0).asc(),
         date_clause,
-        TimelineEvent.id.asc(),
+        Note.id.asc(),
     )
 
 
@@ -2015,9 +2015,9 @@ def create_topic(db: Session, name: str, bookshelf_id=None) -> dict:
 def delete_topic(db: Session, topic_id: int):
     topic = get_topic_or_404(db, topic_id)
     events = (
-        db.query(TimelineEvent)
-        .options(joinedload(TimelineEvent.image))
-        .filter(TimelineEvent.topic_id == topic_id)
+        db.query(Note)
+        .options(joinedload(Note.image))
+        .filter(Note.topic_id == topic_id)
         .all()
     )
     image_ids = {event.image_id for event in events if event.image_id}
@@ -2078,46 +2078,46 @@ def update_topic_meta(db: Session, topic_id: int, payload: dict) -> dict:
     return get_topic_meta(db, topic_id)
 
 
-def build_event_query(db: Session, topic_id: int):
+def build_note_query(db: Session, topic_id: int):
     return (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
-        .filter(TimelineEvent.topic_id == topic_id)
+        db.query(Note)
+        .options(selectinload(Note.items), joinedload(Note.image))
+        .filter(Note.topic_id == topic_id)
     )
 
 
-def build_event_list_query(db: Session, topic_id: int):
+def build_note_list_query(db: Session, topic_id: int):
     return (
-        db.query(TimelineEvent)
-        .options(joinedload(TimelineEvent.image))
-        .filter(TimelineEvent.topic_id == topic_id)
+        db.query(Note)
+        .options(joinedload(Note.image))
+        .filter(Note.topic_id == topic_id)
     )
 
 
-def list_topic_events(db: Session, topic_id: int) -> list[dict]:
+def list_topic_notes(db: Session, topic_id: int) -> list[dict]:
     get_topic_or_404(db, topic_id)
-    events = build_event_query(db, topic_id).order_by(*timeline_event_order_clauses()).all()
-    return serialize_event_rows(db, events)
+    events = build_note_query(db, topic_id).order_by(*note_order_clauses()).all()
+    return serialize_note_rows(db, events)
 
 
-def get_event_detail(db: Session, event_id: int) -> dict:
-    return serialize_event_rows(db, [get_event_or_404(db, event_id)], with_link_targets=True)[0]
+def get_note_detail(db: Session, event_id: int) -> dict:
+    return serialize_note_rows(db, [get_note_or_404(db, event_id)], with_link_targets=True)[0]
 
 
 def build_timeline_index(db: Session) -> dict:
     rows = (
-        db.query(TimelineEvent)
-        .options(selectinload(TimelineEvent.items), joinedload(TimelineEvent.image))
-        .order_by(TimelineEvent.topic_id.asc(), *timeline_event_order_clauses())
+        db.query(Note)
+        .options(selectinload(Note.items), joinedload(Note.image))
+        .order_by(Note.topic_id.asc(), *note_order_clauses())
         .all()
     )
     return {
         "topics": list_topics(db),
-        "events": [event_to_index_dict(event) for event in rows],
+        "events": [note_to_index_dict(event) for event in rows],
     }
 
 
-def query_topic_events(
+def query_topic_notes(
     db: Session,
     topic_id: int,
     *,
@@ -2131,12 +2131,12 @@ def query_topic_events(
     direction = -1 if direction < 0 else 1
     bounds = build_topic_bounds(db, topic_id)
     safe_limit = max(1, min(int(limit or 100), 500))
-    query = build_event_list_query(db, topic_id)
+    query = build_note_list_query(db, topic_id)
 
     if from_key is not None:
-        query = query.filter(TimelineEvent.date_key >= from_key)
+        query = query.filter(Note.date_key >= from_key)
     if to_key is not None:
-        query = query.filter(TimelineEvent.date_key <= to_key)
+        query = query.filter(Note.date_key <= to_key)
     if cursor is not None:
         cursor_key, cursor_id = cursor
         # Direction only flips the *dated* walk (older-ward when descending). The
@@ -2147,24 +2147,24 @@ def query_topic_events(
         dated_after = None
         if cursor_key is not None:
             dated_after = (
-                TimelineEvent.date_key < cursor_key if direction < 0 else TimelineEvent.date_key > cursor_key
+                Note.date_key < cursor_key if direction < 0 else Note.date_key > cursor_key
             )
         if cursor_id is None:
             if cursor_key is not None:
-                query = query.filter(or_(dated_after, TimelineEvent.date_key.is_(None)))
+                query = query.filter(or_(dated_after, Note.date_key.is_(None)))
         else:
             if cursor_key is None:
-                query = query.filter(and_(TimelineEvent.date_key.is_(None), TimelineEvent.id > cursor_id))
+                query = query.filter(and_(Note.date_key.is_(None), Note.id > cursor_id))
             else:
                 query = query.filter(
                     or_(
                         dated_after,
-                        TimelineEvent.date_key.is_(None),
-                        and_(TimelineEvent.date_key == cursor_key, TimelineEvent.id > cursor_id),
+                        Note.date_key.is_(None),
+                        and_(Note.date_key == cursor_key, Note.id > cursor_id),
                     )
                 )
 
-    query = query.order_by(*timeline_event_order_clauses(direction))
+    query = query.order_by(*note_order_clauses(direction))
     query = query.limit(safe_limit + 1)
 
     rows = query.all()
@@ -2180,7 +2180,7 @@ def query_topic_events(
         next_cursor = f"{last_row.date_key if last_row.date_key is not None else 'null'}:{last_row.id}"
 
     return {
-        "items": [event_to_list_dict(event) for event in rows],
+        "items": [note_to_list_dict(event) for event in rows],
         "bounds": bounds,
         "range": {
             "from": from_key,
@@ -2233,7 +2233,7 @@ def summary_node_from_row(group_by: str, row) -> dict:
     }
 
 
-def summarize_topic_events(
+def summarize_topic_notes(
     db: Session,
     topic_id: int,
     *,
@@ -2245,23 +2245,23 @@ def summarize_topic_events(
     bounds = build_topic_bounds(db, topic_id)
 
     if group_by == "year":
-        bucket_expr = TimelineEvent.date_year
+        bucket_expr = Note.date_year
     elif group_by == "month":
-        bucket_expr = TimelineEvent.date_year * 100 + TimelineEvent.date_month
+        bucket_expr = Note.date_year * 100 + Note.date_month
     else:
         raise HTTPException(status_code=400, detail="groupBy must be 'year' or 'month'")
 
     query = db.query(
         bucket_expr.label("bucket_key"),
-        func.count(TimelineEvent.id).label("event_count"),
-        func.min(TimelineEvent.date_key).label("range_start_key"),
-        func.max(TimelineEvent.date_key).label("range_end_key"),
-    ).filter(TimelineEvent.topic_id == topic_id)
+        func.count(Note.id).label("event_count"),
+        func.min(Note.date_key).label("range_start_key"),
+        func.max(Note.date_key).label("range_end_key"),
+    ).filter(Note.topic_id == topic_id)
 
     if from_key is not None:
-        query = query.filter(TimelineEvent.date_key >= from_key)
+        query = query.filter(Note.date_key >= from_key)
     if to_key is not None:
-        query = query.filter(TimelineEvent.date_key <= to_key)
+        query = query.filter(Note.date_key <= to_key)
 
     rows = query.group_by(bucket_expr).order_by(bucket_expr.asc()).all()
     return {
@@ -2288,7 +2288,7 @@ def resolve_image(db: Session, image_name: str | None) -> ImageAsset | None:
     return image
 
 
-# Body is the canonical content (body_markdown). EventItem is the legacy body
+# Body is the canonical content (body_markdown). NoteItem is the legacy body
 # store; its `tag` is no longer a property source, just a non-null filler.
 DEFAULT_ITEM_TAG = "note"
 
@@ -2300,7 +2300,7 @@ def derive_items_from_markdown(body_markdown: str) -> list[dict]:
     return [{"tag": DEFAULT_ITEM_TAG, "text": chunk} for chunk in chunks]
 
 
-def normalize_event_items(payload: dict, body_markdown: str | None = None, *, note_type: str | None = None) -> list[dict]:
+def normalize_note_items(payload: dict, body_markdown: str | None = None, *, note_type: str | None = None) -> list[dict]:
     raw_items = payload.get("items")
     if raw_items is None:
         raw_items = payload.get("events")
@@ -2330,7 +2330,7 @@ def normalize_event_items(payload: dict, body_markdown: str | None = None, *, no
     return items
 
 
-def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dict:
+def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
@@ -2348,9 +2348,9 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     if not era and note_type == DEFAULT_NOTE_TYPE and has_date_parts:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()
-    items = normalize_event_items(payload, body_markdown, note_type=note_type)
+    items = normalize_note_items(payload, body_markdown, note_type=note_type)
     attachments = normalize_attachments(payload)
-    related_event_ids = normalize_related_event_ids(payload)
+    related_event_ids = normalize_related_note_ids(payload)
     extra = normalize_extra(payload, topic)
     state = {}
     if "favorite" in payload:
@@ -2447,8 +2447,8 @@ def normalize_event_payload(payload: dict, *, topic: Topic | None = None) -> dic
     }
 
 
-def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None, *, topic: Topic | None = None):
-    preview_text, search_text = derive_event_text_fields_for_event(event, data=data, topic=topic or event.topic)
+def write_note_model(event: Note, data: dict, image: ImageAsset | None, *, topic: Topic | None = None):
+    preview_text, search_text = derive_note_text_fields_for_note(event, data=data, topic=topic or event.topic)
     event.year = data["legacyYear"]
     event.sort_key = data["sortKey"]
     event.date_key = data["dateKey"]
@@ -2476,66 +2476,66 @@ def write_event_model(event: TimelineEvent, data: dict, image: ImageAsset | None
         event.deleted_at = data["deletedAt"]
 
 
-def create_event(db: Session, topic_id: int, payload: dict) -> dict:
+def create_note(db: Session, topic_id: int, payload: dict) -> dict:
     topic = get_topic_or_404(db, topic_id)
-    data = normalize_event_payload(payload, topic=topic)
+    data = normalize_note_payload(payload, topic=topic)
     image = resolve_image(db, data["image"])
-    event = TimelineEvent(topic_id=topic.id)
-    write_event_model(event, data, image, topic=topic)
+    event = Note(topic_id=topic.id)
+    write_note_model(event, data, image, topic=topic)
     db.add(event)
     db.flush()
     for index, item in enumerate(data["items"]):
-        db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+        db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
-    sync_event_links(db, event)
-    sync_event_embeds(db, event)
-    sync_event_manual_links(db, event)
+    sync_note_links(db, event)
+    sync_note_embeds(db, event)
+    sync_note_manual_links(db, event)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
+    return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
 
 
-def update_event(db: Session, event_id: int, payload: dict) -> dict:
-    event = get_event_or_404(db, event_id)
+def update_note(db: Session, event_id: int, payload: dict) -> dict:
+    event = get_note_or_404(db, event_id)
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
     if payload and set(payload.keys()).issubset(EVENT_STATE_KEYS):
         if event.deleted_at and not (set(payload.keys()) == {"deletedAt"} and payload.get("deletedAt") is None):
             raise HTTPException(status_code=409, detail="Deleted events can only be restored")
-        apply_event_state(event, payload)
+        apply_note_state(event, payload)
         upsert_search_index_row(db, event, topic=event.topic)
         rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
-        return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
+        return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
 
     if event.deleted_at:
         raise HTTPException(status_code=409, detail="Deleted events cannot be edited")
 
     old_image_id = event.image_id
-    data = normalize_event_payload(payload, topic=event.topic)
+    data = normalize_note_payload(payload, topic=event.topic)
     data["extra"] = merge_orphan_extra(deserialize_json_dict(event.extra_json), data["extra"], event.topic)
     image = resolve_image(db, data["image"])
-    write_event_model(event, data, image, topic=event.topic)
+    write_note_model(event, data, image, topic=event.topic)
     for item in list(event.items):
         db.delete(item)
     db.flush()
     for index, item in enumerate(data["items"]):
-        db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+        db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
-    sync_event_links(db, event)
-    sync_event_embeds(db, event)
-    sync_event_manual_links(db, event)
+    sync_note_links(db, event)
+    sync_note_embeds(db, event)
+    sync_note_manual_links(db, event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
+    return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
 
 
-def delete_event(db: Session, event_id: int, *, permanent: bool = False):
-    event = get_event_or_404(db, event_id)
+def delete_note(db: Session, event_id: int, *, permanent: bool = False):
+    event = get_note_or_404(db, event_id)
     old_image_id = event.image_id
     if not permanent:
         event.deleted_at = datetime.now(timezone.utc)
@@ -2545,7 +2545,7 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
         return {"ok": True, "deletedAt": serialize_datetime(event.deleted_at)}
 
     remove_search_index_row(db, event.id)
-    purge_event_links(db, event.id)
+    purge_note_links(db, event.id)
     db.delete(event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
@@ -2556,8 +2556,8 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
 def lift_import_date_parts(item):
     """Reshape one exported event so its date round-trips through import.
 
-    The export nests the date under `dateParts` (see event_date_payload) and emits no
-    top-level dateYear/dateMonth/dateDay — the exact keys normalize_event_payload keys
+    The export nests the date under `dateParts` (see note_date_payload) and emits no
+    top-level dateYear/dateMonth/dateDay — the exact keys normalize_note_payload keys
     on. Lift them back before normalizing so a dated note re-imports dated instead of
     silently becoming undated (dateKey=None). A payload that already carries top-level
     date keys, or whose dateParts is all-null (a genuinely undated note), is left as-is.
@@ -2589,9 +2589,9 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
         raise ValueError("JSON must be an array or object with events")
 
     topic.columns_json = json.dumps(normalize_topic_columns(columns), ensure_ascii=False)
-    normalized_events = [normalize_event_payload(lift_import_date_parts(item), topic=topic) for item in raw_events]
+    normalized_events = [normalize_note_payload(lift_import_date_parts(item), topic=topic) for item in raw_events]
 
-    existing_events = db.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
+    existing_events = db.query(Note).filter(Note.topic_id == topic.id).all()
     old_image_ids = {event.image_id for event in existing_events if event.image_id}
     remove_search_index_topic(db, topic.id)
     for event in existing_events:
@@ -2602,12 +2602,12 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
     topic.subtitle = str(subtitle or "").strip()
     for node in normalized_events:
         image = resolve_image(db, node["image"])
-        event = TimelineEvent(topic_id=topic.id)
-        write_event_model(event, node, image, topic=topic)
+        event = Note(topic_id=topic.id)
+        write_note_model(event, node, image, topic=topic)
         db.add(event)
         db.flush()
         for index, item in enumerate(node["items"]):
-            db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
+            db.add(NoteItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
         upsert_search_index_row(db, event, node, topic)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
@@ -2617,18 +2617,18 @@ def import_topic_data(db: Session, topic_id: int, parsed: object) -> dict:
 
 def export_topic_data(db: Session, topic_id: int, *, from_key: int | None = None, to_key: int | None = None):
     topic = get_topic_or_404(db, topic_id)
-    query = build_event_query(db, topic_id)
+    query = build_note_query(db, topic_id)
     if from_key is not None:
-        query = query.filter(TimelineEvent.date_key >= from_key)
+        query = query.filter(Note.date_key >= from_key)
     if to_key is not None:
-        query = query.filter(TimelineEvent.date_key <= to_key)
-    rows = query.order_by(*timeline_event_order_clauses()).all()
+        query = query.filter(Note.date_key <= to_key)
+    rows = query.order_by(*note_order_clauses()).all()
     content = {
         "schemaVersion": 2,
         "title": topic.title or "",
         "subtitle": topic.subtitle or "",
         "columns": deserialize_json_list(topic.columns_json),
-        "events": serialize_event_rows(db, rows),
+        "events": serialize_note_rows(db, rows),
     }
     safe_ascii_name = "timeline-export.json"
     utf8_name = quote(f"{topic.name}.json")
@@ -2913,11 +2913,11 @@ def cleanup_orphan_images(db: Session, image_ids: set[int]):
         image = db.get(ImageAsset, image_id)
         if image is None:
             continue
-        still_used = db.query(TimelineEvent.id).filter(TimelineEvent.image_id == image.id).first()
+        still_used = db.query(Note.id).filter(Note.image_id == image.id).first()
         if not still_used:
             attachment_reference = (
-                db.query(TimelineEvent.id)
-                .filter(TimelineEvent.attachments_json.like(f'%"{image.filename}"%'))
+                db.query(Note.id)
+                .filter(Note.attachments_json.like(f'%"{image.filename}"%'))
                 .first()
             )
             still_used = attachment_reference
@@ -2944,11 +2944,11 @@ def delete_image_by_filename(db: Session, filename: str):
     )
     if image is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    linked = db.query(TimelineEvent.id).filter(TimelineEvent.image_id == image.id).first()
+    linked = db.query(Note.id).filter(Note.image_id == image.id).first()
     if linked is None:
         linked = (
-            db.query(TimelineEvent.id)
-            .filter(TimelineEvent.attachments_json.like(f'%"{image.filename}"%'))
+            db.query(Note.id)
+            .filter(Note.attachments_json.like(f'%"{image.filename}"%'))
             .first()
         )
     if linked:

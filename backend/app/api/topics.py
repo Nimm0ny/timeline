@@ -6,27 +6,27 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
 from backend.app.services.timeline import (
-    batch_event_previews,
+    batch_note_previews,
     build_timeline_index,
-    create_event,
+    create_note,
     create_topic,
-    delete_event,
+    delete_note,
     delete_topic,
     export_topic_data,
     get_backlinks,
-    get_event_detail,
+    get_note_detail,
     get_topic_meta,
     get_topic_or_404,
     import_topic_data,
-    list_topic_events,
+    list_topic_notes,
     list_topics,
     parse_cursor_token,
     parse_query_date_key,
-    query_topic_events,
-    search_events,
-    summarize_topic_events,
+    query_topic_notes,
+    search_notes,
+    summarize_topic_notes,
     topic_to_dict,
-    update_event,
+    update_note,
     update_topic_meta,
 )
 
@@ -49,7 +49,7 @@ def get_search(
     limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    return search_events(db, q, limit)
+    return search_notes(db, q, limit)
 
 
 @router.post("/api/topics")
@@ -78,7 +78,7 @@ def put_topic_meta(topic_id: int, payload: dict, db: Session = Depends(get_db)):
 
 
 @router.get("/api/topics/{topic_id}/events")
-def get_topic_events(
+def get_topic_notes(
     topic_id: int,
     from_date: str | None = Query(None, alias="from"),
     to_date: str | None = Query(None, alias="to"),
@@ -87,7 +87,7 @@ def get_topic_events(
     dir: int = Query(1),
     db: Session = Depends(get_db),
 ):
-    return query_topic_events(
+    return query_topic_notes(
         db,
         topic_id,
         from_key=parse_query_date_key(from_date),
@@ -106,7 +106,7 @@ def get_topic_summary(
     to_date: str | None = Query(None, alias="to"),
     db: Session = Depends(get_db),
 ):
-    return summarize_topic_events(
+    return summarize_topic_notes(
         db,
         topic_id,
         group_by=group_by,
@@ -116,26 +116,26 @@ def get_topic_summary(
 
 
 @router.post("/api/topics/{topic_id}/events")
-def create_topic_event(
+def create_topic_note(
     topic_id: int,
     payload: dict,
     db: Session = Depends(get_db),
 ):
-    return create_event(db, topic_id, payload)
+    return create_note(db, topic_id, payload)
 
 
 @router.put("/api/events/{event_id}")
-def put_event(event_id: int, payload: dict, db: Session = Depends(get_db)):
-    return update_event(db, event_id, payload)
+def put_note(event_id: int, payload: dict, db: Session = Depends(get_db)):
+    return update_note(db, event_id, payload)
 
 
 @router.get("/api/events/{event_id}")
-def get_event(event_id: int, db: Session = Depends(get_db)):
-    return get_event_detail(db, event_id)
+def get_note(event_id: int, db: Session = Depends(get_db)):
+    return get_note_detail(db, event_id)
 
 
 @router.get("/api/events/{event_id}/backlinks")
-def get_event_backlinks(
+def get_note_backlinks(
     event_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -145,18 +145,18 @@ def get_event_backlinks(
 
 
 @router.post("/api/events/batch-preview")
-def post_events_batch_preview(payload: dict, db: Session = Depends(get_db)):
+def post_notes_batch_preview(payload: dict, db: Session = Depends(get_db)):
     ids = payload.get("ids") if isinstance(payload, dict) else None
-    return batch_event_previews(db, ids if isinstance(ids, list) else [])
+    return batch_note_previews(db, ids if isinstance(ids, list) else [])
 
 
 @router.delete("/api/events/{event_id}")
-def remove_event(
+def remove_note(
     event_id: int,
     permanent: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    return delete_event(db, event_id, permanent=permanent)
+    return delete_note(db, event_id, permanent=permanent)
 
 
 @router.post("/api/topics/{topic_id}/import")

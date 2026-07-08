@@ -10,11 +10,11 @@ import json
 
 from sqlalchemy import create_engine, inspect, text
 
-from backend.app.models.entities import ImageAsset, TimelineEvent
+from backend.app.models.entities import ImageAsset, Note
 from backend.app.services import legacy_migration as legacy_migration_module
 from backend.app.services.timeline import (
     build_timeline_index,
-    get_event_detail,
+    get_note_detail,
     normalize_display_style,
     normalize_group_by,
     normalize_note_type,
@@ -379,7 +379,7 @@ def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_to
     db_session.add(image)
     db_session.flush()
 
-    events = db_session.query(TimelineEvent).order_by(TimelineEvent.date_key.asc()).all()
+    events = db_session.query(Note).order_by(Note.date_key.asc()).all()
     events[0].image_id = image.id
     db_session.commit()
 
@@ -397,7 +397,7 @@ def test_index_events_carry_primary_image_urls_for_gallery(db_session, seeded_to
 
     # The detail DTO must also carry thumbUrl so an edit round-trip (detail →
     # index event) preserves the real thumb instead of the full-res image.
-    detail = get_event_detail(db_session, events[0].id)
+    detail = get_note_detail(db_session, events[0].id)
     assert detail["thumbUrl"] == "/images/abc.thumb.webp"
     assert detail["imageUrl"] == "/images/abc.webp"
 
@@ -408,7 +408,7 @@ def test_index_event_thumb_falls_back_to_full_image_when_no_thumb(db_session, se
     image = ImageAsset(filename="pic.gif", thumb_filename=None, mime_type="image/gif")
     db_session.add(image)
     db_session.flush()
-    event = db_session.query(TimelineEvent).order_by(TimelineEvent.date_key.asc()).first()
+    event = db_session.query(Note).order_by(Note.date_key.asc()).first()
     event.image_id = image.id
     db_session.commit()
 
@@ -447,8 +447,8 @@ def test_event_schema_migration_adds_columns_idempotently(tmp_path, monkeypatch)
         )
 
     monkeypatch.setattr(legacy_migration_module, "engine", test_engine)
-    legacy_migration_module.ensure_timeline_event_schema()
-    legacy_migration_module.ensure_timeline_event_schema()  # second run is a no-op
+    legacy_migration_module.ensure_note_schema()
+    legacy_migration_module.ensure_note_schema()  # second run is a no-op
 
     inspector = inspect(test_engine)
     topic_cols = {column["name"] for column in inspector.get_columns("topics")}

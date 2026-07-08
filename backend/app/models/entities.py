@@ -50,8 +50,8 @@ class Topic(Base):
     )
 
     bookshelf: Mapped[Bookshelf | None] = relationship("Bookshelf", back_populates="topics")
-    events: Mapped[list["TimelineEvent"]] = relationship(
-        "TimelineEvent", back_populates="topic", cascade="all, delete-orphan"
+    notes: Mapped[list["Note"]] = relationship(
+        "Note", back_populates="topic", cascade="all, delete-orphan"
     )
     stats: Mapped["TopicStat | None"] = relationship(
         "TopicStat", back_populates="topic", cascade="all, delete-orphan", uselist=False
@@ -77,10 +77,10 @@ class ImageAsset(Base):
     is_orphan: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
-    events: Mapped[list["TimelineEvent"]] = relationship("TimelineEvent", back_populates="image")
+    notes: Mapped[list["Note"]] = relationship("Note", back_populates="image")
 
 
-class TimelineEvent(Base):
+class Note(Base):
     __tablename__ = "timeline_events"
     __table_args__ = (
         Index("ix_timeline_events_topic_date_id", "topic_id", "date_key", "id"),
@@ -124,17 +124,17 @@ class TimelineEvent(Base):
     favorite_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    topic: Mapped[Topic] = relationship("Topic", back_populates="events")
-    image: Mapped[ImageAsset | None] = relationship("ImageAsset", back_populates="events")
-    items: Mapped[list["EventItem"]] = relationship(
-        "EventItem",
-        back_populates="event",
+    topic: Mapped[Topic] = relationship("Topic", back_populates="notes")
+    image: Mapped[ImageAsset | None] = relationship("ImageAsset", back_populates="notes")
+    items: Mapped[list["NoteItem"]] = relationship(
+        "NoteItem",
+        back_populates="note",
         cascade="all, delete-orphan",
-        order_by="EventItem.sort_order",
+        order_by="NoteItem.sort_order",
     )
 
 
-class EventItem(Base):
+class NoteItem(Base):
     __tablename__ = "event_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -143,7 +143,7 @@ class EventItem(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    event: Mapped[TimelineEvent] = relationship("TimelineEvent", back_populates="items")
+    note: Mapped[Note] = relationship("Note", back_populates="items")
 
 
 class TopicStat(Base):
@@ -176,7 +176,7 @@ class TopicEraStat(Base):
     topic: Mapped[Topic] = relationship("Topic", back_populates="era_stats")
 
 
-class TimelineLink(Base):
+class NoteLink(Base):
     """A `[[wikilink]]` edge from one note's body to another (W4 link system).
 
     The link graph is keyed by note id, not title, so renaming/moving a target never

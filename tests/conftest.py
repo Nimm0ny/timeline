@@ -16,9 +16,9 @@ if str(ROOT_DIR) not in sys.path:
 from backend.app.api.bookshelves import router as bookshelves_router
 from backend.app.api.topics import router as topics_router
 from backend.app.db.session import Base, get_db
-from backend.app.models.entities import Bookshelf, EventItem, TimelineEvent, Topic
+from backend.app.models.entities import Bookshelf, NoteItem, Note, Topic
 from backend.app.services.date_utils import build_display_label, date_key_to_parts, make_date_key
-from backend.app.services.timeline import backfill_event_text_fields, rebuild_topic_read_models
+from backend.app.services.timeline import backfill_note_text_fields, rebuild_topic_read_models
 
 
 @pytest.fixture()
@@ -76,7 +76,7 @@ def seeded_topic(db_session: Session) -> Topic:
 
     for date_key, headline, era, items in rows:
         year, month, day = date_key_to_parts(date_key)
-        event = TimelineEvent(
+        event = Note(
             topic_id=topic.id,
             year=build_display_label(year, month, day, headline),
             sort_key=float(date_key),
@@ -90,9 +90,9 @@ def seeded_topic(db_session: Session) -> Topic:
         db_session.add(event)
         db_session.flush()
         for index, item in enumerate(items):
-            db_session.add(EventItem(event_id=event.id, tag=item[0], text=item[1], sort_order=index))
+            db_session.add(NoteItem(event_id=event.id, tag=item[0], text=item[1], sort_order=index))
 
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
     db_session.refresh(topic)

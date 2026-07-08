@@ -17,7 +17,7 @@ from backend.app.core.config import IMAGES_DIR, THEME_DIR
 from backend.app.db.session import SessionLocal
 from backend.app.services.legacy_migration import init_database, migrate_legacy_files
 from backend.app.services.timeline import (
-    backfill_event_text_fields,
+    backfill_note_text_fields,
     backfill_manual_links,
     ensure_topic_read_models,
     rebuild_search_index,
@@ -64,7 +64,7 @@ async def app_lifespan(_app: FastAPI):
     db = SessionLocal()
     try:
         migrate_legacy_files(db)
-        backfill_event_text_fields(db)
+        backfill_note_text_fields(db)
         backfill_manual_links(db)
         ensure_topic_read_models(db)
         rebuild_search_index(db)

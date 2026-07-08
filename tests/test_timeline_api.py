@@ -11,12 +11,12 @@ from backend.app.api.media import router as media_router
 from backend.app import main as main_module
 from backend.app.db.session import Base
 from backend.app.db.session import get_db
-from backend.app.models.entities import Bookshelf, EventItem, TimelineEvent, Topic, TopicEraStat, TopicStat
+from backend.app.models.entities import Bookshelf, NoteItem, Note, Topic, TopicEraStat, TopicStat
 from backend.app.services.date_utils import build_display_label, make_date_key
 from backend.app.services import legacy_migration as legacy_migration_module, timeline as timeline_service
 from backend.app.services.timeline import ensure_topic_bookshelf_assignments
 from backend.app.services.timeline import (
-    backfill_event_text_fields,
+    backfill_note_text_fields,
     export_topic_data,
     import_topic_data,
     rebuild_topic_read_models,
@@ -644,8 +644,8 @@ def test_topic_era_stats_merges_normalized_eras(db_session):
     topic = Topic(name="mixed", title="Mixed", bookshelf_id=shelf.id)
     db_session.add(topic)
     db_session.flush()
-    db_session.add(TimelineEvent(topic_id=topic.id, year="a", sort_key=1.0, date_key=1, era=""))
-    db_session.add(TimelineEvent(topic_id=topic.id, year="b", sort_key=2.0, date_key=2, era="未分组"))
+    db_session.add(Note(topic_id=topic.id, year="a", sort_key=1.0, date_key=1, era=""))
+    db_session.add(Note(topic_id=topic.id, year="b", sort_key=2.0, date_key=2, era="未分组"))
     db_session.flush()
 
     rebuild_topic_read_models(db_session, [topic.id])  # must not raise IntegrityError
@@ -658,8 +658,8 @@ def test_topic_era_stats_merges_normalized_eras(db_session):
 
     # Changing one event's era splits the counts back out.
     event = (
-        db_session.query(TimelineEvent)
-        .filter(TimelineEvent.topic_id == topic.id, TimelineEvent.era == "未分组")
+        db_session.query(Note)
+        .filter(Note.topic_id == topic.id, Note.era == "未分组")
         .first()
     )
     event.era = "清朝"
@@ -734,7 +734,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
         day = offset % 28 + 1
         date_key = make_date_key(1842, month, day)
         headline = f"Paged Event {offset + 1}"
-        event = TimelineEvent(
+        event = Note(
             topic_id=seeded_topic.id,
             year=build_display_label(1842, month, day, headline),
             sort_key=float(date_key),
@@ -748,7 +748,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
         )
         db_session.add(event)
     for offset in range(2):
-        event = TimelineEvent(
+        event = Note(
             topic_id=seeded_topic.id,
             year=f"Undated {offset + 1}",
             sort_key=0.0,
@@ -765,7 +765,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
         db_session.add(event)
         db_session.flush()
         undated_ids.append(event.id)
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
@@ -799,7 +799,7 @@ def test_topic_events_default_to_lightweight_pagination_and_keep_undated_tail(cl
 
 
 def test_topic_events_descending_flips_dated_order_and_keeps_undated_tail(client, db_session, seeded_topic):
-    undated = TimelineEvent(
+    undated = Note(
         topic_id=seeded_topic.id,
         year="Undated Note",
         sort_key=0.0,
@@ -811,7 +811,7 @@ def test_topic_events_descending_flips_dated_order_and_keeps_undated_tail(client
     db_session.add(undated)
     db_session.flush()
     undated_id = undated.id
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
@@ -831,7 +831,7 @@ def test_topic_events_descending_flips_dated_order_and_keeps_undated_tail(client
 def test_topic_events_descending_cursor_pagination_is_complete_and_ordered(client, db_session, seeded_topic):
     for n in range(2):
         db_session.add(
-            TimelineEvent(
+            Note(
                 topic_id=seeded_topic.id,
                 year=f"Undated {n}",
                 sort_key=0.0,
@@ -841,7 +841,7 @@ def test_topic_events_descending_cursor_pagination_is_complete_and_ordered(clien
                 body_markdown="",
             )
         )
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
@@ -896,7 +896,7 @@ def test_topic_events_pages_through_an_undated_tail_that_crosses_a_boundary(clie
     # would raise (date_key < None). Guards against the hoisted-`dated_after` regression.
     for n in range(3):
         db_session.add(
-            TimelineEvent(
+            Note(
                 topic_id=seeded_topic.id,
                 year=f"Undated {n}",
                 sort_key=0.0,
@@ -906,7 +906,7 @@ def test_topic_events_pages_through_an_undated_tail_that_crosses_a_boundary(clie
                 body_markdown="",
             )
         )
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
@@ -924,7 +924,7 @@ def test_topic_events_cursor_round_trips_for_non_four_digit_years(client, db_ses
     for year in (-626, 99, 907, 1050):
         dk = make_date_key(year, 1, 1)
         db_session.add(
-            TimelineEvent(
+            Note(
                 topic_id=seeded_topic.id,
                 year=str(year),
                 sort_key=float(dk),
@@ -937,7 +937,7 @@ def test_topic_events_cursor_round_trips_for_non_four_digit_years(client, db_ses
                 body_markdown="",
             )
         )
-    backfill_event_text_fields(db_session)
+    backfill_note_text_fields(db_session)
     rebuild_topic_read_models(db_session)
     db_session.commit()
 
@@ -1024,8 +1024,8 @@ def test_bookshelf_schema_migration_adds_topic_column_and_assigns_default_and_qs
 
     Base.metadata.create_all(bind=test_engine)
     monkeypatch.setattr(legacy_migration_module, "engine", test_engine)
-    legacy_migration_module.ensure_timeline_event_schema()
-    legacy_migration_module.ensure_timeline_event_schema()
+    legacy_migration_module.ensure_note_schema()
+    legacy_migration_module.ensure_note_schema()
 
     inspector = inspect(test_engine)
     assert "bookshelves" in inspector.get_table_names()
@@ -1064,7 +1064,7 @@ def test_bookshelf_migration_seeds_default_shelf_for_empty_database(monkeypatch,
 
     Base.metadata.create_all(bind=test_engine)
     monkeypatch.setattr(legacy_migration_module, "engine", test_engine)
-    legacy_migration_module.ensure_timeline_event_schema()
+    legacy_migration_module.ensure_note_schema()
 
     SessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, future=True)
     session = SessionLocal()

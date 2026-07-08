@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class EventItemIn(BaseModel):
+class NoteItemIn(BaseModel):
     tag: str
     text: str
 
@@ -30,7 +30,7 @@ class ColumnDef(BaseModel):
     options: list[OptionDef] = Field(default_factory=list)
 
 
-class TimelineEventIn(BaseModel):
+class NoteIn(BaseModel):
     id: int | None = None
     # entry requires a concrete date; mindmap may omit it (undated canvas note).
     dateYear: int | None = None
@@ -48,7 +48,7 @@ class TimelineEventIn(BaseModel):
     # Property values: free fields -> str, single-select -> str (option id),
     # multi-select -> list[str] (option ids). Type/tags live here too.
     extra: dict[str, str | list[str]] = Field(default_factory=dict)
-    items: list[EventItemIn] = Field(default_factory=list)
+    items: list[NoteItemIn] = Field(default_factory=list)
     image: str | None = None
 
 

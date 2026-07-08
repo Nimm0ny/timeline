@@ -8,7 +8,7 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from backend.app.core.config import CONFIG_FILE, DATA_DIR, DB_FILE, DEFAULT_CONFIG, encode_config_value
 from backend.app.db.session import Base, SessionLocal, engine
-from backend.app.models.entities import AppConfigEntry, EventItem, ImageAsset, TimelineEvent, Topic
+from backend.app.models.entities import AppConfigEntry, NoteItem, ImageAsset, Note, Topic
 from backend.app.services.date_utils import (
     date_key_to_parts,
     extract_headline_from_legacy_label,
@@ -54,7 +54,7 @@ def build_tag_options(values: list[str]) -> list[dict]:
 def init_database():
     Base.metadata.create_all(bind=engine)
     ensure_image_asset_schema()
-    ensure_timeline_event_schema()
+    ensure_note_schema()
     migrate_to_property_model()
     drop_legacy_auth_artifacts()
 
@@ -87,7 +87,7 @@ def ensure_image_asset_schema():
         )
 
 
-def ensure_timeline_event_schema():
+def ensure_note_schema():
     inspector = inspect(engine)
     topic_columns = set()
     if "topics" in inspector.get_table_names():
@@ -271,7 +271,7 @@ def drop_legacy_auth_artifacts():
     # Rebuild the FK-bearing tables first, then drop `users` last, so a mid-way
     # failure never leaves `users` gone while the orphan columns remain.
     if "timeline_events" in tables and "created_by" in {c["name"] for c in inspector.get_columns("timeline_events")}:
-        rebuild_table_from_model(TimelineEvent.__table__)
+        rebuild_table_from_model(Note.__table__)
     if "images" in tables and "uploaded_by" in {c["name"] for c in inspector.get_columns("images")}:
         rebuild_table_from_model(ImageAsset.__table__)
 
@@ -351,7 +351,7 @@ def ensure_seed_columns(topic: Topic, tag_options: list[dict]) -> list[dict]:
 
 def migrate_to_property_model():
     """One-time, idempotent migration to the unified property model. Historical
-    tag values (tags_json + EventItem.tag) become a multiselect `tags` property
+    tag values (tags_json + NoteItem.tag) become a multiselect `tags` property
     whose options live on the topic, with each event's values in extra_json. The
     `type` property stays empty — it was a derived view, never real data, so we
     do not fabricate it. Idempotency signal: the tags_json column; once dropped,
@@ -369,7 +369,7 @@ def migrate_to_property_model():
             for row in session.execute(text("SELECT id, tags_json FROM timeline_events")).all()
         }
         for topic in session.query(Topic).all():
-            events = session.query(TimelineEvent).filter(TimelineEvent.topic_id == topic.id).all()
+            events = session.query(Note).filter(Note.topic_id == topic.id).all()
             per_event_tags: dict[int, list[str]] = {}
             topic_tag_values: list[str] = []
             for event in events:
@@ -397,7 +397,7 @@ def migrate_to_property_model():
 
     # Tag values now live in extra_json; drop the orphaned column to match the
     # clean model (SQLite can't ALTER-DROP, so rebuild from the ORM definition).
-    rebuild_table_from_model(TimelineEvent.__table__)
+    rebuild_table_from_model(Note.__table__)
 
 
 def migrate_legacy_files(db: Session):
@@ -479,7 +479,7 @@ def import_topic_file(db: Session, path: Path):
             if tag not in all_tag_values:
                 all_tag_values.append(tag)
 
-        event = TimelineEvent(
+        event = Note(
             topic_id=topic.id,
             year=str(node.get("year", "")).strip(),
             sort_key=float(sort_key),
@@ -499,7 +499,7 @@ def import_topic_file(db: Session, path: Path):
         db.flush()
         for index, item in enumerate(node.get("events", [])):
             db.add(
-                EventItem(
+                NoteItem(
                     event_id=event.id,
                     tag=str(item.get("tag", "")).strip() or "note",
                     text=str(item.get("text", "")).strip(),

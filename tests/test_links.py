@@ -11,20 +11,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.session import Base
-from backend.app.models.entities import TimelineEvent, TimelineLink
+from backend.app.models.entities import Note, NoteLink
 from backend.app.services import legacy_migration as legacy_migration_module
 from backend.app.services.timeline import (
     backfill_manual_links,
-    batch_event_previews,
-    create_event,
+    batch_note_previews,
+    create_note,
     create_topic,
-    delete_event,
+    delete_note,
     get_backlinks,
-    get_event_detail,
+    get_note_detail,
     parse_snapshot_embeds,
     parse_wikilinks,
-    sync_event_manual_links,
-    update_event,
+    sync_note_manual_links,
+    update_note,
 )
 
 
@@ -32,14 +32,14 @@ def _session(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'links.db'}", future=True)
     Base.metadata.create_all(bind=engine)
     monkeypatch.setattr(legacy_migration_module, "engine", engine)
-    legacy_migration_module.ensure_timeline_event_schema()
+    legacy_migration_module.ensure_note_schema()
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)(), engine
 
 
 def _entry(db, topic_id, headline, body=""):
     # An entry note requires a non-empty body (items derive from markdown); default to
     # the headline so callers can omit a body when only the note's identity matters.
-    return create_event(
+    return create_note(
         db, topic_id, {"headline": headline, "era": "", "bodyMarkdown": body or headline, "noteType": "entry"}
     )
 
@@ -56,7 +56,7 @@ def _embed_cell(note_id, headline="", preview=""):
 
 
 def _canvas(db, topic_id, headline, cells):
-    return create_event(
+    return create_note(
         db,
         topic_id,
         {
@@ -71,7 +71,7 @@ def _canvas(db, topic_id, headline, cells):
 
 
 def _resave_canvas(db, event_id, headline, cells):
-    return update_event(
+    return update_note(
         db,
         event_id,
         {
@@ -142,15 +142,15 @@ def test_resync_on_edit_and_rename_keeps_link(tmp_path, monkeypatch):
         assert get_backlinks(db, target["id"])["total"] == 0  # dangling
 
         # Point it at the target → backlink appears.
-        update_event(db, src["id"], {"headline": "S", "era": "", "bodyMarkdown": f"[[{target['id']}|T]]", "noteType": "entry"})
+        update_note(db, src["id"], {"headline": "S", "era": "", "bodyMarkdown": f"[[{target['id']}|T]]", "noteType": "entry"})
         assert get_backlinks(db, target["id"])["total"] == 1
 
         # Rename the target: id-anchored link survives (backlink still resolves).
-        update_event(db, target["id"], {"headline": "T renamed", "era": "", "bodyMarkdown": "renamed body", "noteType": "entry"})
+        update_note(db, target["id"], {"headline": "T renamed", "era": "", "bodyMarkdown": "renamed body", "noteType": "entry"})
         assert get_backlinks(db, target["id"])["total"] == 1
 
         # Edit the link away → resync drops it.
-        update_event(db, src["id"], {"headline": "S", "era": "", "bodyMarkdown": "no links now", "noteType": "entry"})
+        update_note(db, src["id"], {"headline": "S", "era": "", "bodyMarkdown": "no links now", "noteType": "entry"})
         assert get_backlinks(db, target["id"])["total"] == 0
     finally:
         db.close()
@@ -164,7 +164,7 @@ def test_deleted_source_drops_out_of_backlinks(tmp_path, monkeypatch):
         target = _entry(db, topic["id"], "T")
         src = _entry(db, topic["id"], "S", body=f"[[{target['id']}|T]]")
         assert get_backlinks(db, target["id"])["total"] == 1
-        delete_event(db, src["id"])  # soft delete → source no longer live
+        delete_note(db, src["id"])  # soft delete → source no longer live
         assert get_backlinks(db, target["id"])["total"] == 0
     finally:
         db.close()
@@ -177,12 +177,12 @@ def test_batch_event_previews(tmp_path, monkeypatch):
         topic = create_topic(db, "t1", None)
         a = _entry(db, topic["id"], "A", body="alpha body")
         b = _entry(db, topic["id"], "B", body="beta body")
-        previews = batch_event_previews(db, [a["id"], b["id"], 999999])  # unknown id ignored
+        previews = batch_note_previews(db, [a["id"], b["id"], 999999])  # unknown id ignored
         by_id = {p["id"]: p for p in previews}
         assert set(by_id) == {a["id"], b["id"]}
         assert by_id[a["id"]]["headline"] == "A"
         assert "alpha" in by_id[a["id"]]["preview"]
-        assert batch_event_previews(db, []) == []
+        assert batch_note_previews(db, []) == []
     finally:
         db.close()
         engine.dispose()
@@ -219,16 +219,16 @@ def test_link_targets_ride_detail_payload(tmp_path, monkeypatch):
             db, topic["id"], "Source", body=f"see [[{target['id']}|Target]] and [[999999|Ghost]]"
         )
         # Live id-anchored target → current headline; dead id (999999) → absent = dangling on FE.
-        detail = get_event_detail(db, source["id"])
+        detail = get_note_detail(db, source["id"])
         assert detail["linkTargets"] == {str(target["id"]): "Target"}
 
         # Rename the target → the map carries the FRESH title although the source body is
         # untouched (the whole point of id-addressing; §6.1).
-        update_event(db, target["id"], {"headline": "Renamed", "era": "", "bodyMarkdown": "b", "noteType": "entry"})
-        assert get_event_detail(db, source["id"])["linkTargets"] == {str(target["id"]): "Renamed"}
+        update_note(db, target["id"], {"headline": "Renamed", "era": "", "bodyMarkdown": "b", "noteType": "entry"})
+        assert get_note_detail(db, source["id"])["linkTargets"] == {str(target["id"]): "Renamed"}
 
         # A note with no wikilinks → empty map, never null.
-        assert get_event_detail(db, target["id"])["linkTargets"] == {}
+        assert get_note_detail(db, target["id"])["linkTargets"] == {}
     finally:
         db.close()
         engine.dispose()
@@ -284,8 +284,8 @@ def test_canvas_embed_resync_drops_removed_card(tmp_path, monkeypatch):
         # Same target embedded twice on one board = ONE relationship (deduped per source).
         assert get_backlinks(db, target["id"])["total"] == 1
         rows = (
-            db.query(TimelineLink)
-            .filter(TimelineLink.source_event_id == board["id"], TimelineLink.anchor_type == "embed")
+            db.query(NoteLink)
+            .filter(NoteLink.source_event_id == board["id"], NoteLink.anchor_type == "embed")
             .all()
         )
         assert len(rows) == 1
@@ -302,8 +302,8 @@ def test_canvas_embed_dangling_and_tombstone(tmp_path, monkeypatch):
         # (no crash), keeping the cached title as the dangling label.
         board = _canvas(db, topic["id"], "Board", [_embed_cell(999999, "Ghost")])
         rows = (
-            db.query(TimelineLink)
-            .filter(TimelineLink.source_event_id == board["id"], TimelineLink.anchor_type == "embed")
+            db.query(NoteLink)
+            .filter(NoteLink.source_event_id == board["id"], NoteLink.anchor_type == "embed")
             .all()
         )
         assert len(rows) == 1 and rows[0].target_event_id is None and rows[0].target_title == "Ghost"
@@ -313,11 +313,11 @@ def test_canvas_embed_dangling_and_tombstone(tmp_path, monkeypatch):
         target = _entry(db, topic["id"], "Real")
         board2 = _canvas(db, topic["id"], "Board2", [_embed_cell(target["id"], "Real")])
         assert get_backlinks(db, target["id"])["total"] == 1
-        delete_event(db, target["id"])
+        delete_note(db, target["id"])
         _resave_canvas(db, board2["id"], "Board2", [_embed_cell(target["id"], "Real")])
         rows2 = (
-            db.query(TimelineLink)
-            .filter(TimelineLink.source_event_id == board2["id"], TimelineLink.anchor_type == "embed")
+            db.query(NoteLink)
+            .filter(NoteLink.source_event_id == board2["id"], NoteLink.anchor_type == "embed")
             .all()
         )
         assert len(rows2) == 1 and rows2[0].target_event_id is None
@@ -334,7 +334,7 @@ def test_canvas_indexed_by_embedded_headline(tmp_path, monkeypatch):
         board = _canvas(db, topic["id"], "Board", [_embed_cell(target["id"], "Waterloo", "the 1815 battle")])
         # The walker folds the embed card's cached headline+preview into the canvas search text,
         # so the board is findable by what it embeds — even though it holds no free-text card.
-        event = db.query(TimelineEvent).filter(TimelineEvent.id == board["id"]).one()
+        event = db.query(Note).filter(Note.id == board["id"]).one()
         assert "Waterloo" in (event.search_text or "")
         assert "1815" in (event.search_text or "")
     finally:
@@ -345,7 +345,7 @@ def test_canvas_indexed_by_embedded_headline(tmp_path, monkeypatch):
 # ── §6.4: legacy manual "关联事件" (related_event_ids) → `manual` link rows (backfill + sync) ──
 def _related(db, topic_id, headline, related_ids):
     # An entry note carrying legacy manual related_event_ids (the pre-wikilink 关联事件 relation).
-    return create_event(
+    return create_note(
         db,
         topic_id,
         {"headline": headline, "era": "", "bodyMarkdown": headline, "noteType": "entry", "relatedEventIds": related_ids},
@@ -375,8 +375,8 @@ def test_manual_dangling_related_id_stays_null(tmp_path, monkeypatch):
         topic = create_topic(db, "t1", None)
         source = _related(db, topic["id"], "Source", [999999])  # no such note → dangling
         rows = (
-            db.query(TimelineLink)
-            .filter(TimelineLink.source_event_id == source["id"], TimelineLink.anchor_type == "manual")
+            db.query(NoteLink)
+            .filter(NoteLink.source_event_id == source["id"], NoteLink.anchor_type == "manual")
             .all()
         )
         assert len(rows) == 1
@@ -396,14 +396,14 @@ def test_manual_links_resync_on_edit(tmp_path, monkeypatch):
         assert get_backlinks(db, a["id"])["total"] == 1
         assert get_backlinks(db, b["id"])["total"] == 0
         # Re-relate S to B instead of A → manual rows follow.
-        update_event(
+        update_note(
             db, source["id"],
             {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": [b["id"]]},
         )
         assert get_backlinks(db, a["id"])["total"] == 0
         assert get_backlinks(db, b["id"])["total"] == 1
         # Clear relations → manual rows gone.
-        update_event(
+        update_note(
             db, source["id"],
             {"headline": "S", "era": "", "bodyMarkdown": "S", "noteType": "entry", "relatedEventIds": []},
         )
@@ -420,14 +420,14 @@ def test_manual_links_drop_self_and_dedupe(tmp_path, monkeypatch):
         target = _entry(db, topic["id"], "T")
         source = _related(db, topic["id"], "S", [target["id"]])
         # Simulate a legacy related list carrying a self-ref + a duplicate; re-sync the writer directly.
-        row = db.get(TimelineEvent, source["id"])
+        row = db.get(Note, source["id"])
         row.related_event_ids_json = json.dumps([source["id"], target["id"], target["id"]])
         db.flush()
-        sync_event_manual_links(db, row)
+        sync_note_manual_links(db, row)
         db.commit()
         links = (
-            db.query(TimelineLink)
-            .filter(TimelineLink.source_event_id == source["id"], TimelineLink.anchor_type == "manual")
+            db.query(NoteLink)
+            .filter(NoteLink.source_event_id == source["id"], NoteLink.anchor_type == "manual")
             .all()
         )
         assert len(links) == 1  # self dropped, duplicate collapsed
@@ -444,7 +444,7 @@ def test_manual_links_backfill_is_guarded(tmp_path, monkeypatch):
         target = _entry(db, topic["id"], "T")
         _related(db, topic["id"], "S", [target["id"]])
         # Simulate pre-writer legacy rows: drop the manual links the ongoing sync just wrote.
-        db.query(TimelineLink).filter(TimelineLink.anchor_type == "manual").delete()
+        db.query(NoteLink).filter(NoteLink.anchor_type == "manual").delete()
         db.commit()
         assert get_backlinks(db, target["id"])["total"] == 0
         # First backfill re-projects related_event_ids_json → manual rows.
@@ -452,7 +452,7 @@ def test_manual_links_backfill_is_guarded(tmp_path, monkeypatch):
         db.commit()
         assert get_backlinks(db, target["id"])["total"] == 1
         # Guarded: drop again → a second backfill is a no-op (marker set), so they stay gone.
-        db.query(TimelineLink).filter(TimelineLink.anchor_type == "manual").delete()
+        db.query(NoteLink).filter(NoteLink.anchor_type == "manual").delete()
         db.commit()
         backfill_manual_links(db)
         db.commit()
@@ -470,14 +470,14 @@ def test_manual_writer_leaves_wikilink_and_embed_intact(tmp_path, monkeypatch):
         topic = create_topic(db, "t1", None)
         target = _entry(db, topic["id"], "T")
         # One source that BOTH wikilinks and manually-relates the same target.
-        source = create_event(
+        source = create_note(
             db,
             topic["id"],
             {"headline": "S", "era": "", "bodyMarkdown": f"see [[{target['id']}|T]]", "noteType": "entry", "relatedEventIds": [target["id"]]},
         )
         anchors = {
             row.anchor_type
-            for row in db.query(TimelineLink).filter(TimelineLink.source_event_id == source["id"]).all()
+            for row in db.query(NoteLink).filter(NoteLink.source_event_id == source["id"]).all()
         }
         assert anchors == {"wikilink", "manual"}  # both survive — manual writer didn't wipe wikilink
         # get_backlinks collapses the two anchors from one source to a single backlink row.
