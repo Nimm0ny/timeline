@@ -1,8 +1,8 @@
 <script setup>
 import { ref } from "vue";
-import CanvasEditor from "@/components/timeline-notes/CanvasEditor.vue";
-import EmbedCardPicker from "@/components/timeline-notes/EmbedCardPicker.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import CanvasEditor from "@/components/notes/CanvasEditor.vue";
+import EmbedCardPicker from "@/components/notes/EmbedCardPicker.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 
 // Center-column host for a canvas note (mirrors MindmapSurface): owns the frame chrome
 // (back / title / save status / fullscreen / trash) and a lean toolbar; the page owns

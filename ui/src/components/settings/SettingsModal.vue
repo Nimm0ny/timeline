@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppearanceSettings from "@/components/settings/AppearanceSettings.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 
 const props = defineProps({
   open: { type: Boolean, default: false },

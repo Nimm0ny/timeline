@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, watch } from "vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import {
   PROPERTY_TYPE_ICONS as TYPE_ICON,
   buildPropertyUsage,

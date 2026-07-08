@@ -41,7 +41,7 @@ function renderInlineSegment(segment) {
   });
   // 维基链接 [[<id>|别名]] / [[标题]]（阅读态）。放在 md 链接之后、脚注之前：[[..]] 无 (url)
   // 不被链接正则吞，脚注要 [^ 亦不冲突。id 形态渲成带 data-note-id 的锚点（点击/悬浮由
-  // EventDetailPane 委托页面既有 pin-related/preview-related 打开，与编辑态 widget 同一路）；
+  // NoteDetailPane 委托页面既有 pin-related/preview-related 打开，与编辑态 widget 同一路）；
   // 裸标题无 id → 只样式化不可导航（唯一性由后端定，前端读渲染器不猜）。别名段已在 escapeHtml
   // 里转义，data-note-id 是纯数字，注入 v-html 安全。
   output = output.replace(new RegExp(WIKILINK_PATTERN, "g"), (whole, rawId, rawTitle) => {

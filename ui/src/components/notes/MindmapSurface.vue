@@ -1,7 +1,7 @@
 <script setup>
 import { nextTick, reactive, ref } from "vue";
-import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import MindmapEditor from "@/components/notes/MindmapEditor.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import { pushToast } from "@/composables/useToast";
 import {
   DEFAULT_EDGE_STYLE,

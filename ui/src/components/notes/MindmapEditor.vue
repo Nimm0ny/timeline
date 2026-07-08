@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { Graph } from "@antv/x6";
 import { History } from "@antv/x6-plugin-history";
 import { Selection } from "@antv/x6-plugin-selection";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import {
   buildNodeAttrs,
   buildNodePorts,

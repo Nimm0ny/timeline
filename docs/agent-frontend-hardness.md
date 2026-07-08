@@ -8,7 +8,7 @@
 ## 1. 前端项目事实
 
 - 前端：Vue 3 + Vite。
-- 图标：`@lucide/vue`，必须通过 `ui/src/components/timeline-notes/LucideIcon.vue` 集中使用。
+- 图标：`@lucide/vue`，必须通过 `ui/src/components/notes/LucideIcon.vue` 集中使用。
 - 文本测量：中栏使用 `@chenglou/pretext`，只负责测量、截断、高度预测和滚动 offset 估算，不负责渲染 UI。
 - 中栏卡片相关 preset 必须使用 `Noto Sans SC`，不得回退到系统字体栈。
 - 后端：FastAPI + SQLAlchemy + SQLite。
@@ -17,10 +17,10 @@
 
 最小上下文入口：
 
-- 前端入口：`ui/src/pages/TimelinePage.vue`
+- 前端入口：`ui/src/pages/NotesPage.vue`
 - 前端样式：`ui/src/styles/main.css`、`ui/src/styles/timeline-notes.css`
-- 图标入口：`ui/src/components/timeline-notes/LucideIcon.vue`
-- 时间线组件：`ui/src/components/timeline-notes/`
+- 图标入口：`ui/src/components/notes/LucideIcon.vue`
+- 时间线组件：`ui/src/components/notes/`
 - API 封装：`ui/src/composables/useApi.js`
 - 后端入口：`backend/app/main.py`、`backend/server.py`
 - 数据契约：`docs/stage-0-boundary.md`
@@ -68,7 +68,7 @@
 - 不允许把原型截图、PNG 或整页图片作为页面背景。
 - 所有文字、按钮、输入框、卡片、时间线、圆点、连接线、附件和关联项都必须是真实 DOM/CSS/SVG。
 - 图标必须是真实 DOM/SVG/CSS 图形。
-- 运行时 SVG 图标必须来自 Lucide，并经 `ui/src/components/timeline-notes/LucideIcon.vue` 统一维护。
+- 运行时 SVG 图标必须来自 Lucide，并经 `ui/src/components/notes/LucideIcon.vue` 统一维护。
 - 不允许散落手写 SVG。
 - 例外：`ui/src/services/timelineExport.js` 这类导出 SVG/PNG 的 artifact generation 逻辑不属于运行时 UI，可以生成 SVG 字符串；但不得把导出 SVG 反向用于页面渲染。
 - 不允许从 PNG 反推一套运行时 SVG token。
@@ -207,7 +207,7 @@
 `agent:check` 会拦截以下高风险违约：
 
 - `@lucide/vue` 在 `LucideIcon.vue` 之外被直接导入。
-- `components/timeline-notes/` 中散落内联 `<svg>`。
+- `components/notes/` 中散落内联 `<svg>`。
 - 使用浏览器原生 `confirm()`。
 - 使用运行时 `transform: scale*()` 承载布局、视觉修正或像素还原。
 - 运行时 CSS 字体声明绕过 `Noto Sans SC` 或 `--tn-*` 字体 token。

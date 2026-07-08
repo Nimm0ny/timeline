@@ -3,10 +3,10 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, r
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
-import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
-import BacklinkPanel from "@/components/timeline-notes/BacklinkPanel.vue";
-import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import AttachmentModal from "@/components/notes/AttachmentModal.vue";
+import BacklinkPanel from "@/components/notes/BacklinkPanel.vue";
+import OptionPicker from "@/components/notes/OptionPicker.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import {
   buildEditorDraft,
   buildReadableDetailGroups,
@@ -88,9 +88,9 @@ const emit = defineEmits([
   "pane-drag-start",
 ]);
 
-// Pane-swap drag entry point (mirror of TimelineFeed): only the actionbar's own
+// Pane-swap drag entry point (mirror of NoteFeed): only the actionbar's own
 // empty area or its flex spacer starts a drag, so the action buttons are never
-// hijacked (pane-swap-drag-design.md §4). TimelinePage owns the state machine.
+// hijacked (pane-swap-drag-design.md §4). NotesPage owns the state machine.
 function onActionbarPointerDown(event) {
   const target = event.target;
   if (target !== event.currentTarget && !target.classList?.contains("spacer")) return;
@@ -108,7 +108,7 @@ function onActionbarPointerDown(event) {
 // Keep the CM6 editor in its own lazy chunk, but expose the loader so we can warm
 // it while the user is still reading (see onMounted) — otherwise entering edit
 // mounts it a frame late, collapsing the body and flashing the rows below.
-const loadMarkdownLiveEditor = () => import("@/components/timeline-notes/MarkdownLiveEditor.vue");
+const loadMarkdownLiveEditor = () => import("@/components/notes/MarkdownLiveEditor.vue");
 const MarkdownLiveEditor = defineAsyncComponent(loadMarkdownLiveEditor);
 const DETAIL_META_HEIGHT_KEY = "chronicle-detail-meta-height";
 const DETAIL_META_MIN = 120;

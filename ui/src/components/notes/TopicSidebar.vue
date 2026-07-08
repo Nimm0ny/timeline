@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import { OPTION_COLOR_HEX_MAP, OPTION_COLOR_PRESETS } from "@/constants/tags";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import {
   buildPropertyUsage,
   buildOptionId,

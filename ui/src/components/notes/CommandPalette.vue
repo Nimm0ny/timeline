@@ -1,9 +1,9 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import BaseModal from "@/components/BaseModal.vue";
-import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
-import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import HighlightedText from "@/components/notes/HighlightedText.vue";
+import NotebookChip from "@/components/notes/NotebookChip.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 
 const props = defineProps({
   open: {

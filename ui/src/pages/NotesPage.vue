@@ -1,12 +1,12 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
-import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
-import RelatedEventPreviewPopover from "@/components/timeline-notes/RelatedEventPreviewPopover.vue";
-import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
-import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
+import NoteDetailPane from "@/components/notes/NoteDetailPane.vue";
+import MobileTopBar from "@/components/notes/MobileTopBar.vue";
+import RelatedNotePreviewPopover from "@/components/notes/RelatedNotePreviewPopover.vue";
+import NoteFeed from "@/components/notes/NoteFeed.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
+import TopicSidebar from "@/components/notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { useNotesStore } from "@/composables/useNotesStore";
@@ -41,9 +41,9 @@ import {
   SIDEBAR_SORT_MODES,
 } from "@/utils/timelineNotes";
 
-const CommandPalette = defineAsyncComponent(() => import("@/components/timeline-notes/CommandPalette.vue"));
-const MindmapSurface = defineAsyncComponent(() => import("@/components/timeline-notes/MindmapSurface.vue"));
-const CanvasSurface = defineAsyncComponent(() => import("@/components/timeline-notes/CanvasSurface.vue"));
+const CommandPalette = defineAsyncComponent(() => import("@/components/notes/CommandPalette.vue"));
+const MindmapSurface = defineAsyncComponent(() => import("@/components/notes/MindmapSurface.vue"));
+const CanvasSurface = defineAsyncComponent(() => import("@/components/notes/CanvasSurface.vue"));
 const SettingsModal = defineAsyncComponent(() => import("@/components/settings/SettingsModal.vue"));
 
 const route = useRoute();
@@ -2913,7 +2913,7 @@ watch(
       @open-embed="pinRelatedEvent"
     />
 
-    <TimelineFeed
+    <NoteFeed
       ref="feedPaneRef"
       v-else
       :loading="state.loading || state.eventsLoading"
@@ -2980,7 +2980,7 @@ watch(
       @pane-drag-start="paneSwap.onPaneDragStart"
     />
 
-    <EventDetailPane
+    <NoteDetailPane
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
       :event="detailPaneEvent"
@@ -3009,7 +3009,7 @@ watch(
       @preview-change="state.editPreview = $event"
     />
 
-    <RelatedEventPreviewPopover
+    <RelatedNotePreviewPopover
       :open="state.relatedPreviewOpen"
       :event="relatedPreviewEvent"
       :topic-title="relatedPreviewTopicTitle"

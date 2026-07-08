@@ -64,7 +64,7 @@ const fullHtml = computed(() => (tier.value === "full" ? getEmbedDetailHtml(note
     <span class="cv-embed-spine" aria-hidden="true"></span>
     <div class="cv-embed-main">
       <div class="cv-embed-headline">{{ title }}</div>
-      <!-- eslint-disable-next-line vue/no-v-html -- app's own read-mode renderer, same trust as EventDetailPane -->
+      <!-- eslint-disable-next-line vue/no-v-html -- app's own read-mode renderer, same trust as NoteDetailPane -->
       <div v-if="fullHtml" class="cv-embed-body markdown-body" v-html="fullHtml"></div>
       <p v-else-if="preview && tier !== 'shell'" class="cv-embed-preview">{{ preview }}</p>
       <div v-if="container" class="cv-embed-container">{{ container }}</div>

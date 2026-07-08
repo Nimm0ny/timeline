@@ -3,7 +3,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const uiSrc = path.join(root, "ui", "src");
-const allowedLucideFile = path.normalize(path.join(uiSrc, "components", "timeline-notes", "LucideIcon.vue"));
+const allowedLucideFile = path.normalize(path.join(uiSrc, "components", "notes", "LucideIcon.vue"));
 
 const TARGET_EXTENSIONS = new Set([".vue", ".css", ".js"]);
 
@@ -76,7 +76,7 @@ const checks = [
     name: "No scattered inline SVG in timeline UI",
     test(file, source) {
       if (path.normalize(file) === allowedLucideFile) return [];
-      if (!file.includes(path.join("components", "timeline-notes"))) return [];
+      if (!file.includes(path.join("components", "notes"))) return [];
       return [...source.matchAll(/<svg\b/gi)].map((match) => ({
         file,
         line: lineNumber(source, match.index),

@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from "vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 
 const props = defineProps({
   topicId: {

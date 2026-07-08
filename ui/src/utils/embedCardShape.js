@@ -8,7 +8,7 @@
 // the node components inherit the app context (theme store, the reactive embed store, provides)
 // instead of each spinning up an isolated createApp with none of it. See @antv/x6-vue-shape.
 import { getTeleport, register } from "@antv/x6-vue-shape";
-import EmbedCardNode from "@/components/timeline-notes/EmbedCardNode.vue";
+import EmbedCardNode from "@/components/notes/EmbedCardNode.vue";
 import { EMBED_CARD_SHAPE, EMBED_DEFAULT_HEIGHT, EMBED_DEFAULT_WIDTH } from "./canvasX6.js";
 
 register({

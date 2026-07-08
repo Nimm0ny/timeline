@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import TimelinePage from "@/pages/TimelinePage.vue";
+import NotesPage from "@/pages/NotesPage.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -7,7 +7,7 @@ const router = createRouter({
     {
       path: "/",
       name: "timeline",
-      component: TimelinePage,
+      component: NotesPage,
     },
     {
       path: "/editor",

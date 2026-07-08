@@ -1,11 +1,11 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 
 // W4 反向链接面板：列出指向当前笔记的 incoming [[wikilink]]。折叠区默认收起，
 // 首次展开才拉取（api.getBacklinks，lazy）。悬停/点击本组件只 emit，不自持弹层——
-// 由 EventDetailPane 转发到页面既有「关联预览」机制（定位 + 跨笔记本打开都归页面所有）。
+// 由 NoteDetailPane 转发到页面既有「关联预览」机制（定位 + 跨笔记本打开都归页面所有）。
 const props = defineProps({
   eventId: {
     type: [Number, String],
@@ -73,7 +73,7 @@ function reset() {
   total.value = 0;
 }
 
-// Anchor rect mirrors EventDetailPane.relatedAnchorPayload so the forwarded preview
+// Anchor rect mirrors NoteDetailPane.relatedAnchorPayload so the forwarded preview
 // pins next to the hovered row exactly like a 关联事件 row does.
 function anchorFromEvent(event) {
   const rect = event?.currentTarget?.getBoundingClientRect?.();

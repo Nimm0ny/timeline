@@ -489,7 +489,7 @@ class MarkdownTaskWidget extends WidgetType {
 // 三态：resolved（id 且目标存活，accent + 可点/悬浮）/ dangling（id 但目标已删，muted 不可点）/
 // unbound（裸标题无 id，样式化但不可导航——唯一性归后端定，前端读渲染器不猜）。点击走 mousedown
 // + preventDefault（不把光标移进 token，否则 selectionTouches → 显原文），与 MarkdownTaskWidget 同法；
-// 导航/悬浮预览复用页面既有 pin-related / preview-related（handlers 由 EventDetailPane 注入）。
+// 导航/悬浮预览复用页面既有 pin-related / preview-related（handlers 由 NoteDetailPane 注入）。
 class WikilinkWidget extends WidgetType {
   constructor(display, id, state, handlers) {
     super();

@@ -1,9 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import ColumnConfigPopover from "@/components/timeline-notes/ColumnConfigPopover.vue";
-import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
-import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import ColumnConfigPopover from "@/components/notes/ColumnConfigPopover.vue";
+import HighlightedText from "@/components/notes/HighlightedText.vue";
+import NotebookChip from "@/components/notes/NotebookChip.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import {
   chunkGalleryRows,
   FEED_BOARD_COLUMN_OVERSCAN,
@@ -832,7 +832,7 @@ function openSearch() {
 // Pane-swap drag entry point: only the toolbar's own empty area (the bar itself or
 // its flex spacer) starts a drag — a whitelist so buttons/search/popovers are never
 // hijacked, and any button added later is safe by default (pane-swap-drag-design.md §4).
-// TimelinePage owns the state machine; this only reports the press.
+// NotesPage owns the state machine; this only reports the press.
 function onBarPointerDown(event) {
   const target = event.target;
   if (target !== event.currentTarget && !target.classList?.contains("spacer")) return;

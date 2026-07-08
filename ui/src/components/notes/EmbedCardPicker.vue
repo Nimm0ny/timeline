@@ -1,8 +1,8 @@
 <script setup>
 import { nextTick, ref, watch } from "vue";
 import BaseModal from "@/components/BaseModal.vue";
-import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import HighlightedText from "@/components/notes/HighlightedText.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import { api } from "@/composables/useApi";
 
 // W5 note-embed: search notes and pick one to drop onto the canvas as an embed card.

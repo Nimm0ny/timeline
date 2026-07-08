@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from "vue";
-import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
+import LucideIcon from "@/components/notes/LucideIcon.vue";
 import { attachmentKind } from "@/utils/editorMarkdown";
 
 const props = defineProps({
