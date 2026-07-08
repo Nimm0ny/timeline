@@ -27,7 +27,7 @@ import {
   compareNotesBySort,
   DEFAULT_SORT,
   filterFavoriteNotesByScope,
-  groupTimelineEvents,
+  groupNotes,
   matchesNoteSearch,
   matchesPropertyFilter,
   mindmapRootData,
@@ -771,7 +771,7 @@ function filterNotes({ filter = state.sidebarFilter, propertyFilter = state.prop
 }
 
 const visibleNotes = computed(() => filterNotes());
-const groupedNotes = computed(() => groupTimelineEvents(visibleNotes.value, state.groupBy, "", feedColumns.value, activeSort.value));
+const groupedNotes = computed(() => groupNotes(visibleNotes.value, state.groupBy, "", feedColumns.value, activeSort.value));
 
 const feedEmptyReason = computed(() => {
   if (state.error) return "";

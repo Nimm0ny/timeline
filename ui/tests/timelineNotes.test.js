@@ -27,7 +27,7 @@ import {
   formatNoteDate,
   formatNoteDisplayDate,
   filterFavoriteNotesByScope,
-  groupTimelineEvents,
+  groupNotes,
   isCheckboxChecked,
   mindmapPlainText,
   matchesPropertyFilter,
@@ -98,23 +98,23 @@ const events = [
   },
 ];
 
-test("groupTimelineEvents sorts events and filters by search query", () => {
-  const groups = groupTimelineEvents(events, "year", "trade");
+test("groupNotes sorts events and filters by search query", () => {
+  const groups = groupNotes(events, "year", "trade");
 
   assert.equal(groups.length, 1);
   assert.equal(groups[0].key, "1840");
   assert.deepEqual(groups[0].items.map((event) => event.id), [1]);
 });
 
-test("groupTimelineEvents keeps chronological order within grouped years", () => {
-  const groups = groupTimelineEvents(events, "year", "");
+test("groupNotes keeps chronological order within grouped years", () => {
+  const groups = groupNotes(events, "year", "");
 
   assert.deepEqual(groups.map((group) => group.key), ["1840", "1911"]);
   assert.deepEqual(groups[0].items.map((event) => event.id), [3, 1]);
 });
 
-test("groupTimelineEvents can search by resolved option label", () => {
-  const groups = groupTimelineEvents(events, "year", "政治", [tagsColumn]);
+test("groupNotes can search by resolved option label", () => {
+  const groups = groupNotes(events, "year", "政治", [tagsColumn]);
   assert.deepEqual(groups.flatMap((group) => group.items.map((event) => event.id)), [2]);
 });
 
@@ -146,7 +146,7 @@ test("buildNotePreview and search can use lightweight index preview text", () =>
   const event = { headline: "Index Row", preview: "轻量索引预览文本", extra: {} };
 
   assert.equal(buildNotePreview(event, 20), "轻量索引预览文本");
-  assert.equal(groupTimelineEvents([event], "era", "索引").length, 1);
+  assert.equal(groupNotes([event], "era", "索引").length, 1);
 });
 
 test("buildGlobalFavoriteNotes returns live favorites across topics in timeline order", () => {
@@ -258,7 +258,7 @@ test("filterFavoriteNotesByScope supports current notebook, recent, topic, type,
 test("search can use lightweight index full search text outside preview", () => {
   const event = { headline: "Index Row", preview: "首段摘要", searchText: "首段摘要 附件名 深层正文关键词", extra: {} };
 
-  assert.equal(groupTimelineEvents([event], "era", "深层正文关键词").length, 1);
+  assert.equal(groupNotes([event], "era", "深层正文关键词").length, 1);
 });
 
 test("matchesNoteSearch prefers searchText before rebuilding runtime haystacks", () => {
@@ -269,8 +269,8 @@ test("matchesNoteSearch prefers searchText before rebuilding runtime haystacks",
     extra: { place: "上海" },
   };
 
-  assert.equal(groupTimelineEvents([event], "era", "索引关键字").length, 1);
-  assert.equal(groupTimelineEvents([event], "era", "这里没有那个词").length, 0);
+  assert.equal(groupNotes([event], "era", "索引关键字").length, 1);
+  assert.equal(groupNotes([event], "era", "这里没有那个词").length, 0);
 });
 
 test("mindmapPlainText flattens a snapshot tree into searchable text", () => {
@@ -310,7 +310,7 @@ test("buildNotePreview and search can bridge mindmap bodyJson text", () => {
   };
 
   assert.equal(buildNotePreview(event, 40), "中心主题 分支甲");
-  assert.equal(groupTimelineEvents([event], "era", "分支甲").length, 1);
+  assert.equal(groupNotes([event], "era", "分支甲").length, 1);
 });
 
 test("noteHasDate/formatNoteDate handle undated notes explicitly", () => {
@@ -589,8 +589,8 @@ test("date formatters collapse year-only precision but keep genuine days (and BC
   assert.equal(formatNoteDisplayDate({ displayLabel: "未知" }), "未知");
 });
 
-test("groupTimelineEvents era subtitle renders BC year ranges as 公元前", () => {
-  const groups = groupTimelineEvents(
+test("groupNotes era subtitle renders BC year ranges as 公元前", () => {
+  const groups = groupNotes(
     [
       { id: 1, era: "史前时期", dateParts: { year: -1700000, month: 1, day: 1 }, dateKey: -17000000101 },
       { id: 2, era: "史前时期", dateParts: { year: -700000, month: 1, day: 1 }, dateKey: -7000000101 },
@@ -708,25 +708,25 @@ test("propertyHref builds safe hrefs and neutralizes script schemes", () => {
   assert.equal(propertyHref("text", "x"), "");
 });
 
-test("groupTimelineEvents reverses era group order for a descending time sort", () => {
+test("groupNotes reverses era group order for a descending time sort", () => {
   const events = [
     { id: 1, dateKey: 18000101, dateParts: { year: 1800, month: 1, day: 1 }, era: "清代" },
     { id: 2, dateKey: 19000101, dateParts: { year: 1900, month: 1, day: 1 }, era: "民国" },
   ];
-  const asc = groupTimelineEvents(events, "era", "", [], { field: "time", dir: 1 });
-  const desc = groupTimelineEvents(events, "era", "", [], { field: "time", dir: -1 });
+  const asc = groupNotes(events, "era", "", [], { field: "time", dir: 1 });
+  const desc = groupNotes(events, "era", "", [], { field: "time", dir: -1 });
   assert.deepEqual(asc.map((group) => group.title), ["清代", "民国"]);
   assert.deepEqual(desc.map((group) => group.title), ["民国", "清代"]);
   assert.deepEqual(desc[0].items.map((event) => event.id), [2]);
 });
 
-test("groupTimelineEvents by year buckets undated notes into 未定时间, not a null-year group", () => {
+test("groupNotes by year buckets undated notes into 未定时间, not a null-year group", () => {
   const events = [
     { id: 1, dateKey: 19000101, dateParts: { year: 1900, month: 1, day: 1 } },
     { id: 2, hasDate: false },
     { id: 3, dateKey: 18000101, dateParts: { year: 1800, month: 1, day: 1 } },
   ];
-  const groups = groupTimelineEvents(events, "year", "", [], { field: "time", dir: 1 });
+  const groups = groupNotes(events, "year", "", [], { field: "time", dir: 1 });
   const titles = groups.map((group) => group.title);
   assert.ok(titles.includes("1800") && titles.includes("1900") && titles.includes("未定时间"));
   assert.ok(!titles.some((title) => title.includes("null") || title === "")); // no fabricated null-year bucket

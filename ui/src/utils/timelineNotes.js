@@ -203,7 +203,7 @@ function normalizeColumnOptions(options, type) {
   return normalized;
 }
 
-export function compareTimelineEvents(left, right) {
+export function compareNotes(left, right) {
   const leftHasDate = noteHasDate(left);
   const rightHasDate = noteHasDate(right);
   if (leftHasDate !== rightHasDate) return leftHasDate ? -1 : 1;
@@ -480,7 +480,7 @@ export function buildBoardGroups(events, column, sort = null) {
   }
   const ordered = [...buckets.values()];
   if (unassigned.items.length) ordered.push(unassigned);
-  const comparator = sort ? compareNotesBySort(sort) : compareTimelineEvents;
+  const comparator = sort ? compareNotesBySort(sort) : compareNotes;
   for (const bucket of ordered) bucket.items.sort(comparator);
   return ordered;
 }
@@ -692,7 +692,7 @@ function timeLevelCompare(dir) {
     const rb = timeSortRank(b);
     if (ra.sunk !== rb.sunk) return ra.sunk ? 1 : -1;
     // Sunk events (「更早」 bucket, undated) never reverse — keep them chronological
-    // by dateKey (legacy compareTimelineEvents order) so the default stays today's.
+    // by dateKey (legacy compareNotes order) so the default stays today's.
     if (ra.sunk) return ra.key - rb.key || (a?.dateKey || 0) - (b?.dateKey || 0);
     return (ra.key - rb.key) * dir;
   };
@@ -810,7 +810,7 @@ export function emptyTimelineColumnKeys(columns, events) {
 export function buildGlobalFavoriteNotes(events) {
   return [...(events || [])]
     .filter((event) => event?.favorite && !event?.deletedAt)
-    .sort(compareTimelineEvents);
+    .sort(compareNotes);
 }
 
 function favoriteRecencyTimestamp(event) {
@@ -821,7 +821,7 @@ function favoriteRecencyTimestamp(event) {
 
 export function buildRecentFavoriteNotes(events, limit = 5) {
   return [...(events || [])]
-    .sort((left, right) => favoriteRecencyTimestamp(right) - favoriteRecencyTimestamp(left) || compareTimelineEvents(left, right))
+    .sort((left, right) => favoriteRecencyTimestamp(right) - favoriteRecencyTimestamp(left) || compareNotes(left, right))
     .slice(0, Math.max(0, Number(limit) || 0));
 }
 
@@ -1193,8 +1193,8 @@ function buildEraSubtitle(items) {
 // `sort` ({ field, dir }) orders the flattened list before era bucketing, so a
 // descending time sort reverses both the era group order (buckets follow first
 // appearance) and the within-group order. Null → the default chronological order.
-export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", columns = [], sort = null) {
-  const comparator = sort ? compareNotesBySort(sort, columns) : compareTimelineEvents;
+export function groupNotes(events, groupBy = "era", searchQuery = "", columns = [], sort = null) {
+  const comparator = sort ? compareNotesBySort(sort, columns) : compareNotes;
   const filtered = [...(events || [])]
     .sort(comparator)
     .filter((event) => matchesNoteSearch(event, searchQuery, columns));
@@ -1419,7 +1419,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = [])
 
     const eras = [];
     const eraMap = new Map();
-    for (const event of (liveNotesByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
+    for (const event of (liveNotesByTopic.get(topic.id) || []).sort(compareNotes)) {
       const era = String(event?.era || "未分组").trim() || "未分组";
       if (!eraMap.has(era)) {
         eraMap.set(era, { era, count: 0 });

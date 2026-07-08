@@ -2,7 +2,7 @@ import { reactive } from "vue";
 import { api } from "./useApi.js";
 import {
   buildNotePreview,
-  compareTimelineEvents,
+  compareNotes,
   mergeTopicNotePage,
   mindmapPlainText,
   planTopicPageFetch,
@@ -129,7 +129,7 @@ function detailSearchText(note = {}) {
 
 function minMaxNotes(notes) {
   if (!notes.length) return { min: null, max: null };
-  const sorted = [...notes].sort(compareTimelineEvents);
+  const sorted = [...notes].sort(compareNotes);
   return { min: sorted[0], max: sorted[sorted.length - 1] };
 }
 
@@ -204,7 +204,7 @@ export function useNotesStore() {
   }
 
   function replaceNotes(notes) {
-    state.notesIndex.splice(0, state.notesIndex.length, ...(notes || []).map(normalizeIndexNote).sort(compareTimelineEvents));
+    state.notesIndex.splice(0, state.notesIndex.length, ...(notes || []).map(normalizeIndexNote).sort(compareNotes));
   }
 
   function topicPageState(topicId) {
@@ -219,7 +219,7 @@ export function useNotesStore() {
     const mergedTopicNotes = mergeTopicNotePage(existingTopicNotes, normalized, { append });
     const others = state.notesIndex.filter((note) => note.topicId !== id);
     state.notesIndex.splice(0, state.notesIndex.length, ...others, ...mergedTopicNotes);
-    state.notesIndex.sort(compareTimelineEvents);
+    state.notesIndex.sort(compareNotes);
     for (const note of notes || []) {
       if (!hasFullNoteDetail(note)) continue;
       const detail = normalizeDetailNote(note, id);
@@ -253,7 +253,7 @@ export function useNotesStore() {
 
   function notesForTopic(topicId) {
     const id = Number(topicId);
-    return state.notesIndex.filter((note) => note.topicId === id).sort(compareTimelineEvents);
+    return state.notesIndex.filter((note) => note.topicId === id).sort(compareNotes);
   }
 
   function applyTopicBounds(topic, bounds) {
@@ -413,7 +413,7 @@ export function useNotesStore() {
     } else {
       state.notesIndex.push(indexNote);
     }
-    state.notesIndex.sort(compareTimelineEvents);
+    state.notesIndex.sort(compareNotes);
     writeDetailCache(detail);
     updateTopicSummary(indexNote.topicId);
     return detail;

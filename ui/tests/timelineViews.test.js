@@ -301,7 +301,7 @@ test("compareNotesBySort sorts title localized and timestamps with missing-sinks
 
 test("time sort keeps chronological order INSIDE the 更早 bucket (zero-change default)", () => {
   // Two 更早 events whose id order disagrees with dateKey order: the sunk bucket must
-  // still order by dateKey (legacy compareTimelineEvents behavior), not by id.
+  // still order by dateKey (legacy compareNotes behavior), not by id.
   const events = [
     { id: 10, dateKey: -70000101, era: "更早" }, // older
     { id: 3, dateKey: -50000101, era: "更早" }, // newer
