@@ -176,7 +176,7 @@ function capFullBudget(tiers, fullCandidates) {
 }
 
 // Fetch + render one T2 card's full markdown, once per canvas session (§7.4). Rides the shared
-// detail cache via the resolveDetail prop (= ensureEventDetail) and the read-mode cached renderer;
+// detail cache via the resolveDetail prop (= ensureNoteDetail) and the read-mode cached renderer;
 // the HTML lands in embedDetailStore, which EmbedCardNode reads. Fail-open: any miss leaves the
 // card at its preview, never blank.
 async function resolveFullDetail(node) {

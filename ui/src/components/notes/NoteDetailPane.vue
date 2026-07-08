@@ -417,8 +417,8 @@ function snapshotDraft() {
 
 const isDirty = computed(() => inEditMode.value && snapshotDraft() !== initialSnapshot.value);
 
-function applyDraft(sourceEvent) {
-  const next = buildEditorDraft(sourceEvent, topicColumns.value);
+function applyDraft(sourceNote) {
+  const next = buildEditorDraft(sourceNote, topicColumns.value);
   draft.id = next.id;
   draft.dateYear = next.dateYear;
   draft.dateMonth = next.dateMonth;
@@ -438,7 +438,7 @@ function applyDraft(sourceEvent) {
   revealedKeys.value = new Set();
   closeMetaEditors();
   addPropOpen.value = false;
-  if (!sourceEvent) {
+  if (!sourceNote) {
     createSessionSeq.value += 1;
   }
   editorResetSeq.value += 1;

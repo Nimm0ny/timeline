@@ -6,7 +6,7 @@ import {
   attachmentKind,
   buildAttachmentMarkdown,
   buildBlockInsertion,
-  filterRelatedEventCandidates,
+  filterRelatedNoteCandidates,
   markdownListContinuation,
   selectionTouchesRange,
   wrapMarkdownAtRange,
@@ -65,7 +65,7 @@ test("related event search excludes unavailable candidates and matches metadata"
     { id: 4, headline: "Republic Revolution", era: "Modern China", tags: ["politics"] },
   ];
 
-  const results = filterRelatedEventCandidates(candidates, {
+  const results = filterRelatedNoteCandidates(candidates, {
     currentId: 1,
     selectedIds: [4],
     query: "1840",

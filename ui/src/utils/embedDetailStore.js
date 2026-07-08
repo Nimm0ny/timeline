@@ -1,6 +1,6 @@
 // Reactive per-canvas full-markdown store for note-embed cards at the T2 "full" tier (W5b-2,
 // §7.2/§7.4). When a card is zoomed large enough (§7.3), CanvasEditor fetches the embedded note's
-// detail through the shared LRU-40 detail cache (ensureEventDetail), renders it once with the
+// detail through the shared LRU-40 detail cache (ensureNoteDetail), renders it once with the
 // read-mode markdown renderer, and stashes the HTML here; EmbedCardNode reads it and shows the
 // full note in place of the 120-char preview.
 //

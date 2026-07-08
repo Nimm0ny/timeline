@@ -1095,7 +1095,7 @@ function hasReadableAttachment(attachment = {}) {
   );
 }
 
-function hasReadableRelatedEvent(event = {}) {
+function hasReadableRelatedNote(event = {}) {
   return Boolean(
     event.id &&
       (String(event.headline || "").trim() ||
@@ -1107,7 +1107,7 @@ function hasReadableRelatedEvent(event = {}) {
 export function buildReadableDetailGroups(event) {
   return {
     attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment),
-    relatedEvents: (Array.isArray(event?.relatedEvents) ? event.relatedEvents : []).filter(hasReadableRelatedEvent),
+    relatedEvents: (Array.isArray(event?.relatedEvents) ? event.relatedEvents : []).filter(hasReadableRelatedNote),
   };
 }
 
@@ -1376,12 +1376,12 @@ export function sortBookshelfTree(tree, mode = "default") {
 }
 
 export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []) {
-  const liveEventsByTopic = new Map();
+  const liveNotesByTopic = new Map();
   for (const event of Array.isArray(allEvents) ? allEvents : []) {
     if (!event || event.deletedAt) continue;
     const topicId = Number(event.topicId);
-    if (!liveEventsByTopic.has(topicId)) liveEventsByTopic.set(topicId, []);
-    liveEventsByTopic.get(topicId).push(event);
+    if (!liveNotesByTopic.has(topicId)) liveNotesByTopic.set(topicId, []);
+    liveNotesByTopic.get(topicId).push(event);
   }
 
   const shelves = [];
@@ -1419,7 +1419,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []
 
     const eras = [];
     const eraMap = new Map();
-    for (const event of (liveEventsByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
+    for (const event of (liveNotesByTopic.get(topic.id) || []).sort(compareTimelineEvents)) {
       const era = String(event?.era || "未分组").trim() || "未分组";
       if (!eraMap.has(era)) {
         eraMap.set(era, { era, count: 0 });
@@ -1467,7 +1467,7 @@ export function mergeTopicNotePage(existing = [], incoming = [], { append = fals
   return [...existingList, ...incomingList.filter((event) => !seen.has(event.id))];
 }
 
-// Decide whether ensureTopicEvents should hit the network and which cursor to
+// Decide whether ensureTopicNotes should hit the network and which cursor to
 // thread. Serves cache for an already-loaded topic (unless forced); on append,
 // only fetches when there is another page (hasMore) AND a cursor to advance past,
 // so it never silently refetches page 1.

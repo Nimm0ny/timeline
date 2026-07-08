@@ -333,7 +333,7 @@ function pickNoteType(type) {
   emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-event");
 }
 
-function flatEvents() {
+function flatNotes() {
   return props.groups.flatMap((group) => group.items);
 }
 
@@ -341,7 +341,7 @@ function isLinearView(view) {
   return LINEAR_VIEWS.has(view);
 }
 
-function buildProjectedEvent(event, columns, { previewLength = 0 } = {}) {
+function buildProjectedNote(event, columns, { previewLength = 0 } = {}) {
   const resolvedColumnValues = {};
   const chipsByColumn = {};
   for (const column of columns || []) {
@@ -379,7 +379,7 @@ function buildTimelineRows(groups, columns) {
       groupKey: group.key,
       isFirstInGroup: index === 0,
       isLastInGroup: index === items.length - 1,
-      projected: buildProjectedEvent(event, columns, { previewLength: 90 }),
+      projected: buildProjectedNote(event, columns, { previewLength: 90 }),
     })) || []),
   ]);
 }
@@ -402,7 +402,7 @@ function buildOutlineRows(groups) {
           kind: "event-row",
           key: `event:${event.id}`,
           groupKey: group.key,
-          projected: buildProjectedEvent(event, [], {}),
+          projected: buildProjectedNote(event, [], {}),
         })) || [])
       );
     }
@@ -456,7 +456,7 @@ const GROUP_BY_OPTIONS = [
   { key: "month", label: "月", icon: "calendar" },
 ];
 
-const sortedFlatEvents = computed(() => [...flatEvents()].sort(compareNotesBySort(props.sort, props.columns)));
+const sortedFlatNotes = computed(() => [...flatNotes()].sort(compareNotesBySort(props.sort, props.columns)));
 
 // Fields the active view offers (favorites is flat and adds 收藏时间).
 function sortOptions() {
@@ -589,12 +589,12 @@ function boardColumn() {
 }
 
 const boardGroups = computed(() =>
-  buildBoardGroups(flatEvents(), boardColumn(), props.sort).map((bucket) => ({
+  buildBoardGroups(flatNotes(), boardColumn(), props.sort).map((bucket) => ({
     ...bucket,
-    projectedItems: bucket.items.map((event) => buildProjectedEvent(event, [], { previewLength: 70 })),
+    projectedItems: bucket.items.map((event) => buildProjectedNote(event, [], { previewLength: 70 })),
   }))
 );
-const boardEventIndexById = computed(() => {
+const boardNoteIndexById = computed(() => {
   const map = new Map();
   for (const bucket of boardGroups.value) {
     bucket.projectedItems.forEach((projected, index) => {
@@ -632,7 +632,7 @@ const boardRenderedBuckets = computed(() =>
 // Gallery view: every entry as a card, ordered by the active sort; the primary
 // image (thumb preferred) rides the index DTO, empty for imageless entries (which
 // render a placeholder).
-const galleryEvents = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, [], {})));
+const galleryNotes = computed(() => sortedFlatNotes.value.map((event) => buildProjectedNote(event, [], {})));
 
 function eventThumb(event) {
   return event?.thumbUrl || event?.imageUrl || "";
@@ -734,8 +734,8 @@ function rowGrid() {
 }
 
 const timelineRows = computed(() => buildTimelineRows(props.groups, visibleColumnsComputed.value));
-const tableRows = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, visibleColumnsComputed.value, {})));
-const listRows = computed(() => sortedFlatEvents.value.map((event) => buildProjectedEvent(event, [], { previewLength: 80 })));
+const tableRows = computed(() => sortedFlatNotes.value.map((event) => buildProjectedNote(event, visibleColumnsComputed.value, {})));
+const listRows = computed(() => sortedFlatNotes.value.map((event) => buildProjectedNote(event, [], { previewLength: 80 })));
 const outlineRows = computed(() => buildOutlineRows(props.groups));
 
 const activeLinearRows = computed(() => {
@@ -753,7 +753,7 @@ const activeLinearRows = computed(() => {
   }
 });
 
-const activeLinearIndexByEventId = computed(() => {
+const activeLinearIndexByNoteId = computed(() => {
   const map = new Map();
   activeLinearRows.value.forEach((item, index) => {
     if (item.kind === "event-row") map.set(item.projected.event.id, index);
@@ -783,8 +783,8 @@ const linearVirtualItems = linearVirtual.virtualItems;
 const linearTopSpacerPx = linearVirtual.topSpacerPx;
 const linearBottomSpacerPx = linearVirtual.bottomSpacerPx;
 
-const galleryRows = computed(() => chunkGalleryRows(galleryEvents.value, galleryMetrics.value.itemsPerRow));
-const galleryIndexByEventId = computed(() => {
+const galleryRows = computed(() => chunkGalleryRows(galleryNotes.value, galleryMetrics.value.itemsPerRow));
+const galleryIndexByNoteId = computed(() => {
   const map = new Map();
   galleryRows.value.forEach((row, rowIndex) => {
     for (const projected of row.items) map.set(projected.event.id, rowIndex);
@@ -976,13 +976,13 @@ function focusDate(value) {
   nextTick(() => {
     const view = effectiveView();
     if (isLinearView(view)) {
-      const index = activeLinearIndexByEventId.value.get(target.id);
+      const index = activeLinearIndexByNoteId.value.get(target.id);
       if (Number.isInteger(index)) {
         linearVirtual.scrollToIndex(index, "center");
         return;
       }
     } else if (view === "gallery") {
-      const index = galleryIndexByEventId.value.get(target.id);
+      const index = galleryIndexByNoteId.value.get(target.id);
       if (Number.isInteger(index)) {
         galleryVirtual.scrollToIndex(index, "center");
         return;
@@ -1078,19 +1078,19 @@ watch(
     nextTick(() => {
       const view = effectiveView();
       if (isLinearView(view)) {
-        const index = activeLinearIndexByEventId.value.get(eventId);
+        const index = activeLinearIndexByNoteId.value.get(eventId);
         if (Number.isInteger(index)) {
           linearVirtual.scrollToIndex(index, view === "timeline" || view === "outline" ? "center" : "auto");
           return;
         }
       } else if (view === "gallery") {
-        const index = galleryIndexByEventId.value.get(eventId);
+        const index = galleryIndexByNoteId.value.get(eventId);
         if (Number.isInteger(index)) {
           galleryVirtual.scrollToIndex(index, "center");
           return;
         }
       } else if (view === "board") {
-        const match = boardEventIndexById.value.get(eventId);
+        const match = boardNoteIndexById.value.get(eventId);
         if (match && feedRef.value) {
           const cardHeight = boardEstimateSize(match.bucketId);
           feedRef.value.scrollTop = Math.max(0, match.index * cardHeight - Math.floor(feedRef.value.clientHeight / 3));

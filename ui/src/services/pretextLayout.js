@@ -106,7 +106,7 @@ function legacyBodyFromItems(items) {
     .join(" ");
 }
 
-function bodyTextFromEvent(event) {
+function bodyTextFromNote(event) {
   return normalizeInlineText(plainTextFromMarkdown(event?.bodyMarkdown) || legacyBodyFromItems(event?.items));
 }
 
@@ -300,7 +300,7 @@ export function buildSingleLinePreview(text, preset = "timelineCardPreview", wid
 export function buildTimelineCardLayout(event, options = {}) {
   const settings = { ...TIMELINE_CARD_DEFAULTS, ...options };
   const title = normalizeInlineText(event?.headline || event?.displayLabel || "");
-  const bodyText = bodyTextFromEvent(event);
+  const bodyText = bodyTextFromNote(event);
   const tags = collectNoteTags(event).slice(0, 3);
   const titleLayout = safeMaterializeTextLayout(
     title,

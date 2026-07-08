@@ -1,5 +1,5 @@
 /**
- * @typedef {Object} TimelineEventNode
+ * @typedef {Object} NoteNode
  * @property {number} id
  * @property {"event"} nodeType
  * @property {number} dateKey

@@ -868,7 +868,7 @@ const topicPropertyUsage = computed(() => {
   if (state.ribbon !== "tags" || !props.propertyDataReady) return new Map();
   const usage = new Map();
   for (const topic of props.topics || []) {
-    const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
+    const topicEvents = liveNotesByTopic.value.get(topic.id) || [];
     usage.set(topic.id, buildPropertyUsage(topic.columns, topicEvents));
   }
   return usage;
@@ -942,15 +942,15 @@ function isThisWeek(event) {
   return date >= start && date < end;
 }
 
-const liveEvents = computed(() => props.events.filter((event) => !event.deletedAt));
-const deletedEvents = computed(() => props.events.filter((event) => event.deletedAt));
+const liveNotes = computed(() => props.events.filter((event) => !event.deletedAt));
+const deletedNotes = computed(() => props.events.filter((event) => event.deletedAt));
 
 function countForFilter(filter) {
-  if (filter === "today") return liveEvents.value.filter(isToday).length;
-  if (filter === "week") return liveEvents.value.filter(isThisWeek).length;
-  if (filter === "favorite") return liveEvents.value.filter((event) => event.favorite).length;
-  if (filter === "trash") return deletedEvents.value.length;
-  return liveEvents.value.length;
+  if (filter === "today") return liveNotes.value.filter(isToday).length;
+  if (filter === "week") return liveNotes.value.filter(isThisWeek).length;
+  if (filter === "favorite") return liveNotes.value.filter((event) => event.favorite).length;
+  if (filter === "trash") return deletedNotes.value.length;
+  return liveNotes.value.length;
 }
 
 const quickFilters = computed(() => [
@@ -961,7 +961,7 @@ const quickFilters = computed(() => [
   { id: "trash", label: "回收站", count: countForFilter("trash"), icon: "archive" },
 ]);
 
-const liveEventsByTopic = computed(() => {
+const liveNotesByTopic = computed(() => {
   if (state.ribbon !== "tags" || !props.propertyDataReady) return new Map();
   const grouped = new Map();
   for (const event of props.allEvents || []) {
@@ -976,7 +976,7 @@ const liveEventsByTopic = computed(() => {
 const propertyTopics = computed(() => {
   if (state.ribbon !== "tags" || !props.propertyDataReady) return [];
   return props.topics.map((topic) => {
-    const topicEvents = liveEventsByTopic.value.get(topic.id) || [];
+    const topicEvents = liveNotesByTopic.value.get(topic.id) || [];
     return {
       topic,
       active: topic.id === props.activeTopicId,
@@ -999,9 +999,9 @@ function filterPropertyOption(topicId, key, value) {
 }
 
 const stats = computed(() => ({
-  notes: liveEvents.value.length,
-  week: liveEvents.value.filter(isThisWeek).length,
-  favorite: liveEvents.value.filter((event) => event.favorite).length,
+  notes: liveNotes.value.length,
+  week: liveNotes.value.filter(isThisWeek).length,
+  favorite: liveNotes.value.filter((event) => event.favorite).length,
 }));
 const favoritesPanelState = computed(() => props.favoritesPanel || {});
 const favoriteEmptyCopy = computed(() => {
@@ -1014,11 +1014,11 @@ function selectFavoriteScope(scope) {
   emit("update:favorite-scope", scope);
 }
 
-function openFavoriteEvent(id) {
+function openFavoriteNote(id) {
   emit("open-favorite-event", id);
 }
 
-function favoriteEventTopicLabel(topicId) {
+function favoriteNoteTopicLabel(topicId) {
   const topic = props.topics.find((item) => item.id === Number(topicId));
   return topic?.title || topic?.name || "未知笔记本";
 }
@@ -1037,7 +1037,7 @@ const weeklyTrend = computed(() => {
   };
   const currentStart = startOfWeek(new Date());
   const weekMs = 7 * 24 * 3600 * 1000;
-  for (const event of liveEvents.value) {
+  for (const event of liveNotes.value) {
     const date = eventCreatedDate(event);
     if (!date) continue;
     const diff = Math.round((currentStart - startOfWeek(date)) / weekMs);
@@ -1381,14 +1381,14 @@ watch(typeMenu, (value) => {
                   :key="item.id"
                   type="button"
                   class="fav-recent-row"
-                  @click="openFavoriteEvent(item.id)"
+                  @click="openFavoriteNote(item.id)"
                 >
                   <span class="fav-recent-ic">
                     <LucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : item.noteType === 'canvas' ? 'canvas' : 'note'" :stroke-width="1.5" />
                   </span>
                   <span class="fav-recent-main">
                     <span class="fav-recent-title">{{ item.headline || item.displayLabel || "未命名笔记" }}</span>
-                    <span class="fav-recent-meta">{{ favoriteEventTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : item.noteType === "canvas" ? " · 画布" : "") }}</span>
+                    <span class="fav-recent-meta">{{ favoriteNoteTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : item.noteType === "canvas" ? " · 画布" : "") }}</span>
                   </span>
                   <LucideIcon name="arrowRight" :stroke-width="1.5" />
                 </button>

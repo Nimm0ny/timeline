@@ -23,7 +23,7 @@ function indexPage(ids) {
 // Regression for the stale-response race (wave-1 review P0): a rapid 正序⇄倒序
 // toggle puts two forced page-1 fetches in flight; if the earlier (ascending)
 // one resolves last it must NOT clobber the current (descending) page.
-test("ensureTopicEvents drops a superseded opposite-direction response", async () => {
+test("ensureTopicNotes drops a superseded opposite-direction response", async () => {
   const store = useNotesStore();
   const original = api.getNotes;
   const resolvers = {};

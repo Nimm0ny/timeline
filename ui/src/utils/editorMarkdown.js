@@ -99,7 +99,7 @@ export function selectionTouchesRange(ranges, from, to) {
   );
 }
 
-export function filterRelatedEventCandidates(events, { currentId = null, selectedIds = [], query = "", limit = 8 } = {}) {
+export function filterRelatedNoteCandidates(events, { currentId = null, selectedIds = [], query = "", limit = 8 } = {}) {
   const selected = new Set(selectedIds.map((id) => Number(id)));
   const normalizedQuery = normalizeSearch(query);
   return (Array.isArray(events) ? events : [])
