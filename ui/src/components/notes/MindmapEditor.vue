@@ -29,7 +29,7 @@ import {
   X6_MINDMAP_FORMAT,
   x6CellsToMarkdown,
 } from "@/utils/mindmapX6.js";
-import { mindmapRootData } from "@/utils/timelineNotes.js";
+import { mindmapRootData } from "@/utils/noteUtils.js";
 import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 

@@ -21,7 +21,7 @@ import {
   propertyHref,
   propertyTypeIcon,
   resolvePropertyChips,
-} from "@/utils/timelineNotes";
+} from "@/utils/noteUtils";
 import { renderCachedMarkdownToHtml } from "@/utils/markdownPreview";
 import {
   attachmentIconName,
@@ -218,7 +218,7 @@ function onCreateOption(payload) {
 
 // Obsidian-style metadata: every property row carries a small type icon so the
 // 属性 area reads as scannable metadata (date/group join the same list). Glyphs
-// come from the shared PROPERTY_TYPE_ICONS map (see utils/timelineNotes).
+// come from the shared PROPERTY_TYPE_ICONS map (see utils/noteUtils).
 function propertyIcon(column) {
   return propertyTypeIcon(column?.type);
 }

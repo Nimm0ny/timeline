@@ -16,7 +16,7 @@ export const GHOST_OFFSET = 14; // px the ghost chip trails the pointer by (both
 export const COMMIT_PENETRATION = 200;
 
 // Horizontal [lo, hi] span each column paints at, for the active nav/detail combo.
-// Mirrors the grid-template-columns + `order` rules in timeline-notes.css and the
+// Mirrors the grid-template-columns + `order` rules in notes.css and the
 // resizer math (docs/layout-swap-design.md §1/§7). W = viewport width, L = painted
 // sidebar width, R = painted detail width; a closed detail collapses to zero width.
 export function paneSpans({ W, L, R, navRight, detailCenter, rightOpen = true }) {

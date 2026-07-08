@@ -18,7 +18,7 @@ import {
   reorderSortLevels,
   resolveDisplayStyle,
   sortFieldsForView,
-} from "../src/utils/timelineNotes.js";
+} from "../src/utils/noteUtils.js";
 
 function sortIds(events, sort, columns = []) {
   return [...events].sort(compareNotesBySort(sort, columns)).map((event) => event.id);

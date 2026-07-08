@@ -7,7 +7,7 @@ import {
   canChangePropertyType,
   editablePropertyTypeChoices,
   serializeTopicColumnsDraft,
-} from "@/utils/timelineNotes";
+} from "@/utils/noteUtils";
 
 const props = defineProps({
   columns: {

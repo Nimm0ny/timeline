@@ -17,7 +17,7 @@ import {
   PROPERTY_TYPE_LABELS,
   propertyTypeIcon,
   resolveTopicCreateShelfName,
-} from "@/utils/timelineNotes";
+} from "@/utils/noteUtils";
 
 const props = defineProps({
   brand: {

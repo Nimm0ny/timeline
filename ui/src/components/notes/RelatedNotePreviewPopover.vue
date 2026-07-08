@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import LucideIcon from "@/components/notes/LucideIcon.vue";
-import { buildNotePreview, formatNoteDisplayDate } from "@/utils/timelineNotes";
+import { buildNotePreview, formatNoteDisplayDate } from "@/utils/noteUtils";
 
 const props = defineProps({
   error: {

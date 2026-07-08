@@ -1,5 +1,5 @@
 import { buildSvgTextBlock, requirePretextSupport } from "@/services/pretextLayout";
-import { normalizeDisplayNodes } from "@/models/timelineNodes";
+import { normalizeDisplayNodes } from "@/models/noteNodes";
 
 function escapeXml(value) {
   return String(value || "")

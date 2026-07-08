@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeNoteNode, normalizeSummaryNode } from "../src/models/timelineNodes.js";
+import { normalizeNoteNode, normalizeSummaryNode } from "../src/models/noteNodes.js";
 
 test("normalizeNoteNode preserves structured event fields", () => {
   const node = normalizeNoteNode({

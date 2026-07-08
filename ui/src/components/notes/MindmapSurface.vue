@@ -10,7 +10,7 @@ import {
   normalizeTags,
   parseTagInput,
 } from "@/utils/mindmapX6.js";
-import { DEFAULT_MINDMAP_LAYOUT, MINDMAP_LAYOUTS } from "@/utils/timelineNotes.js";
+import { DEFAULT_MINDMAP_LAYOUT, MINDMAP_LAYOUTS } from "@/utils/noteUtils.js";
 
 // Center-column host for a mindmap note (D-2: 中栏内嵌 + 可全屏). Owns the frame
 // chrome (back / title / save status / fullscreen), the editing toolbar, and the

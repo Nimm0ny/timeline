@@ -2,7 +2,7 @@
 // note's title/preview; on canvas open we fetch every embedded id in ONE batch-preview request
 // and fill this store, so N cards cost O(1) round-trips and pan/zoom triggers zero fetches.
 //
-// Kept SEPARATE from timelineNotes.js's EVENT_PREVIEW_CACHE on purpose: that one is a plain
+// Kept SEPARATE from noteUtils.js's EVENT_PREVIEW_CACHE on purpose: that one is a plain
 // (non-reactive) Map, but an embed card must re-render the instant its batch lands — that needs
 // Vue reactivity. Keyed by String(noteId). A requested id the backend omits is marked "missing"
 // (deleted/inaccessible target → tombstone, §7.5). An id that was never requested returns

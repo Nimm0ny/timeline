@@ -3,7 +3,7 @@
 // knobs (accent/background/foreground/contrast/fonts) overlay recomputed groups
 // on top of the chosen base. See docs/appearance-system-design.md.
 
-// Light = the exact current timeline-notes.css :root values (zero-drift default).
+// Light = the exact current notes.css :root values (zero-drift default).
 export const LIGHT_TOKENS = {
   "--accent": "#7b68d9",
   "--accent-hover": "#6a56cf",

@@ -6,7 +6,7 @@ import {
   mergeTopicNotePage,
   mindmapPlainText,
   planTopicPageFetch,
-} from "../utils/timelineNotes.js";
+} from "../utils/noteUtils.js";
 import { plainTextFromMarkdown } from "../utils/markdownPreview.js";
 
 const DEFAULT_TOPIC_PAGE_SIZE = 100;

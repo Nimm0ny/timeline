@@ -18,7 +18,7 @@
 最小上下文入口：
 
 - 前端入口：`ui/src/pages/NotesPage.vue`
-- 前端样式：`ui/src/styles/main.css`、`ui/src/styles/timeline-notes.css`
+- 前端样式：`ui/src/styles/main.css`、`ui/src/styles/notes.css`
 - 图标入口：`ui/src/components/notes/LucideIcon.vue`
 - 时间线组件：`ui/src/components/notes/`
 - API 封装：`ui/src/composables/useApi.js`
@@ -93,7 +93,7 @@
 
 ## 7. 颜色与装饰
 
-- 以现有 `ui/src/styles/timeline-notes.css` 的 token 为主，不在组件里散落新颜色。
+- 以现有 `ui/src/styles/notes.css` 的 token 为主，不在组件里散落新颜色。
 - 强调色沿用红色体系，避免新增第二套主强调色。
 - 不新增营销式 hero、装饰性渐变、glow、blur、玻璃态、彩色阴影、大面积插画背景。
 - 不做嵌套卡片包卡片。
@@ -195,7 +195,7 @@
 ## 11. 实施要求
 
 - Vue 组件保持现有 Composition API 风格。
-- 样式优先使用 `timeline-notes.css` 中的 token 和已有类结构。
+- 样式优先使用 `notes.css` 中的 token 和已有类结构。
 - 尺寸相关变化优先通过 CSS 变量和集中计算处理，不在多个组件中复制魔法数字。
 - 新增图标先加入 `LucideIcon.vue` 映射，再在组件中以名称使用。
 - 业务判断放在页面或 composable 层，展示组件只接收清晰 props 和 emit。

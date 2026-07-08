@@ -39,7 +39,7 @@ import {
   shouldAutoLoadMoreForFilteredNotes,
   sortBookshelfTree,
   SIDEBAR_SORT_MODES,
-} from "@/utils/timelineNotes";
+} from "@/utils/noteUtils";
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/notes/CommandPalette.vue"));
 const MindmapSurface = defineAsyncComponent(() => import("@/components/notes/MindmapSurface.vue"));

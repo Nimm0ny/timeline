@@ -1,5 +1,5 @@
 <script setup>
-import { buildSearchHighlightSegments } from "@/utils/timelineNotes";
+import { buildSearchHighlightSegments } from "@/utils/noteUtils";
 
 // Renders `text` with case-insensitive occurrences of `query` wrapped in
 // <mark class="tn-hl"> (the global feed highlight). Fragment root (no wrapper

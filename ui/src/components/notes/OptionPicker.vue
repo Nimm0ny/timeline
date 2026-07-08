@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import LucideIcon from "@/components/notes/LucideIcon.vue";
 import { OPTION_PALETTE } from "@/constants/tags";
-import { buildOptionId } from "@/utils/timelineNotes";
+import { buildOptionId } from "@/utils/noteUtils";
 
 // Unified picker for select / multiselect properties. The value lives by option
 // id; new options are created with a palette color and bubbled to the parent so

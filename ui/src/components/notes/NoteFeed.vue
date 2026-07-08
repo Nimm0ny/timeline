@@ -44,7 +44,7 @@ import {
   shouldRequestMoreOnScroll,
   timelineHasTrailingSpacer,
   timelineTimeColumnWidth,
-} from "@/utils/timelineNotes";
+} from "@/utils/noteUtils";
 
 // Center feed caps option chips per cell; any extras collapse into a muted "+N"
 // so a multi-value event never silently hides tags. Single source for the cap so

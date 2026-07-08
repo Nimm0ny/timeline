@@ -1454,7 +1454,7 @@ export function shouldAutoLoadMoreForFilteredNotes({
   );
 }
 
-// --- Pagination core (pure helpers, unit-tested in ui/tests/timelineNotes.test.js) ---
+// --- Pagination core (pure helpers, unit-tested in ui/tests/noteUtils.test.js) ---
 
 // Merge a freshly-fetched page into a topic's already-loaded events. On append,
 // de-dupes by id (a cursor page can re-include a boundary row) so paging never

@@ -4,7 +4,7 @@ import {
   prepareWithSegments,
 } from "@chenglou/pretext";
 import { plainTextFromMarkdown } from "../utils/markdownPreview.js";
-import { collectNoteTags } from "../utils/timelineNotes.js";
+import { collectNoteTags } from "../utils/noteUtils.js";
 
 const FONT_PRESETS = {
   timelinePrimary: '700 13.12px "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',

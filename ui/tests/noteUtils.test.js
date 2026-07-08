@@ -47,7 +47,7 @@ import {
   findBookshelfByName,
   sortBookshelfTree,
   SIDEBAR_SORT_MODES,
-} from "../src/utils/timelineNotes.js";
+} from "../src/utils/noteUtils.js";
 
 const tagsColumn = {
   key: "tags",
