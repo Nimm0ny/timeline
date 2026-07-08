@@ -160,7 +160,8 @@ export function applyCanvasColors(graph, colors = {}) {
 // (data.kind === "embed", data.noteId). It renders as a real DOM node via
 // @antv/x6-vue-shape (EmbedCardNode.vue, bound to the shape in embedCardShape.js) so it can
 // carry rich, theme-aware content — an accent spine + the live note title over a preview
-// line — and later grow to the full-markdown / in-place-edit tiers (§7.2). This file stays
+// line, growing to the full-markdown (T2) tier when zoomed in (§7.2; the T3 in-place-edit
+// tier was cut — see §7.9). This file stays
 // Vue-free: it only builds the snapshot node; the shape↔component binding lives in
 // embedCardShape.js. headline/preview ride in data as the pre-fetch display fallback and as
 // the backend walker's search text (§5.5 seam #4); the live values come from the reactive
