@@ -14,6 +14,7 @@ import {
   makeCanvasEdge,
   X6_CANVAS_FORMAT,
 } from "@/utils/canvasX6.js";
+import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 
 // A free-form board (Obsidian-canvas style): the page owns persistence (@update) and
@@ -43,6 +44,7 @@ let editingNodeId = "";
 let resizeObserver = null;
 let resizeTimer = null;
 let saveTimer = null;
+let viewSaveTimer = null;
 let savedJson = null;
 let suppressSaves = false;
 
@@ -98,16 +100,40 @@ function ensureCardPorts(node) {
   if (node?.getPorts && node.getPorts().length === 0) node.prop("ports", buildCardPorts());
 }
 
+// Content-only snapshot (cells + background). The viewport is deliberately NOT here —
+// it rides localStorage (see currentView / x6ViewStore) so pan/zoom never bumps
+// updated_at or fires a save. See docs/notes-app-pivot-design.md §5.5.
 function buildSnapshot() {
   const g = graph.value;
   if (!g) return null;
-  const { tx = 0, ty = 0 } = g.translate?.() || {};
   return {
     _fmt: X6_CANVAS_FORMAT,
     cells: g.toJSON().cells || [],
     background: currentBackground,
-    view: { tx, ty, zoom: g.getZoom?.() ?? 1 },
   };
+}
+
+function currentView() {
+  const g = graph.value;
+  if (!g) return null;
+  const { tx = 0, ty = 0 } = g.translate?.() || {};
+  return { tx, ty, zoom: g.getZoom?.() ?? 1 };
+}
+
+function flushViewSave() {
+  if (viewSaveTimer) {
+    clearTimeout(viewSaveTimer);
+    viewSaveTimer = null;
+  }
+  if (props.readOnly || suppressSaves) return;
+  writeX6View("canvas", props.noteId, currentView());
+}
+
+// Pan/zoom → persist the viewport to localStorage only (no DB write, no updated_at).
+function scheduleViewSave() {
+  if (props.readOnly || suppressSaves) return;
+  if (viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(flushViewSave, 400);
 }
 
 function setSavedBaseline() {
@@ -303,7 +329,13 @@ function applyGraphState(payload) {
   applyCanvasColors(g, readColors(currentBackground));
   g.getNodes().forEach(ensureCardPorts);
   resizeGraph();
-  const view = payload?.view;
+  // Prefer the per-device localStorage viewport; fall back to a legacy snapshot view
+  // (canvases saved before viewport moved to localStorage), else centerContent below.
+  const stored = readX6View("canvas", props.noteId);
+  const view = stored || payload?.view;
+  // Migrate a legacy snapshot viewport into localStorage on first open — else the next
+  // content save (buildSnapshot no longer emits `view`) silently drops it and resets the view.
+  if (!stored && payload?.view) writeX6View("canvas", props.noteId, payload.view);
   if (view?.tx != null || view?.ty != null) g.translate(view.tx || 0, view.ty || 0);
   if (view?.zoom != null) g.zoomTo(view.zoom);
   else if (cells.length) {
@@ -393,8 +425,8 @@ onMounted(() => {
   g.on("selection:changed", ({ selected }) => {
     emit("active", (selected || []).length);
   });
-  g.on("scale", () => scheduleSave());
-  g.on("translate", () => scheduleSave());
+  g.on("scale", () => scheduleViewSave());
+  g.on("translate", () => scheduleViewSave());
   g.on("node:dblclick", ({ node }) => showEditOverlay(node));
   g.on("blank:dblclick", ({ x, y }) => addCard(x, y));
   g.on("blank:click", () => {
@@ -444,6 +476,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   if (containerRef.value) containerRef.value.removeEventListener("keydown", onKeydown);
   cancelEdit();
+  flushViewSave();
   flushSave();
   graph.value?.dispose();
   graph.value = null;

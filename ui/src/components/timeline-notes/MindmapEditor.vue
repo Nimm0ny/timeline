@@ -30,6 +30,7 @@ import {
   x6CellsToMarkdown,
 } from "@/utils/mindmapX6.js";
 import { mindmapRootData } from "@/utils/timelineNotes.js";
+import { readX6View, writeX6View } from "@/utils/x6ViewStore.js";
 import { useThemeStore } from "@/composables/useTheme.js";
 
 const props = defineProps({
@@ -71,6 +72,7 @@ let hoverClearTimer = null;
 let resizeObserver = null;
 let resizeTimer = null;
 let saveTimer = null;
+let viewSaveTimer = null;
 let savedJson = null;
 let suppressSaves = false;
 const sideControls = ref([]);
@@ -418,10 +420,12 @@ function cancelEdit() {
   updateSideControls();
 }
 
+// Content snapshot (cells + background + layout/edge styling). The viewport is
+// deliberately NOT here — it rides localStorage (see currentView / x6ViewStore) so
+// pan/zoom never bumps updated_at or fires a save. See notes-app-pivot-design.md §5.5.
 function buildSnapshot() {
   const g = graph.value;
   if (!g) return null;
-  const { tx = 0, ty = 0 } = g.translate?.() || {};
   return {
     _fmt: X6_MINDMAP_FORMAT,
     cells: g.toJSON().cells || [],
@@ -429,12 +433,30 @@ function buildSnapshot() {
     layout: currentLayout,
     edgeRouting: currentEdgeRouting,
     edgeStyle: currentEdgeStyle,
-    view: {
-      tx,
-      ty,
-      zoom: g.getZoom?.() ?? 1,
-    },
   };
+}
+
+function currentView() {
+  const g = graph.value;
+  if (!g) return null;
+  const { tx = 0, ty = 0 } = g.translate?.() || {};
+  return { tx, ty, zoom: g.getZoom?.() ?? 1 };
+}
+
+function flushViewSave() {
+  if (viewSaveTimer) {
+    clearTimeout(viewSaveTimer);
+    viewSaveTimer = null;
+  }
+  if (props.readOnly || suppressSaves) return;
+  writeX6View("mindmap", props.noteId, currentView());
+}
+
+// Pan/zoom → persist the viewport to localStorage only (no DB write, no updated_at).
+function scheduleViewSave() {
+  if (props.readOnly || suppressSaves) return;
+  if (viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(flushViewSave, 400);
 }
 
 function setSavedBaseline() {
@@ -986,11 +1008,18 @@ function applyGraphState(payload, persist) {
   refreshEdgeGeometry();
   resizeGraph();
 
-  if (payload?.view?.tx != null || payload?.view?.ty != null) {
-    g.translate(payload.view?.tx || 0, payload.view?.ty || 0);
+  // Prefer the per-device localStorage viewport; fall back to a legacy snapshot view
+  // (maps saved before viewport moved to localStorage), else centerContent below.
+  const stored = readX6View("mindmap", props.noteId);
+  const view = stored || payload?.view;
+  // Migrate a legacy snapshot viewport into localStorage on first open — else the next
+  // content save (buildSnapshot no longer emits `view`) silently drops it and resets the view.
+  if (!stored && payload?.view) writeX6View("mindmap", props.noteId, payload.view);
+  if (view?.tx != null || view?.ty != null) {
+    g.translate(view.tx || 0, view.ty || 0);
   }
-  if (payload?.view?.zoom != null) {
-    g.zoomTo(payload.view.zoom);
+  if (view?.zoom != null) {
+    g.zoomTo(view.zoom);
   } else if (cells.length) {
     try {
       g.centerContent();
@@ -1364,11 +1393,11 @@ onMounted(() => {
   });
   g.on("scale", () => {
     updateSideControls();
-    scheduleSave();
+    scheduleViewSave();
   });
   g.on("translate", () => {
     updateSideControls();
-    scheduleSave();
+    scheduleViewSave();
   });
   g.on("node:dblclick", ({ node }) => showEditOverlay(node));
   g.on("node:mouseenter", ({ node }) => {
@@ -1430,6 +1459,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   if (containerRef.value) containerRef.value.removeEventListener("keydown", onKeydown);
   cancelEdit();
+  flushViewSave();
   flushSave();
   graph.value?.dispose();
   graph.value = null;

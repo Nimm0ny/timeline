@@ -20,6 +20,7 @@ from backend.app.models.entities import (
     EventItem,
     ImageAsset,
     TimelineEvent,
+    TimelineLink,
     Topic,
     TopicEraStat,
     TopicStat,
@@ -1262,9 +1263,201 @@ def build_related_lookup(db: Session, event_rows: list[TimelineEvent]) -> dict[i
     return lookup
 
 
-def serialize_event_rows(db: Session, rows: list[TimelineEvent]) -> list[dict]:
+def serialize_event_rows(
+    db: Session, rows: list[TimelineEvent], *, with_link_targets: bool = False
+) -> list[dict]:
     related_lookup = build_related_lookup(db, rows)
-    return [event_to_dict(event, related_lookup) for event in rows]
+    payloads = [event_to_dict(event, related_lookup) for event in rows]
+    # linkTargets rides only single-note detail payloads (get_event_detail + create/update
+    # returns) so the CM6 editor can style [[<id>]] resolved vs dangling and refresh titles.
+    # The feed/list/export serializers pass with_link_targets=False → no per-row body parse.
+    if with_link_targets:
+        link_targets = build_link_targets(db, rows)
+        for event, payload in zip(rows, payloads):
+            payload["linkTargets"] = link_targets.get(event.id, {})
+    return payloads
+
+
+# ── W4 link system: [[wikilink]] parse / resolve / sync / backlinks ──────────────────
+# Body tokens are id-anchored — `[[<id>|<alias>]]` — so renaming/moving a target never
+# breaks the edge (docs/notes-app-pivot-design.md §6.1). A bare `[[title]]` (hand-typed,
+# no id) is resolved to a note by a unique live-headline match at write time; no match →
+# dangling (target_event_id NULL). The links table is a query-optimized projection of the
+# bodies, so backlinks are one indexed lookup instead of a full-text scan.
+# The title class excludes newline so `[[Foo\nBar]]` is not one cross-line link — keeps the
+# backend in lockstep with the CM6/read-renderer regex (which also excludes \n); otherwise the
+# backend would persist a backlink the editor never renders.
+WIKILINK_RE = re.compile(r"\[\[\s*(?:(\d+)\s*\|\s*)?([^\[\]|\n]+?)\s*\]\]")
+
+
+def parse_wikilinks(body_markdown: str) -> list[dict]:
+    """One dict per `[[…]]` occurrence: {id: int|None, title, position, context}."""
+    source = body_markdown or ""
+    links = []
+    for match in WIKILINK_RE.finditer(source):
+        raw_id, title = match.group(1), (match.group(2) or "").strip()
+        if not title:
+            continue
+        line_start = source.rfind("\n", 0, match.start()) + 1
+        line_end = source.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(source)
+        links.append(
+            {
+                "id": int(raw_id) if raw_id else None,
+                "title": title,
+                "position": match.start(),
+                "context": source[line_start:line_end].strip()[:280],
+            }
+        )
+    return links
+
+
+def resolve_wikilink_target(db: Session, parsed: dict) -> int | None:
+    """Bind a parsed link to a target id. An id-anchored token is trusted as-is (the id
+    is the stable anchor); a bare title binds only on a unique live-headline match."""
+    if parsed.get("id"):
+        return parsed["id"]
+    title = parsed.get("title") or ""
+    if not title:
+        return None
+    matches = (
+        db.query(TimelineEvent.id)
+        .filter(TimelineEvent.headline == title, TimelineEvent.deleted_at.is_(None))
+        .limit(2)
+        .all()
+    )
+    return matches[0][0] if len(matches) == 1 else None
+
+
+def sync_event_links(db: Session, event: TimelineEvent) -> None:
+    """Re-derive a source note's `wikilink` rows from its body. Idempotent: clears this
+    source's wikilink rows and re-inserts the current set (a note has few links, so
+    delete-then-insert beats a per-row diff). `manual`/`embed` anchors belong to other
+    writers and are untouched. Call after the event is flushed (id present) with its
+    body_markdown written, before commit."""
+    db.query(TimelineLink).filter(
+        TimelineLink.source_event_id == event.id,
+        TimelineLink.anchor_type == "wikilink",
+    ).delete(synchronize_session=False)
+    if event.deleted_at:
+        return
+    for parsed in parse_wikilinks(event.body_markdown or ""):
+        db.add(
+            TimelineLink(
+                source_event_id=event.id,
+                target_event_id=resolve_wikilink_target(db, parsed),
+                target_title=parsed["title"][:255],
+                anchor_type="wikilink",
+                position=parsed["position"],
+                context_text=parsed["context"],
+            )
+        )
+
+
+def purge_event_links(db: Session, event_id: int) -> None:
+    """Drop every link row touching a note (as source or target) — for a permanent
+    delete, so no dangling FK rows survive the row's removal."""
+    db.query(TimelineLink).filter(
+        (TimelineLink.source_event_id == event_id) | (TimelineLink.target_event_id == event_id)
+    ).delete(synchronize_session=False)
+
+
+def get_backlinks(db: Session, event_id: int, *, offset: int = 0, limit: int = 50) -> dict:
+    """Incoming links to a note: one entry per LIVE linking note (deduped — a source that
+    references this target several times is ONE backlink, not N; otherwise the panel emits
+    duplicate Vue keys on sourceId and inflates the count), newest-updated first. One indexed
+    lookup on (target_event_id) — the panel snippet rides context_text, no source rescans."""
+    base = (
+        db.query(TimelineLink, TimelineEvent, Topic)
+        .join(TimelineEvent, TimelineEvent.id == TimelineLink.source_event_id)
+        .join(Topic, Topic.id == TimelineEvent.topic_id)
+        .filter(TimelineLink.target_event_id == event_id, TimelineEvent.deleted_at.is_(None))
+        # Collapse multiple links from the same source to one row (SQLite keeps an arbitrary
+        # context_text/anchor_type per group — any single occurrence is a fine snippet).
+        .group_by(TimelineLink.source_event_id)
+    )
+    total = (
+        db.query(func.count(func.distinct(TimelineLink.source_event_id)))
+        .join(TimelineEvent, TimelineEvent.id == TimelineLink.source_event_id)
+        .filter(TimelineLink.target_event_id == event_id, TimelineEvent.deleted_at.is_(None))
+        .scalar()
+    )
+    rows = (
+        base.order_by(TimelineEvent.updated_at.desc(), TimelineLink.source_event_id.desc())
+        .offset(max(0, offset))
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    items = [
+        {
+            "sourceId": source.id,
+            "topicId": source.topic_id,
+            "headline": (source.headline or "").strip() or extract_headline_from_legacy_label(source.year or ""),
+            "container": topic.title or topic.name,
+            "contextText": link.context_text or "",
+            "anchorType": link.anchor_type,
+        }
+        for link, source, topic in rows
+    ]
+    return {"items": items, "total": int(total or 0)}
+
+
+def batch_event_previews(db: Session, ids: list) -> list[dict]:
+    """Cheap {id, headline, container, preview} for a set of note ids in one query — seeds
+    the canvas embed-card LRU on open (W5 §7.4) so N cards cost O(1) round-trips."""
+    clean_ids = {int(v) for v in (ids or []) if str(v).strip().lstrip("-").isdigit()}
+    if not clean_ids:
+        return []
+    rows = (
+        db.query(TimelineEvent, Topic)
+        .join(Topic, Topic.id == TimelineEvent.topic_id)
+        .filter(TimelineEvent.id.in_(clean_ids), TimelineEvent.deleted_at.is_(None))
+        .all()
+    )
+    return [
+        {
+            "id": event.id,
+            "topicId": event.topic_id,
+            "headline": (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or ""),
+            "container": topic.title or topic.name,
+            "noteType": normalize_note_type(event.note_type),
+            "preview": str(event.preview_text or "").strip(),
+        }
+        for event, topic in rows
+    ]
+
+
+def build_link_targets(db: Session, events: list[TimelineEvent]) -> dict[int, dict[str, str]]:
+    """Per-event ``{str(target_id): current_headline}`` for every id-anchored ``[[<id>|…]]``
+    in the body whose target is still live. Drives the editor's resolved/dangling styling: an
+    id referenced by the body but absent from this map reads as dangling (target deleted). One
+    batched query for all ids across the given events, so attaching it to a single-note detail
+    payload stays O(1) per open — never wired into the feed/list serializers (§6.4)."""
+    wanted: dict[int, set[int]] = {}
+    all_ids: set[int] = set()
+    for event in events:
+        ids = {link["id"] for link in parse_wikilinks(event.body_markdown or "") if link["id"]}
+        if ids:
+            wanted[event.id] = ids
+            all_ids |= ids
+    if not all_ids:
+        return {}
+    rows = (
+        db.query(TimelineEvent.id, TimelineEvent.headline, TimelineEvent.year)
+        .filter(TimelineEvent.id.in_(all_ids), TimelineEvent.deleted_at.is_(None))
+        .all()
+    )
+    title_by_id = {
+        row_id: (headline or "").strip() or extract_headline_from_legacy_label(year or "")
+        for row_id, headline, year in rows
+    }
+    result: dict[int, dict[str, str]] = {}
+    for event_id, ids in wanted.items():
+        targets = {str(tid): title_by_id[tid] for tid in ids if tid in title_by_id}
+        if targets:
+            result[event_id] = targets
+    return result
 
 
 def live_topic_min_date_subquery():
@@ -1761,7 +1954,7 @@ def list_topic_events(db: Session, topic_id: int) -> list[dict]:
 
 
 def get_event_detail(db: Session, event_id: int) -> dict:
-    return serialize_event_rows(db, [get_event_or_404(db, event_id)])[0]
+    return serialize_event_rows(db, [get_event_or_404(db, event_id)], with_link_targets=True)[0]
 
 
 def build_timeline_index(db: Session) -> dict:
@@ -2147,10 +2340,11 @@ def create_event(db: Session, topic_id: int, payload: dict) -> dict:
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
+    sync_event_links(db, event)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
+    return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
 
 
 def update_event(db: Session, event_id: int, payload: dict) -> dict:
@@ -2165,7 +2359,7 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
         upsert_search_index_row(db, event, topic=event.topic)
         rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
-        return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
+        return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
 
     if event.deleted_at:
         raise HTTPException(status_code=409, detail="Deleted events cannot be edited")
@@ -2181,11 +2375,12 @@ def update_event(db: Session, event_id: int, payload: dict) -> dict:
     for index, item in enumerate(data["items"]):
         db.add(EventItem(event_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
+    sync_event_links(db, event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
-    return serialize_event_rows(db, [get_event_or_404(db, event.id)])[0]
+    return serialize_event_rows(db, [get_event_or_404(db, event.id)], with_link_targets=True)[0]
 
 
 def delete_event(db: Session, event_id: int, *, permanent: bool = False):
@@ -2199,6 +2394,7 @@ def delete_event(db: Session, event_id: int, *, permanent: bool = False):
         return {"ok": True, "deletedAt": serialize_datetime(event.deleted_at)}
 
     remove_search_index_row(db, event.id)
+    purge_event_links(db, event.id)
     db.delete(event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()

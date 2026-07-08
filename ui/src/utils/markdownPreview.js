@@ -17,6 +17,13 @@ function safeLinkHref(href) {
   return /^(javascript|vbscript|data):/.test(scheme) ? "" : raw;
 }
 
+// Single source of truth for the wikilink token regex on the frontend: id form
+// `[[<id>|alias]]` or bare `[[title]]`; the title excludes `[ ] | \n` (same shape as the
+// backend WIKILINK_RE — change here and there together). The read renderer and the CM6
+// decoration each build `new RegExp(WIKILINK_PATTERN, "g")` so neither shares a single /g
+// object's lastIndex across replace/exec.
+export const WIKILINK_PATTERN = "\\[\\[\\s*(?:(\\d+)\\s*\\|\\s*)?([^\\[\\]|\\n]+?)\\s*\\]\\]";
+
 // Inline formatting for a code-free segment (image / link / strike / bold / em).
 function renderInlineSegment(segment) {
   let output = segment;
@@ -31,6 +38,17 @@ function renderInlineSegment(segment) {
     // Unsafe scheme → drop the anchor, render the (already-escaped) label as text.
     if (!safeHref) return label;
     return `<a class="timeline-markdown-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+  // 维基链接 [[<id>|别名]] / [[标题]]（阅读态）。放在 md 链接之后、脚注之前：[[..]] 无 (url)
+  // 不被链接正则吞，脚注要 [^ 亦不冲突。id 形态渲成带 data-note-id 的锚点（点击/悬浮由
+  // EventDetailPane 委托页面既有 pin-related/preview-related 打开，与编辑态 widget 同一路）；
+  // 裸标题无 id → 只样式化不可导航（唯一性由后端定，前端读渲染器不猜）。别名段已在 escapeHtml
+  // 里转义，data-note-id 是纯数字，注入 v-html 安全。
+  output = output.replace(new RegExp(WIKILINK_PATTERN, "g"), (whole, rawId, rawTitle) => {
+    const title = (rawTitle || "").trim();
+    if (!title) return whole;
+    if (rawId) return `<a class="timeline-wikilink" data-note-id="${rawId}" role="link" tabindex="0">${title}</a>`;
+    return `<span class="timeline-wikilink timeline-wikilink-unbound">${title}</span>`;
   });
   // 脚注引用 [^label]（无 (url)，故须在链接之后；label 不含空格/]）→ 上标标记。
   output = output.replace(/\[\^([^\]\s]+)\]/g, (_, label) => `<sup class="md-footnote-ref">${label}</sup>`);
@@ -61,6 +79,12 @@ export function plainTextFromMarkdown(markdown) {
   return String(markdown || "")
     .replace(/!\[[^\]]*\]\([^)]+\)/g, ` ${imagePlaceholder} `)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, " $1 ")
+    // 维基链接 → 只留别名/标题：id 形态取 `|` 后全部（含空别名 [[123|]] → 空），裸标题取整体。
+    // 比渲染正则更宽（连畸形也吞），预览只需可读、不必与渲染逐字一致——杜绝泄露 "123|"。
+    .replace(/\[\[([^\[\]\n]*?)\]\]/g, (_, inner) => {
+      const piped = /^\s*\d+\s*\|(.*)$/.exec(inner);
+      return " " + (piped ? piped[1] : inner).trim() + " ";
+    })
     // 脚注定义行前缀（行首 [^label]:）+ 行内引用 [^label] 去掉，避免预览出现 "^1"。
     // 引用替换为空（不吞相邻空格，免把英文词粘连）。
     .replace(/^\[\^[^\]\s]+\]:\s*/gm, "")

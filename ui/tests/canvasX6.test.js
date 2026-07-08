@@ -8,6 +8,11 @@ import {
   buildCardNode,
   canvasSnapshotText,
   makeCanvasEdge,
+  EMBED_DEFAULT_WIDTH,
+  EMBED_DEFAULT_HEIGHT,
+  buildEmbedCardNode,
+  isEmbedCard,
+  embedNoteIdsFromSnapshot,
 } from "../src/utils/canvasX6.js";
 
 test("isX6CanvasSnapshot only accepts the tagged canvas shape", () => {
@@ -55,4 +60,47 @@ test("makeCanvasEdge is a directed connector with no fixed endpoints", () => {
   assert.equal(edge.attrs.line.stroke, "#000000");
   assert.ok(edge.attrs.line.targetMarker);
   assert.equal(edge.source, undefined);
+});
+
+test("buildEmbedCardNode tags an embed card with noteId and the fixed embed size", () => {
+  const node = buildEmbedCardNode({ x: 40, y: 60, noteId: 7, headline: "标题", preview: "预览" });
+  assert.equal(node.data.kind, "embed");
+  assert.equal(node.data.noteId, 7);
+  assert.equal(node.width, EMBED_DEFAULT_WIDTH);
+  assert.equal(node.height, EMBED_DEFAULT_HEIGHT);
+  // headline/preview reach both the rendered labels and data (for batch-preview refresh).
+  assert.equal(node.attrs.label.text, "标题");
+  assert.equal(node.attrs.preview.text, "预览");
+  assert.equal(node.ports.items.length, 4);
+  assert.match(node.id, /^c-/);
+  const explicit = buildEmbedCardNode({ id: "c-embed", x: 0, y: 0, noteId: 1 });
+  assert.equal(explicit.id, "c-embed");
+});
+
+test("isEmbedCard is true only for embed cards (raw JSON or live cell), false for cards and edges", () => {
+  assert.equal(isEmbedCard(buildEmbedCardNode({ x: 0, y: 0, noteId: 3 })), true);
+  // a live X6-style cell exposing getData()
+  assert.equal(isEmbedCard({ getData: () => ({ kind: "embed", noteId: 3 }) }), true);
+  assert.equal(isEmbedCard(buildCardNode({ x: 0, y: 0, text: "卡片" })), false);
+  assert.equal(isEmbedCard(makeCanvasEdge()), false);
+  assert.equal(isEmbedCard(null), false);
+});
+
+test("embedNoteIdsFromSnapshot collects + dedupes embed noteIds and ignores other cells", () => {
+  const snapshot = {
+    _fmt: X6_CANVAS_FORMAT,
+    cells: [
+      buildEmbedCardNode({ id: "c-a", x: 0, y: 0, noteId: 10 }),
+      buildEmbedCardNode({ id: "c-b", x: 0, y: 0, noteId: 10 }), // same note, embedded twice
+      buildEmbedCardNode({ id: "c-c", x: 0, y: 0, noteId: 22 }),
+      buildCardNode({ x: 0, y: 0, text: "普通卡片" }), // non-embed card
+      makeCanvasEdge(), // edge
+    ],
+  };
+  assert.deepEqual(embedNoteIdsFromSnapshot(snapshot), [10, 22]);
+  // a bare cells array is accepted too
+  assert.deepEqual(embedNoteIdsFromSnapshot(snapshot.cells), [10, 22]);
+  // empty / nullish inputs
+  assert.deepEqual(embedNoteIdsFromSnapshot(null), []);
+  assert.deepEqual(embedNoteIdsFromSnapshot({ cells: [] }), []);
 });

@@ -176,6 +176,32 @@ class TopicEraStat(Base):
     topic: Mapped[Topic] = relationship("Topic", back_populates="era_stats")
 
 
+class TimelineLink(Base):
+    """A `[[wikilink]]` edge from one note's body to another (W4 link system).
+
+    The link graph is keyed by note id, not title, so renaming/moving a target never
+    breaks the edge (see docs/notes-app-pivot-design.md §6.1). `target_event_id` is NULL
+    for a dangling link (`[[title]]` that resolves to no note yet). `context_text` is the
+    surrounding line, precomputed at write time so the backlink panel never rescans source
+    bodies. `anchor_type`: 'wikilink' (from body) | 'manual' (backfilled related ids) |
+    'embed' (a canvas embedding the target — W5)."""
+
+    __tablename__ = "timeline_links"
+    __table_args__ = (
+        Index("ix_timeline_links_target_source", "target_event_id", "source_event_id"),
+        Index("ix_timeline_links_source", "source_event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_event_id: Mapped[int] = mapped_column(ForeignKey("timeline_events.id"), nullable=False, index=True)
+    target_event_id: Mapped[int | None] = mapped_column(ForeignKey("timeline_events.id"), nullable=True, index=True)
+    target_title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    anchor_type: Mapped[str] = mapped_column(String(16), default="wikilink", nullable=False)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    context_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class AppConfigEntry(Base):
     __tablename__ = "app_config"
 

@@ -66,6 +66,22 @@ export const api = {
   getEvent(id, options = {}) {
     return request(`/api/events/${encodeURIComponent(id)}`, options);
   },
+  // W4 backlinks: incoming [[wikilink]]s to a note (indexed lookup, lazy on panel expand).
+  getBacklinks(id, params = {}) {
+    const search = new URLSearchParams();
+    if (params.offset) search.set("offset", String(params.offset));
+    if (params.limit) search.set("limit", String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/api/events/${encodeURIComponent(id)}/backlinks${suffix}`);
+  },
+  // W5 canvas embeds: one round-trip {id,headline,container,preview} for all embedded ids.
+  getEventsBatchPreview(ids) {
+    return request("/api/events/batch-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+    });
+  },
   createTopic(name, bookshelfId = null) {
     return request("/api/topics", {
       method: "POST",

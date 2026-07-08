@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
 from backend.app.services.timeline import (
+    batch_event_previews,
     build_timeline_index,
     create_event,
     create_topic,
     delete_event,
     delete_topic,
     export_topic_data,
+    get_backlinks,
     get_event_detail,
     get_topic_meta,
     get_topic_or_404,
@@ -130,6 +132,22 @@ def put_event(event_id: int, payload: dict, db: Session = Depends(get_db)):
 @router.get("/api/events/{event_id}")
 def get_event(event_id: int, db: Session = Depends(get_db)):
     return get_event_detail(db, event_id)
+
+
+@router.get("/api/events/{event_id}/backlinks")
+def get_event_backlinks(
+    event_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return get_backlinks(db, event_id, offset=offset, limit=limit)
+
+
+@router.post("/api/events/batch-preview")
+def post_events_batch_preview(payload: dict, db: Session = Depends(get_db)):
+    ids = payload.get("ids") if isinstance(payload, dict) else None
+    return batch_event_previews(db, ids if isinstance(ids, list) else [])
 
 
 @router.delete("/api/events/{event_id}")

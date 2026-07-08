@@ -65,6 +65,30 @@ test("renderMarkdownToHtml neutralizes script-bearing link schemes (XSS guard)",
   );
 });
 
+test("renderMarkdownToHtml renders [[wikilink]] id form as a navigable anchor", () => {
+  assert.equal(
+    renderMarkdownToHtml("见 [[42|拿破仑]]"),
+    '<p>见 <a class="timeline-wikilink" data-note-id="42" role="link" tabindex="0">拿破仑</a></p>'
+  );
+  // 裸标题（无 id）→ 只样式化的 span，不可导航（唯一性归后端定，读渲染器不猜）。
+  assert.equal(
+    renderMarkdownToHtml("[[滑铁卢]]"),
+    '<p><span class="timeline-wikilink timeline-wikilink-unbound">滑铁卢</span></p>'
+  );
+  // 空 [[]] 不匹配（内容至少一字符），原样保留。
+  assert.equal(renderMarkdownToHtml("[[]]"), "<p>[[]]</p>");
+});
+
+test("plainTextFromMarkdown reduces [[wikilink]] to its alias/title", () => {
+  assert.equal(plainTextFromMarkdown("见 [[42|拿破仑]] 与 [[滑铁卢]]"), "见 拿破仑 与 滑铁卢");
+});
+
+test("plainTextFromMarkdown never leaks id| from malformed wikilinks", () => {
+  assert.equal(plainTextFromMarkdown("[[123|]] 收尾"), "收尾"); // 空别名 → 不残留 "123|"
+  assert.equal(plainTextFromMarkdown("[[123|a|b]] x"), "a|b x"); // 多竖线 → 只去 id 前缀
+  assert.equal(plainTextFromMarkdown("[[裸标题]] y"), "裸标题 y");
+});
+
 test("renderMarkdownToHtml keeps markdown inside inline code literal", () => {
   assert.equal(renderMarkdownToHtml("`**x**`"), "<p><code>**x**</code></p>");
   assert.equal(renderMarkdownToHtml("`a~~b~~c`"), "<p><code>a~~b~~c</code></p>");

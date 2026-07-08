@@ -151,3 +151,115 @@ export function applyCanvasColors(graph, colors = {}) {
     edge.attr("line/stroke", colors.line || "#b8b2a6");
   });
 }
+
+// ---- W5 note-embed cards -------------------------------------------------------
+// A second card kind on the same flat board: an embedded reference to another note
+// (data.kind === "embed", data.noteId). It must read as a distinct object — an accent
+// spine down the left edge plus a bold title line (the note headline) over a muted
+// preview line — so it never looks like a free text card. Fixed size; a rich HTML body
+// would need a Vue-shape dependency we do NOT add (AGENTS §9), so it is a plain rect +
+// two <text> labels, styled to match buildCardAttrs.
+export const EMBED_DEFAULT_WIDTH = 240;
+export const EMBED_DEFAULT_HEIGHT = 120;
+
+const EMBED_MUTED_FALLBACK = "#8a857c";
+
+function embedCardAttrs(headline, preview, colors = {}) {
+  const {
+    card = "#ffffff",
+    text: textColor = "#3a3733",
+    line = "#d8d4cc",
+    accent = "#7b68d9",
+    muted = EMBED_MUTED_FALLBACK,
+  } = colors;
+  const fontFamily = (typeof document !== "undefined" && getComputedStyle(document.body).fontFamily) || "sans-serif";
+  return {
+    body: { rx: 10, ry: 10, fill: card, stroke: line, strokeWidth: 1.5, cursor: "move" },
+    // Accent rail down the straight part of the left edge — the at-a-glance
+    // "this is a linked note" marker that a plain text card never has.
+    spine: { x: 0, y: 10, width: 3, height: EMBED_DEFAULT_HEIGHT - 20, rx: 1.5, ry: 1.5, fill: accent },
+    // The title reuses the `label` selector on purpose: the existing applyCanvasColors
+    // repaints label/fill + label/fontFamily on a theme switch, so the headline follows
+    // light/dark for free (it never touches our custom `preview`/`spine` selectors, and
+    // it only rewrites fontSize/fontWeight when they live in data, which ours do not —
+    // so the bold weight below survives).
+    label: {
+      text: headline || "无标题",
+      fill: textColor,
+      fontSize: 14,
+      fontWeight: 600,
+      fontFamily,
+      textWrap: { width: -30, height: 22, ellipsis: true },
+      textAnchor: "start",
+      textVerticalAnchor: "top",
+      refX: 16,
+      refY: 14,
+    },
+    preview: {
+      text: preview || "",
+      fill: muted,
+      fontSize: 12,
+      fontWeight: "normal",
+      fontFamily,
+      textWrap: { width: -30, height: 58, ellipsis: true },
+      textAnchor: "start",
+      textVerticalAnchor: "top",
+      refX: 16,
+      refY: 44,
+    },
+  };
+}
+
+// An embed card node for the X6 snapshot. Fixed EMBED_DEFAULT_* size; reuses the shared
+// magnetic ports so it wires to text cards and other embeds exactly like buildCardNode.
+export function buildEmbedCardNode({ id, x, y, noteId, headline = "", preview = "", colors = {} }) {
+  return {
+    id: id || nextCardId(),
+    shape: "rect",
+    x,
+    y,
+    width: EMBED_DEFAULT_WIDTH,
+    height: EMBED_DEFAULT_HEIGHT,
+    markup: [
+      { tagName: "rect", selector: "body" },
+      { tagName: "rect", selector: "spine" },
+      { tagName: "text", selector: "label" },
+      { tagName: "text", selector: "preview" },
+    ],
+    ports: buildCardPorts(),
+    attrs: embedCardAttrs(headline, preview, colors),
+    // headline/preview ride in data too so a batch-preview refresh can re-derive the
+    // labels by noteId (node.attr("label/text", …)) without parsing the SVG text nodes.
+    data: { kind: "embed", noteId, headline, preview },
+    zIndex: 2,
+  };
+}
+
+// True only for an embed card, tolerating both raw snapshot JSON ({ data }) and a live
+// X6 cell (getData()). Text cards ({ kind: "card" }) and edges return false.
+export function isEmbedCard(cell) {
+  if (!cell) return false;
+  const data = typeof cell.getData === "function" ? cell.getData() : cell.data;
+  return data?.kind === "embed";
+}
+
+// De-duplicated noteIds of every embed card in a canvas snapshot — the input to the
+// one-round-trip batch preview fetch on canvas open. Accepts the tagged { _fmt, cells }
+// snapshot, a plain { cells } object, or a bare cells array.
+export function embedNoteIdsFromSnapshot(snapshot) {
+  const cells = Array.isArray(snapshot) ? snapshot : Array.isArray(snapshot?.cells) ? snapshot.cells : null;
+  if (!cells?.length) return [];
+  const seen = new Set();
+  const ids = [];
+  for (const cell of cells) {
+    if (!isEmbedCard(cell)) continue;
+    const data = typeof cell.getData === "function" ? cell.getData() : cell.data;
+    const noteId = data?.noteId;
+    if (noteId == null || noteId === "") continue;
+    const key = String(noteId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ids.push(noteId);
+  }
+  return ids;
+}

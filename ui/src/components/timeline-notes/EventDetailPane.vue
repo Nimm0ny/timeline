@@ -4,6 +4,7 @@ import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
+import BacklinkPanel from "@/components/timeline-notes/BacklinkPanel.vue";
 import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
 import {
@@ -413,6 +414,12 @@ function closeAttachmentModal() {
 }
 
 function handleBodyClick(event) {
+  const wikilink = wikilinkFromEvent(event);
+  if (wikilink) {
+    event.preventDefault();
+    emit("pin-related", wikilink);
+    return;
+  }
   if (event.target instanceof HTMLImageElement) {
     openAttachment({
       name: event.target.alt || "图片",
@@ -631,6 +638,87 @@ function activateRelatedEvent(item, event) {
     return;
   }
   emit("pin-related", relatedAnchorPayload(item, event));
+}
+
+// W4 反向链接：BacklinkPanel 只上报 sourceId/topicId/anchor，这里把它翻译成与
+// 「关联事件」完全相同的 emit，复用页面既有的预览弹层与跨笔记本打开路径，
+// 不新增导航通道（open -> pin-related -> 页面 openRelatedPreview / 完整打开）。
+function onBacklinkPreview(payload) {
+  emit("preview-related", { id: payload.sourceId, anchor: payload.anchor });
+}
+
+function onBacklinkHidePreview(sourceId) {
+  emit("hide-related-preview", sourceId);
+}
+
+function onBacklinkOpen(payload) {
+  emit("pin-related", { id: payload.sourceId, anchor: payload.anchor });
+}
+
+// W4 维基链接：编辑态 CM widget 与阅读态 <a data-note-id> 都上报 {id, anchor}，翻译成与
+// 「关联事件」/backlink 完全相同的 emit，复用页面既有预览弹层 + 跨笔记本打开路径，不新增导航通道。
+// 点击 → pin-related（钉住预览，可再「打开完整」）；悬浮 → preview-related；移出 → hide。
+function searchNotesForWikilink(query, params = {}) {
+  return api.search(query, params);
+}
+
+function onWikilinkOpen(payload) {
+  emit("pin-related", { id: payload.id, anchor: payload.anchor });
+}
+
+function onWikilinkPreview(payload) {
+  emit("preview-related", { id: payload.id, anchor: payload.anchor });
+}
+
+function onWikilinkHidePreview(id) {
+  emit("hide-related-preview", id);
+}
+
+// 阅读态 body 用 v-html 渲染，[[..]] 是 <a class="timeline-wikilink" data-note-id>。用事件委托
+// 在容器上捕获点击/悬浮/键盘，翻成与编辑态 widget 同一套 emit（同一预览/打开路径）。
+function wikilinkPayloadFromAnchor(anchor) {
+  if (!anchor) return null;
+  const id = Number(anchor.getAttribute("data-note-id"));
+  if (!id) return null;
+  const rect = anchor.getBoundingClientRect();
+  return {
+    id,
+    anchor: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width, height: rect.height },
+  };
+}
+
+function wikilinkFromEvent(domEvent) {
+  return wikilinkPayloadFromAnchor(domEvent.target?.closest?.("a.timeline-wikilink[data-note-id]"));
+}
+
+function onReadBodyOver(domEvent) {
+  if (inEditMode.value) return;
+  const anchor = domEvent.target?.closest?.("a.timeline-wikilink[data-note-id]");
+  if (!anchor) return;
+  // 别名含行内 md（如 [[42|**x**]]→<a><strong>x</strong></a>）时，指针在锚点内部子元素间移动会
+  // 连发 mouseout/mouseover；relatedTarget 仍在同一锚内就跳过，避免预览闪烁重建。
+  if (anchor.contains(domEvent.relatedTarget)) return;
+  const payload = wikilinkPayloadFromAnchor(anchor);
+  if (payload) emit("preview-related", payload);
+}
+
+function onReadBodyOut(domEvent) {
+  if (inEditMode.value) return;
+  const anchor = domEvent.target?.closest?.("a.timeline-wikilink[data-note-id]");
+  if (!anchor) return;
+  if (anchor.contains(domEvent.relatedTarget)) return; // 只有真正离开锚点才收预览
+  emit("hide-related-preview", Number(anchor.getAttribute("data-note-id")));
+}
+
+// role=link + tabindex=0 让键盘用户能 Tab 到维基链接；无 href 的锚点 Enter/Space 不会自动触发
+// click，故显式转发到与点击相同的 pin-related 打开路径。
+function onReadBodyKeydown(domEvent) {
+  if (inEditMode.value) return;
+  if (domEvent.key !== "Enter" && domEvent.key !== " ") return;
+  const payload = wikilinkFromEvent(domEvent);
+  if (!payload) return;
+  domEvent.preventDefault();
+  emit("pin-related", payload);
 }
 
 function submit() {
@@ -1027,16 +1115,24 @@ onBeforeUnmount(() => {
             ref="bodyEditorRef"
             v-model="draft.bodyMarkdown"
             :document-key="editorDocumentKey"
+            :link-targets="event?.linkTargets || {}"
+            :search-notes="searchNotesForWikilink"
             @ready="onEditorReady"
             @open-image="openAttachment"
             @paste-files="uploadDroppedImages"
             @drop-files="uploadDroppedImages"
+            @open-wikilink="onWikilinkOpen"
+            @preview-wikilink="onWikilinkPreview"
+            @hide-wikilink-preview="onWikilinkHidePreview"
           />
           <div
             v-else
             class="body markdown-body"
             v-html="renderedBody"
             @click="handleBodyClick"
+            @mouseover="onReadBodyOver"
+            @mouseout="onReadBodyOut"
+            @keydown="onReadBodyKeydown"
           ></div>
         </section>
 
@@ -1145,6 +1241,16 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+
+        <!-- 反向链接：incoming [[wikilink]] 的阅读态面板（收起默认、展开懒加载）。
+             独立于上方「关联事件」（outgoing）；预览/打开转发到页面既有关联机制。 -->
+        <BacklinkPanel
+          v-if="!inEditMode && props.event?.id"
+          :event-id="props.event.id"
+          @open="onBacklinkOpen"
+          @preview="onBacklinkPreview"
+          @hide-preview="onBacklinkHidePreview"
+        />
       </div>
 
       <AttachmentModal :open="Boolean(modalAttachment)" :attachment="modalAttachment" @close="closeAttachmentModal" />

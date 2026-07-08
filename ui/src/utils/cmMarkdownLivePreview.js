@@ -3,9 +3,10 @@ import { deleteMarkupBackward, markdown, markdownLanguage } from "@codemirror/la
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
+import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { EditorSelection, EditorState, RangeSetBuilder, StateField } from "@codemirror/state";
 import { markdownListContinuation, selectionTouchesRange } from "./editorMarkdown.js";
-import { renderTableToHtml, scanFencedCodeBlocks, scanTables } from "./markdownPreview.js";
+import { WIKILINK_PATTERN, renderTableToHtml, scanFencedCodeBlocks, scanTables } from "./markdownPreview.js";
 
 const IMAGE_MARKDOWN_RE = /!\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 
@@ -484,6 +485,50 @@ class MarkdownTaskWidget extends WidgetType {
   }
 }
 
+// W4 维基链接 widget：把 [[<id>|别名]] / [[标题]] 渲成一枚原子链接片（光标不在 token 内时）。
+// 三态：resolved（id 且目标存活，accent + 可点/悬浮）/ dangling（id 但目标已删，muted 不可点）/
+// unbound（裸标题无 id，样式化但不可导航——唯一性归后端定，前端读渲染器不猜）。点击走 mousedown
+// + preventDefault（不把光标移进 token，否则 selectionTouches → 显原文），与 MarkdownTaskWidget 同法；
+// 导航/悬浮预览复用页面既有 pin-related / preview-related（handlers 由 EventDetailPane 注入）。
+class WikilinkWidget extends WidgetType {
+  constructor(display, id, state, handlers) {
+    super();
+    this.display = display;
+    this.id = id; // number | null
+    this.state = state; // "resolved" | "dangling" | "unbound"
+    this.handlers = handlers || {};
+  }
+  eq(other) {
+    return other.display === this.display && other.id === this.id && other.state === this.state;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = `cm-md-wikilink cm-md-wikilink-${this.state}`;
+    el.textContent = this.display;
+    const navigable = this.id != null && this.state === "resolved";
+    if (navigable) {
+      el.setAttribute("data-note-id", String(this.id));
+      const payload = () => {
+        const rect = el.getBoundingClientRect();
+        return {
+          id: this.id,
+          anchor: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width, height: rect.height },
+        };
+      };
+      el.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        this.handlers.onOpen?.(payload());
+      });
+      el.addEventListener("mouseenter", () => this.handlers.onPreview?.(payload()));
+      el.addEventListener("mouseleave", () => this.handlers.onHide?.(this.id));
+    }
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 const HEADING_NODE_NAMES = new Set([
   "ATXHeading1",
   "ATXHeading2",
@@ -493,7 +538,7 @@ const HEADING_NODE_NAMES = new Set([
   "ATXHeading6",
 ]);
 
-function buildLivePreviewDecorations(view) {
+function buildLivePreviewDecorations(view, wikilinkConfig) {
   const { state } = view;
   const ranges = state.selection.ranges;
   const doc = state.doc;
@@ -592,6 +637,16 @@ function buildLivePreviewDecorations(view) {
           // 语法，会把同行多个 [^x] 合并成一个 Link、把定义行当 LinkReference——解析不稳，故跳过。
           // 但 [^x](url)（带 URL，4 个 LinkMark）是真链接，照常渲染，与读渲染器 link-first 一致。
           if (doc.sliceString(node.from, node.from + 2) === "[^" && marks.length < 4) return false;
+          // 维基链接 [[..]]：Lezer 可能把内层 [..] 当 shortcut 链接节点（2 个 LinkMark、无 URL）。交给
+          // 下方 wikilink regex 段渲染，这里跳过整棵子树避免两处 replace 重叠。**仅当无 URL（<4 marks）**
+          // 时才跳——否则 [[foo](url)] 这类真的带链接会被误吞、不渲染。命中两形：节点起于外层 [[，或内层
+          // 被外层 [ ] 包裹。
+          if (
+            marks.length < 4 &&
+            (doc.sliceString(node.from, node.from + 2) === "[[" ||
+              (doc.sliceString(node.from - 1, node.from) === "[" && doc.sliceString(node.to, node.to + 1) === "]"))
+          )
+            return false;
           if (selectionTouchesRange(ranges, node.from, node.to)) return false; // 编辑态显原文
           if (marks.length >= 2) {
             const open = marks[0];
@@ -686,6 +741,10 @@ function buildLivePreviewDecorations(view) {
       let m;
       while ((m = FN_REF_RE.exec(text)) !== null) {
         if (defMatch && m.index === 0) continue;
+        // [[^…]]：前一字符是 [ → 这个 [^ 是维基链接的内层，交给下方 wikilink 段整体渲染。脚注不在
+        // 此插装饰，否则脚注 replace(内层) 与 wikilink replace(整段) 重叠 → Decoration.set 抛错、整个
+        // 编辑器渲染崩。
+        if (m.index > 0 && text[m.index - 1] === "[") continue;
         if (text[m.index + m[0].length] === "(") continue; // [^x](url) 是真链接，由语法树渲染
         const from = line.from + m.index;
         const to = from + m[0].length;
@@ -700,23 +759,60 @@ function buildLivePreviewDecorations(view) {
     }
   }
 
+  // ── 维基链接 [[<id>|别名]] / [[标题]]（按行 regex，镜像脚注段）──────────────────────
+  // caret 在 token 内 → 显原文；否则 → atomic 链接 widget。跳过表格/代码/图片块（同脚注，避免与块级
+  // replace 重叠）。id 的解析/落库在后端（§6.3），此处纯装饰：某 id 是否 resolved 看 wikilinkConfig
+  // .targets（= 该笔记 linkTargets，随 autocomplete 选中即时补入，见 wikilinkCompletionSource）。
+  const wlTargets = wikilinkConfig?.targets || {};
+  const wlHandlers = {
+    onOpen: wikilinkConfig?.onOpen,
+    onPreview: wikilinkConfig?.onPreview,
+    onHide: wikilinkConfig?.onHide,
+  };
+  const WIKILINK_LIVE_RE = new RegExp(WIKILINK_PATTERN, "g");
+  for (const visible of view.visibleRanges) {
+    const firstLine = doc.lineAt(visible.from).number;
+    const lastLine = doc.lineAt(visible.to).number;
+    for (let n = firstLine; n <= lastLine; n += 1) {
+      const line = doc.line(n);
+      if (inBlockSkip(line.from)) continue;
+      const text = line.text;
+      WIKILINK_LIVE_RE.lastIndex = 0;
+      let wm;
+      while ((wm = WIKILINK_LIVE_RE.exec(text)) !== null) {
+        const title = (wm[2] || "").trim();
+        if (!title) continue;
+        const from = line.from + wm.index;
+        const to = from + wm[0].length;
+        if (inBlockSkip(from)) continue;
+        if (selectionTouchesRange(ranges, from, to)) continue; // 光标在内显原文（读↔编辑同位）
+        const id = wm[1] ? Number(wm[1]) : null;
+        let stateName;
+        if (id == null) stateName = "unbound";
+        else if (Object.prototype.hasOwnProperty.call(wlTargets, String(id))) stateName = "resolved";
+        else stateName = "dangling";
+        pushReplace(from, to, { widget: new WikilinkWidget(title, id, stateName, wlHandlers) });
+      }
+    }
+  }
+
   return {
     decorations: Decoration.set(all, true),
     atomic: Decoration.set(atomic, true),
   };
 }
 
-export function markdownLivePreviewPlugin() {
+export function markdownLivePreviewPlugin(wikilinkConfig) {
   return ViewPlugin.fromClass(
     class {
       constructor(view) {
-        const built = buildLivePreviewDecorations(view);
+        const built = buildLivePreviewDecorations(view, wikilinkConfig);
         this.decorations = built.decorations;
         this.atomic = built.atomic;
       }
       update(update) {
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          const built = buildLivePreviewDecorations(update.view);
+          const built = buildLivePreviewDecorations(update.view, wikilinkConfig);
           this.decorations = built.decorations;
           this.atomic = built.atomic;
         }
@@ -789,14 +885,72 @@ export const markdownEditingKeymap = [
   { key: "Mod-k", run: insertMarkdownLink },
 ];
 
+// W4 `[[` 自动补全源：光标前是未闭合的 [[<query> 时，用 FTS（searchNotes 复用 /api/search）拉候选，
+// 选中即插 id 形态 [[<id>|别名]]（id 寻址=改名不断链，§6.1）。FTS 已排序/筛选，故 filter:false 让 CM
+// 不用含 "[[" 的原文二次过滤把候选全滤掉。apply 用函数：插入之外还把选中 id 记进 wikilinkConfig.targets，
+// 令装饰下一帧即渲 resolved，不必等重开笔记刷新 linkTargets（否则刚插的链接会瞬间显 dangling）。
+function wikilinkCompletionSource(searchNotes, wikilinkConfig) {
+  return async (context) => {
+    const token = context.matchBefore(/\[\[([^\[\]|\n]*)$/);
+    if (!token) return null;
+    const query = token.text.slice(2);
+    if (!context.explicit && !query.trim()) return null; // 刚敲 [[ 先不弹，等首字（Ctrl-Space 除外）
+    let rows = [];
+    try {
+      rows = (await searchNotes(query, { limit: 20 })) || [];
+    } catch {
+      rows = [];
+    }
+    const options = rows
+      .filter((row) => row && row.id != null)
+      .map((row) => {
+        const headline = (row.headline || "").trim() || `#${row.id}`;
+        const insert = `[[${row.id}|${headline}]]`;
+        return {
+          label: headline,
+          detail: row.container || undefined,
+          type: "link",
+          apply: (view, _completion, from, to) => {
+            // 若光标后紧跟已存在的 ]]（用户先敲了闭合再回填），一并吞掉——插入自带 ]]，否则出现 ]]]]。
+            const end = view.state.sliceDoc(to, to + 2) === "]]" ? to + 2 : to;
+            view.dispatch({
+              changes: { from, to: end, insert },
+              selection: { anchor: from + insert.length },
+              userEvent: "input.complete",
+            });
+            if (wikilinkConfig?.targets) wikilinkConfig.targets[String(row.id)] = headline;
+          },
+        };
+      });
+    return { from: token.from, options, filter: false };
+  };
+}
+
 export function createMarkdownEditorExtensions(options = {}) {
   const editable = options.editable !== false;
+  // 装饰与补全共享同一 config 对象（apply 会就地补 targets）；即便无 searchNotes 也建，好让
+  // 装饰照常按 linkTargets 判 resolved/dangling。
+  const wikilinkConfig = {
+    targets: { ...(options.linkTargets || {}) },
+    onOpen: options.onOpenWikilink,
+    onPreview: options.onPreviewWikilink,
+    onHide: options.onHideWikilinkPreview,
+  };
+  const wikilinkExtensions = options.searchNotes
+    ? [
+        autocompletion({ override: [wikilinkCompletionSource(options.searchNotes, wikilinkConfig)], icons: false }),
+        keymap.of(completionKeymap),
+      ]
+    : [];
 
   return [
     history(),
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(markdownHighlightStyle),
-    markdownLivePreviewPlugin(),
+    markdownLivePreviewPlugin(wikilinkConfig),
+    // 补全 keymap 须在 markdownEditingKeymap 之前：弹窗开时 Enter 走 acceptCompletion，无弹窗时
+    // acceptCompletion 返回 false → 落到下面的 continueMarkdownStructure（列表续行），互不打架。
+    ...wikilinkExtensions,
     keymap.of(markdownEditingKeymap),
     keymap.of([...historyKeymap, ...defaultKeymap]),
     EditorView.lineWrapping,

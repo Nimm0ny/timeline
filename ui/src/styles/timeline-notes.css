@@ -2320,6 +2320,37 @@ button {
   text-decoration: underline;
 }
 
+/* W4 维基链接：阅读态 <a.timeline-wikilink> / <span.timeline-wikilink-unbound> 与编辑态
+   <span.cm-md-wikilink-*> 同一视觉。resolved=accent 可点；dangling=目标已删（虚线 muted，仅编辑态
+   知晓）；unbound=裸标题未绑 id（点线 muted）。下划线固定 1px、hover 加粗，避免读↔编辑位移。 */
+.markdown-body .timeline-wikilink,
+.markdown-live-editor .cm-md-wikilink-resolved {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.markdown-body .timeline-wikilink:hover,
+.markdown-live-editor .cm-md-wikilink-resolved:hover {
+  text-decoration-thickness: 2px;
+}
+.markdown-body .timeline-wikilink-unbound,
+.markdown-live-editor .cm-md-wikilink-unbound {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.markdown-live-editor .cm-md-wikilink-dangling {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 .markdown-live-editor .cm-md-inline-code {
   background: var(--bg-surface-2);
   padding: 1px 6px;
@@ -2743,6 +2774,110 @@ button {
 
 .related-result:hover {
   background: var(--bg-hover);
+}
+
+/* W4 反向链接面板：折叠区复用 .pane-sec / .pane-sec-head / .lrow 骨架，只补
+   折叠头、计数徽标、容器 chip、单行摘要与「加载更多」的令牌化样式（无新造色）。 */
+.backlink-head {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.backlink-head:hover {
+  background: var(--bg-hover);
+}
+
+.backlink-chev {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+
+.backlink-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.backlink-body {
+  display: grid;
+  gap: 8px;
+}
+
+.backlink-state {
+  padding: 8px 2px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.backlink-row {
+  cursor: pointer;
+  text-align: left;
+}
+
+.backlink-row:hover {
+  background: var(--bg-hover);
+}
+
+.backlink-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlink-chip {
+  flex: none;
+  max-width: 42%;
+  height: 22px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.backlink-more {
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.backlink-more:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.backlink-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .detail-empty {

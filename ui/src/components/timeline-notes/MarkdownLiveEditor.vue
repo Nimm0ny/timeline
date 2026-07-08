@@ -9,9 +9,22 @@ const props = defineProps({
   modelValue: { type: String, default: "" },
   documentKey: { type: [String, Number], required: true },
   disabled: { type: Boolean, default: false },
+  // W4: {idStr: 最新标题} —— 决定 [[<id>]] 装饰的 resolved/dangling（缺席即悬空）。
+  linkTargets: { type: Object, default: () => ({}) },
+  // W4: (query, {limit}) => Promise<[{id, headline, container}]> —— [[ 补全的候选源（复用 FTS）。
+  searchNotes: { type: Function, default: null },
 });
 
-const emit = defineEmits(["update:modelValue", "open-image", "paste-files", "drop-files", "ready"]);
+const emit = defineEmits([
+  "update:modelValue",
+  "open-image",
+  "paste-files",
+  "drop-files",
+  "ready",
+  "open-wikilink",
+  "preview-wikilink",
+  "hide-wikilink-preview",
+]);
 
 const rootRef = ref(null);
 let editorView = null;
@@ -38,6 +51,17 @@ function createEditor() {
       },
       onDropFiles(files) {
         emit("drop-files", files);
+      },
+      linkTargets: props.linkTargets,
+      searchNotes: props.searchNotes,
+      onOpenWikilink(payload) {
+        emit("open-wikilink", payload);
+      },
+      onPreviewWikilink(payload) {
+        emit("preview-wikilink", payload);
+      },
+      onHideWikilinkPreview(id) {
+        emit("hide-wikilink-preview", id);
       },
     }),
   });
