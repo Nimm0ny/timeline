@@ -23,15 +23,15 @@ import {
   aggregateOptionChips,
   availableDisplayViews,
   buildBoardGroups,
-  buildEventPreview,
+  buildNotePreview,
   buildTimelineGridTemplate,
   buildVisibleTimelineColumns,
   clampTimelineColumnWidth,
-  compareEventsBySort,
+  compareNotesBySort,
   dateKeyFromLocator,
   DISPLAY_VIEW_META,
-  eventColumnValue,
-  eventHasDate,
+  noteColumnValue,
+  noteHasDate,
   isCheckboxChecked,
   isDefaultSort,
   isOptionColumn,
@@ -345,15 +345,15 @@ function buildProjectedEvent(event, columns, { previewLength = 0 } = {}) {
   const resolvedColumnValues = {};
   const chipsByColumn = {};
   for (const column of columns || []) {
-    resolvedColumnValues[column.key] = eventColumnValue(event, column);
+    resolvedColumnValues[column.key] = noteColumnValue(event, column);
     if (isOptionColumn(column)) chipsByColumn[column.key] = resolvePropertyChips(event, column);
   }
   return {
     key: `event:${event.id}`,
     event,
-    titleText: resolvedColumnValues.title || eventColumnValue(event, { key: "title" }),
-    timeText: resolvedColumnValues.time || eventColumnValue(event, { key: "time" }),
-    previewText: previewLength > 0 ? buildEventPreview(event, previewLength) : "",
+    titleText: resolvedColumnValues.title || noteColumnValue(event, { key: "title" }),
+    timeText: resolvedColumnValues.time || noteColumnValue(event, { key: "time" }),
+    previewText: previewLength > 0 ? buildNotePreview(event, previewLength) : "",
     resolvedColumnValues,
     chipsByColumn,
     rowChips: aggregateOptionChips(event, props.columns, props.emptyColumnKeys),
@@ -456,7 +456,7 @@ const GROUP_BY_OPTIONS = [
   { key: "month", label: "月", icon: "calendar" },
 ];
 
-const sortedFlatEvents = computed(() => [...flatEvents()].sort(compareEventsBySort(props.sort, props.columns)));
+const sortedFlatEvents = computed(() => [...flatEvents()].sort(compareNotesBySort(props.sort, props.columns)));
 
 // Fields the active view offers (favorites is flat and adds 收藏时间).
 function sortOptions() {
@@ -1736,7 +1736,7 @@ defineExpose({
               <b class="bd-card-name"><HighlightedText :text="projected.titleText" :query="props.searchQuery" /></b>
               <span class="bd-card-sum"><HighlightedText :text="projected.previewText" :query="props.searchQuery" /></span>
               <span class="bd-card-foot">
-                <span class="bd-card-date">{{ eventHasDate(projected.event) ? projected.timeText : "" }}</span>
+                <span class="bd-card-date">{{ noteHasDate(projected.event) ? projected.timeText : "" }}</span>
                 <span class="c-star" :class="{ on: projected.event.favorite }" @click.stop="emit('toggle-favorite', projected.event)">
                   <TimelineLucideIcon name="star" :stroke-width="1.5" />
                 </span>
@@ -1803,7 +1803,7 @@ defineExpose({
                   >+{{ projected.rowChips.length - FEED_CHIP_LIMIT }}</span
                 >
               </span>
-              <span class="gl-date">{{ eventHasDate(projected.event) ? projected.timeText : "" }}</span>
+              <span class="gl-date">{{ noteHasDate(projected.event) ? projected.timeText : "" }}</span>
             </span>
             <span
               v-if="!selectMode"
@@ -1850,7 +1850,7 @@ defineExpose({
           >
             <span class="ol-bullet" aria-hidden="true"></span>
             <b class="ol-name"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
-            <span class="ol-date">{{ eventHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
+            <span class="ol-date">{{ noteHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
             <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
               <TimelineLucideIcon name="star" :stroke-width="1.5" />
             </span>
@@ -1908,7 +1908,7 @@ defineExpose({
               >+{{ activeLinearRows[vRow.index].projected.rowChips.length - FEED_CHIP_LIMIT }}</span
             >
           </span>
-          <span class="lv-date">{{ eventHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
+          <span class="lv-date">{{ noteHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
           <span
             v-if="!selectMode"
             class="lv-del"

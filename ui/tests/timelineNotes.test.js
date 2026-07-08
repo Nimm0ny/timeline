@@ -6,14 +6,14 @@ import {
   buildPropertyUsage,
   buildOptionId,
   buildEditorDraft,
-  buildEventPreview,
+  buildNotePreview,
   buildFavoriteFacetRows,
-  buildGlobalFavoriteEvents,
+  buildGlobalFavoriteNotes,
   buildPropertyKey,
   buildPropertyRows,
-  buildRecentFavoriteEvents,
+  buildRecentFavoriteNotes,
   canChangePropertyType,
-  classifyEventDateInput,
+  classifyNoteDateInput,
   editablePropertyTypeChoices,
   buildReadableDetailGroups,
   buildSearchHighlightSegments,
@@ -21,17 +21,17 @@ import {
   buildVisibleTimelineColumns,
   clampTimelineColumnWidth,
   emptyTimelineColumnKeys,
-  eventColumnHasValue,
-  eventColumnValue,
-  eventHasDate,
-  formatEventDate,
-  formatEventDisplayDate,
-  filterFavoriteEventsByScope,
+  noteColumnHasValue,
+  noteColumnValue,
+  noteHasDate,
+  formatNoteDate,
+  formatNoteDisplayDate,
+  filterFavoriteNotesByScope,
   groupTimelineEvents,
   isCheckboxChecked,
   mindmapPlainText,
   matchesPropertyFilter,
-  normalizeEventExtra,
+  normalizeNoteExtra,
   normalizeTopicBookshelf,
   normalizeTopicColumns,
   propertyHref,
@@ -39,9 +39,9 @@ import {
   resolveTopicCreateShelfName,
   resolvePropertyChips,
   serializeTopicColumnsDraft,
-  mergeTopicEventPage,
+  mergeTopicNotePage,
   planTopicPageFetch,
-  shouldAutoLoadMoreForFilteredEvents,
+  shouldAutoLoadMoreForFilteredNotes,
   shouldRequestMoreOnScroll,
   timelineTimeColumnWidth,
   findBookshelfByName,
@@ -118,8 +118,8 @@ test("groupTimelineEvents can search by resolved option label", () => {
   assert.deepEqual(groups.flatMap((group) => group.items.map((event) => event.id)), [2]);
 });
 
-test("buildEventPreview strips markdown and truncates to the requested length", () => {
-  const preview = buildEventPreview(
+test("buildNotePreview strips markdown and truncates to the requested length", () => {
+  const preview = buildNotePreview(
     {
       bodyMarkdown: "## Heading\nThis **timeline** entry has enough text for preview trimming.",
       items: [],
@@ -130,8 +130,8 @@ test("buildEventPreview strips markdown and truncates to the requested length", 
   assert.equal(preview, "Heading This timeline...");
 });
 
-test("buildEventPreview uses a stable placeholder for markdown images", () => {
-  const preview = buildEventPreview(
+test("buildNotePreview uses a stable placeholder for markdown images", () => {
+  const preview = buildNotePreview(
     {
       bodyMarkdown: "正文前 ![现场照片](/images/site.png) 正文后 [来源](https://example.com)",
       items: [],
@@ -142,15 +142,15 @@ test("buildEventPreview uses a stable placeholder for markdown images", () => {
   assert.equal(preview, "正文前 [图片] 正文后 来源");
 });
 
-test("buildEventPreview and search can use lightweight index preview text", () => {
+test("buildNotePreview and search can use lightweight index preview text", () => {
   const event = { headline: "Index Row", preview: "轻量索引预览文本", extra: {} };
 
-  assert.equal(buildEventPreview(event, 20), "轻量索引预览文本");
+  assert.equal(buildNotePreview(event, 20), "轻量索引预览文本");
   assert.equal(groupTimelineEvents([event], "era", "索引").length, 1);
 });
 
-test("buildGlobalFavoriteEvents returns live favorites across topics in timeline order", () => {
-  const rows = buildGlobalFavoriteEvents([
+test("buildGlobalFavoriteNotes returns live favorites across topics in timeline order", () => {
+  const rows = buildGlobalFavoriteNotes([
     { id: 5, topicId: 2, dateKey: 19110101, favorite: true },
     { id: 2, topicId: 1, dateKey: 18400101, favorite: true },
     { id: 3, topicId: 1, dateKey: 18400201, favorite: false },
@@ -163,8 +163,8 @@ test("buildGlobalFavoriteEvents returns live favorites across topics in timeline
   ]);
 });
 
-test("buildRecentFavoriteEvents prefers favoriteAt and caps to five", () => {
-  const rows = buildRecentFavoriteEvents([
+test("buildRecentFavoriteNotes prefers favoriteAt and caps to five", () => {
+  const rows = buildRecentFavoriteNotes([
     { id: 1, favoriteAt: "2026-06-20T00:00:00Z" },
     { id: 2, favoriteAt: "2026-06-30T00:00:00Z" },
     { id: 3, favoriteAt: "2026-06-25T00:00:00Z" },
@@ -237,7 +237,7 @@ test("buildFavoriteFacetRows aggregates type and tag usage across notebooks", ()
   );
 });
 
-test("filterFavoriteEventsByScope supports current notebook, recent, topic, type, and tag scopes", () => {
+test("filterFavoriteNotesByScope supports current notebook, recent, topic, type, and tag scopes", () => {
   const topics = [
     { id: 1, title: "党史", columns: [{ key: "type", label: "类型", type: "select", options: [{ id: "war", label: "战争" }] }, tagsColumn] },
     { id: 2, title: "近代史", columns: [{ key: "type", label: "类型", type: "select", options: [{ id: "reform", label: "改革" }] }, tagsColumn] },
@@ -248,11 +248,11 @@ test("filterFavoriteEventsByScope supports current notebook, recent, topic, type
     { id: 3, topicId: 1, dateKey: 18400201, favoriteAt: "2026-06-29T00:00:00Z", extra: { type: "war", tags: ["politics"] } },
   ];
 
-  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "current-topic" }, topics, 1).map((event) => event.id), [1, 3]);
-  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "topic", topicId: 2 }, topics, 1).map((event) => event.id), [2]);
-  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "type", value: "war", topicId: 1 }, topics, 1).map((event) => event.id), [1, 3]);
-  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "tag", value: "politics", topicId: 1 }, topics, 1).map((event) => event.id), [3]);
-  assert.deepEqual(filterFavoriteEventsByScope(favorites, { kind: "recent" }, topics, 1).map((event) => event.id), [2, 3, 1]);
+  assert.deepEqual(filterFavoriteNotesByScope(favorites, { kind: "current-topic" }, topics, 1).map((event) => event.id), [1, 3]);
+  assert.deepEqual(filterFavoriteNotesByScope(favorites, { kind: "topic", topicId: 2 }, topics, 1).map((event) => event.id), [2]);
+  assert.deepEqual(filterFavoriteNotesByScope(favorites, { kind: "type", value: "war", topicId: 1 }, topics, 1).map((event) => event.id), [1, 3]);
+  assert.deepEqual(filterFavoriteNotesByScope(favorites, { kind: "tag", value: "politics", topicId: 1 }, topics, 1).map((event) => event.id), [3]);
+  assert.deepEqual(filterFavoriteNotesByScope(favorites, { kind: "recent" }, topics, 1).map((event) => event.id), [2, 3, 1]);
 });
 
 test("search can use lightweight index full search text outside preview", () => {
@@ -261,7 +261,7 @@ test("search can use lightweight index full search text outside preview", () => 
   assert.equal(groupTimelineEvents([event], "era", "深层正文关键词").length, 1);
 });
 
-test("matchesEventSearch prefers searchText before rebuilding runtime haystacks", () => {
+test("matchesNoteSearch prefers searchText before rebuilding runtime haystacks", () => {
   const event = {
     headline: "Search Row",
     searchText: "索引关键字",
@@ -299,7 +299,7 @@ test("mindmapPlainText flattens an X6 snapshot into searchable text", () => {
   assert.equal(mindmapPlainText(snapshot), "中心主题 分支甲 细节点");
 });
 
-test("buildEventPreview and search can bridge mindmap bodyJson text", () => {
+test("buildNotePreview and search can bridge mindmap bodyJson text", () => {
   const event = {
     headline: "导图检索",
     bodyJson: {
@@ -309,20 +309,20 @@ test("buildEventPreview and search can bridge mindmap bodyJson text", () => {
     extra: {},
   };
 
-  assert.equal(buildEventPreview(event, 40), "中心主题 分支甲");
+  assert.equal(buildNotePreview(event, 40), "中心主题 分支甲");
   assert.equal(groupTimelineEvents([event], "era", "分支甲").length, 1);
 });
 
-test("eventHasDate/formatEventDate handle undated notes explicitly", () => {
+test("noteHasDate/formatNoteDate handle undated notes explicitly", () => {
   const undated = { hasDate: false, dateKey: null, dateParts: { year: null, month: null, day: null } };
-  assert.equal(eventHasDate(undated), false);
-  assert.equal(formatEventDate(undated), "");
-  assert.equal(formatEventDisplayDate(undated), "未定时间");
+  assert.equal(noteHasDate(undated), false);
+  assert.equal(formatNoteDate(undated), "");
+  assert.equal(formatNoteDisplayDate(undated), "未定时间");
 });
 
-test("eventColumnValue falls back to era before using undated display text for title", () => {
+test("noteColumnValue falls back to era before using undated display text for title", () => {
   const row = { headline: "", era: "第一章", displayLabel: "未定时间" };
-  assert.equal(eventColumnValue(row, { key: "title" }), "第一章");
+  assert.equal(noteColumnValue(row, { key: "title" }), "第一章");
 });
 
 test("resolvePropertyChips maps option ids to labels and colors, keeping unknown ids", () => {
@@ -436,7 +436,7 @@ test("clampTimelineColumnWidth keeps dragged widths inside the supported range",
   assert.equal(clampTimelineColumnWidth("bad", 96), 96);
 });
 
-test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whitelist and options", () => {
+test("buildVisibleTimelineColumns and normalizeNoteExtra honor visibility, whitelist and options", () => {
   const cols = normalizeTopicColumns([
     { key: "type", label: "类型", type: "select", width: 96, order: 0, visible: true, options: [{ id: "a", label: "A" }] },
     { key: "tags", label: "标签", type: "multiselect", width: 150, order: 1, visible: true, options: [{ id: "war", label: "战争" }] },
@@ -446,12 +446,12 @@ test("buildVisibleTimelineColumns and normalizeEventExtra honor visibility, whit
   const visible = buildVisibleTimelineColumns(cols);
   // `source` is defined but hidden — its value is still kept; only the unknown
   // `drop` key is filtered out. Visibility controls display, not storage.
-  const extra = normalizeEventExtra({ type: "a", tags: ["war", "ghost", "war"], place: "广州", source: "x", drop: "z" }, cols);
+  const extra = normalizeNoteExtra({ type: "a", tags: ["war", "ghost", "war"], place: "广州", source: "x", drop: "z" }, cols);
 
   assert.deepEqual(visible.map((column) => column.key), ["time", "title", "type", "tags", "place"]);
   assert.equal(buildTimelineGridTemplate(cols), "28px 96px minmax(0,1fr) 96px 150px 92px 30px");
   assert.deepEqual(extra, { type: "a", tags: ["war"], place: "广州", source: "x" });
-  assert.deepEqual(normalizeEventExtra({ type: "ghost" }, cols), { type: "" });
+  assert.deepEqual(normalizeNoteExtra({ type: "ghost" }, cols), { type: "" });
 });
 
 test("buildSearchHighlightSegments marks query hits case-insensitively, preserving source case", () => {
@@ -528,16 +528,16 @@ test("emptyTimelineColumnKeys hides columns with no value anywhere; built-ins an
     ["time", "title", "type", "tags", "place", "done"]
   );
 
-  // eventColumnHasValue reflects per-type rendering (option / checkbox / text).
+  // noteColumnHasValue reflects per-type rendering (option / checkbox / text).
   const col = (key) => cols.find((column) => column.key === key);
-  assert.equal(eventColumnHasValue(evs[0], col("tags")), true);
-  assert.equal(eventColumnHasValue(evs[1], col("tags")), false);
-  assert.equal(eventColumnHasValue(evs[0], col("type")), false);
-  assert.equal(eventColumnHasValue(evs[1], col("done")), true);
-  assert.equal(eventColumnHasValue(evs[0], col("done")), false);
+  assert.equal(noteColumnHasValue(evs[0], col("tags")), true);
+  assert.equal(noteColumnHasValue(evs[1], col("tags")), false);
+  assert.equal(noteColumnHasValue(evs[0], col("type")), false);
+  assert.equal(noteColumnHasValue(evs[1], col("done")), true);
+  assert.equal(noteColumnHasValue(evs[0], col("done")), false);
 });
 
-test("eventColumnValue and eventColumnHasValue agree on text/number emptiness (whitespace, 0)", () => {
+test("noteColumnValue and noteColumnHasValue agree on text/number emptiness (whitespace, 0)", () => {
   const cols = normalizeTopicColumns([
     { key: "place", label: "地点", type: "text", width: 92, order: 0, visible: true },
     { key: "count", label: "数量", type: "number", width: 80, order: 1, visible: true },
@@ -546,14 +546,14 @@ test("eventColumnValue and eventColumnHasValue agree on text/number emptiness (w
   const count = cols.find((column) => column.key === "count");
 
   // Whitespace-only is treated as empty by BOTH the renderer and the hide-logic.
-  assert.equal(eventColumnValue({ extra: { place: "   " } }, place), "—");
-  assert.equal(eventColumnHasValue({ extra: { place: "   " } }, place), false);
+  assert.equal(noteColumnValue({ extra: { place: "   " } }, place), "—");
+  assert.equal(noteColumnHasValue({ extra: { place: "   " } }, place), false);
   // Real text renders verbatim and counts as a value.
-  assert.equal(eventColumnValue({ extra: { place: "广州" } }, place), "广州");
-  assert.equal(eventColumnHasValue({ extra: { place: "广州" } }, place), true);
+  assert.equal(noteColumnValue({ extra: { place: "广州" } }, place), "广州");
+  assert.equal(noteColumnHasValue({ extra: { place: "广州" } }, place), true);
   // "0" is a real value — must stay visible (the old truthiness test dropped it).
-  assert.equal(eventColumnValue({ extra: { count: "0" } }, count), "0");
-  assert.equal(eventColumnHasValue({ extra: { count: "0" } }, count), true);
+  assert.equal(noteColumnValue({ extra: { count: "0" } }, count), "0");
+  assert.equal(noteColumnHasValue({ extra: { count: "0" } }, count), true);
 
   // A column of only-whitespace/blank values hides; one real value keeps both shown.
   assert.deepEqual(emptyTimelineColumnKeys(cols, [{ extra: { place: "  ", count: "" } }]).sort(), ["count", "place"]);
@@ -567,26 +567,26 @@ test("date formatters collapse year-only precision but keep genuine days (and BC
   const bcYear = { dateParts: { year: -5000, month: 1, day: 1 }, isoDate: "-5000-01-01" };
 
   // Timeline (compact): year-only collapses; genuine 1st-of-month and full days stay.
-  assert.equal(formatEventDate(yearOnly), "1840");
-  assert.equal(formatEventDate(firstOfMonth), "1927-08-01");
-  assert.equal(formatEventDate(fullDay), "1921-07-23");
-  assert.equal(formatEventDate(bcYear), "公元前5000");
+  assert.equal(formatNoteDate(yearOnly), "1840");
+  assert.equal(formatNoteDate(firstOfMonth), "1927-08-01");
+  assert.equal(formatNoteDate(fullDay), "1921-07-23");
+  assert.equal(formatNoteDate(bcYear), "公元前5000");
 
   // Detail (CJK): same precision rule, BC prefix.
-  assert.equal(formatEventDisplayDate(yearOnly), "1840年");
-  assert.equal(formatEventDisplayDate(firstOfMonth), "1927年8月1日");
-  assert.equal(formatEventDisplayDate(fullDay), "1921年7月23日");
-  assert.equal(formatEventDisplayDate(bcYear), "公元前5000年");
+  assert.equal(formatNoteDisplayDate(yearOnly), "1840年");
+  assert.equal(formatNoteDisplayDate(firstOfMonth), "1927年8月1日");
+  assert.equal(formatNoteDisplayDate(fullDay), "1921年7月23日");
+  assert.equal(formatNoteDisplayDate(bcYear), "公元前5000年");
 
   // BC dates with a real month/day use the CJK form in BOTH panes (the compact
   // timeline would otherwise show a broken-looking "-551-09-28").
   const bcFull = { dateParts: { year: -551, month: 9, day: 28 }, isoDate: "-551-09-28" };
-  assert.equal(formatEventDate(bcFull), "公元前551年9月28日");
-  assert.equal(formatEventDisplayDate(bcFull), "公元前551年9月28日");
+  assert.equal(formatNoteDate(bcFull), "公元前551年9月28日");
+  assert.equal(formatNoteDisplayDate(bcFull), "公元前551年9月28日");
 
   // No usable year → fall back to the precomputed displayLabel (or "").
-  assert.equal(formatEventDisplayDate({ dateParts: { month: 5, day: 1 }, displayLabel: "约公元前" }), "约公元前");
-  assert.equal(formatEventDisplayDate({ displayLabel: "未知" }), "未知");
+  assert.equal(formatNoteDisplayDate({ dateParts: { month: 5, day: 1 }, displayLabel: "约公元前" }), "约公元前");
+  assert.equal(formatNoteDisplayDate({ displayLabel: "未知" }), "未知");
 });
 
 test("groupTimelineEvents era subtitle renders BC year ranges as 公元前", () => {
@@ -680,13 +680,13 @@ test("buildPropertyKey and buildOptionId generate stable ASCII fallbacks", () =>
   assert.equal(buildOptionId("Treaty Option", ["treaty_option"]), "treaty_option_2");
 });
 
-test("normalizeEventExtra coerces checkbox values to canonical true/false", () => {
+test("normalizeNoteExtra coerces checkbox values to canonical true/false", () => {
   const cols = [{ key: "done", label: "完成", type: "checkbox" }];
-  assert.deepEqual(normalizeEventExtra({ done: "true" }, cols), { done: "true" });
-  assert.deepEqual(normalizeEventExtra({ done: "1" }, cols), { done: "true" });
-  assert.deepEqual(normalizeEventExtra({ done: true }, cols), { done: "true" });
-  assert.deepEqual(normalizeEventExtra({ done: "false" }, cols), { done: "false" });
-  assert.deepEqual(normalizeEventExtra({ done: "" }, cols), { done: "false" });
+  assert.deepEqual(normalizeNoteExtra({ done: "true" }, cols), { done: "true" });
+  assert.deepEqual(normalizeNoteExtra({ done: "1" }, cols), { done: "true" });
+  assert.deepEqual(normalizeNoteExtra({ done: true }, cols), { done: "true" });
+  assert.deepEqual(normalizeNoteExtra({ done: "false" }, cols), { done: "false" });
+  assert.deepEqual(normalizeNoteExtra({ done: "" }, cols), { done: "false" });
 });
 
 test("isCheckboxChecked reads canonical and loose truthy strings", () => {
@@ -808,16 +808,16 @@ test("resolveCreateTopicRequest preserves shelf-scoped notebook creation across 
   );
 });
 
-test("mergeTopicEventPage replaces on load and de-dupes by id across appended pages", () => {
+test("mergeTopicNotePage replaces on load and de-dupes by id across appended pages", () => {
   const page1 = [{ id: 1, topicId: 7 }, { id: 2, topicId: 7 }];
   // Non-append replaces whatever was there.
-  assert.deepEqual(mergeTopicEventPage([{ id: 9 }], page1).map((e) => e.id), [1, 2]);
+  assert.deepEqual(mergeTopicNotePage([{ id: 9 }], page1).map((e) => e.id), [1, 2]);
   // Append de-dupes the overlapping boundary row (id 2) and keeps order, no drop.
   const page2 = [{ id: 2, topicId: 7 }, { id: 3, topicId: 7 }, { id: 4, topicId: 7 }];
-  const merged = mergeTopicEventPage(page1, page2, { append: true });
+  const merged = mergeTopicNotePage(page1, page2, { append: true });
   assert.deepEqual(merged.map((e) => e.id), [1, 2, 3, 4]);
   // A fully-overlapping page adds nothing (idempotent).
-  assert.deepEqual(mergeTopicEventPage(merged, page1, { append: true }).map((e) => e.id), [1, 2, 3, 4]);
+  assert.deepEqual(mergeTopicNotePage(merged, page1, { append: true }).map((e) => e.id), [1, 2, 3, 4]);
 });
 
 test("planTopicPageFetch decides fetch + threads the cursor across initial/force/append", () => {
@@ -858,9 +858,9 @@ test("shouldRequestMoreOnScroll fires only near the bottom and honors the guards
   assert.equal(shouldRequestMoreOnScroll({ ...near, globalFavoritesMode: true }), false);
 });
 
-test("shouldAutoLoadMoreForFilteredEvents only keeps paging while a filtered topic page is empty", () => {
+test("shouldAutoLoadMoreForFilteredNotes only keeps paging while a filtered topic page is empty", () => {
   assert.equal(
-    shouldAutoLoadMoreForFilteredEvents({
+    shouldAutoLoadMoreForFilteredNotes({
       activeTopicId: 1,
       globalFavoritesMode: false,
       hasMore: true,
@@ -871,7 +871,7 @@ test("shouldAutoLoadMoreForFilteredEvents only keeps paging while a filtered top
     true
   );
   assert.equal(
-    shouldAutoLoadMoreForFilteredEvents({
+    shouldAutoLoadMoreForFilteredNotes({
       activeTopicId: 1,
       globalFavoritesMode: false,
       hasMore: true,
@@ -882,7 +882,7 @@ test("shouldAutoLoadMoreForFilteredEvents only keeps paging while a filtered top
     false
   );
   assert.equal(
-    shouldAutoLoadMoreForFilteredEvents({
+    shouldAutoLoadMoreForFilteredNotes({
       activeTopicId: 1,
       globalFavoritesMode: true,
       hasMore: true,
@@ -957,30 +957,30 @@ test("sortBookshelfTree leaves the source tree and era lists untouched", () => {
   assert.deepEqual(beta.topics.find((entry) => entry.topic.title === "Cat").eras, [{ era: "e", count: 2 }]);
 });
 
-test("classifyEventDateInput: full valid triple is dated and carries the fields", () => {
-  assert.deepEqual(classifyEventDateInput("2026", "6", "30"), {
+test("classifyNoteDateInput: full valid triple is dated and carries the fields", () => {
+  assert.deepEqual(classifyNoteDateInput("2026", "6", "30"), {
     status: "dated",
     dateFields: { dateYear: 2026, dateMonth: 6, dateDay: 30 },
   });
   // Numbers, negatives (BCE), and padded strings all parse the same way.
-  assert.deepEqual(classifyEventDateInput(-221, 1, 1), {
+  assert.deepEqual(classifyNoteDateInput(-221, 1, 1), {
     status: "dated",
     dateFields: { dateYear: -221, dateMonth: 1, dateDay: 1 },
   });
 });
 
-test("classifyEventDateInput: all-blank is undated with no date fields", () => {
+test("classifyNoteDateInput: all-blank is undated with no date fields", () => {
   for (const blank of [["", "", ""], [null, undefined, "  "], [undefined, undefined, undefined]]) {
-    assert.deepEqual(classifyEventDateInput(...blank), { status: "undated", dateFields: {} });
+    assert.deepEqual(classifyNoteDateInput(...blank), { status: "undated", dateFields: {} });
   }
 });
 
-test("classifyEventDateInput: a partially filled date is rejected", () => {
+test("classifyNoteDateInput: a partially filled date is rejected", () => {
   // Any non-empty part without a full valid triple → partial (the editor blocks it,
   // and no date keys leak into the payload).
-  assert.deepEqual(classifyEventDateInput("2026", "", ""), { status: "partial", dateFields: {} });
-  assert.deepEqual(classifyEventDateInput("2026", "6", ""), { status: "partial", dateFields: {} });
-  assert.deepEqual(classifyEventDateInput("2026", "abc", "30"), { status: "partial", dateFields: {} });
+  assert.deepEqual(classifyNoteDateInput("2026", "", ""), { status: "partial", dateFields: {} });
+  assert.deepEqual(classifyNoteDateInput("2026", "6", ""), { status: "partial", dateFields: {} });
+  assert.deepEqual(classifyNoteDateInput("2026", "abc", "30"), { status: "partial", dateFields: {} });
 });
 
 test("mindmapPlainText extracts canvas card text so an in-session upsert keeps search/preview", () => {

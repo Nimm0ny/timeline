@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeEventNode, normalizeSummaryNode } from "../src/models/timelineNodes.js";
+import { normalizeNoteNode, normalizeSummaryNode } from "../src/models/timelineNodes.js";
 
-test("normalizeEventNode preserves structured event fields", () => {
-  const node = normalizeEventNode({
+test("normalizeNoteNode preserves structured event fields", () => {
+  const node = normalizeNoteNode({
     id: 1,
     dateKey: 18400101,
     sortKey: 18400101,

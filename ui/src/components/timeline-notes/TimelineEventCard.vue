@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { buildEventPreview, collectEventTags } from "@/utils/timelineNotes";
+import { buildNotePreview, collectNoteTags } from "@/utils/timelineNotes";
 
 const props = defineProps({
   event: {
@@ -20,8 +20,8 @@ const props = defineProps({
 
 const emit = defineEmits(["select", "toggle-favorite", "open-menu"]);
 
-const tags = computed(() => collectEventTags(props.event).slice(0, 3));
-const previewText = computed(() => props.layout?.previewText || buildEventPreview(props.event));
+const tags = computed(() => collectNoteTags(props.event).slice(0, 3));
+const previewText = computed(() => props.layout?.previewText || buildNotePreview(props.event));
 const cardStyle = computed(() => {
   if (!props.layout?.estimatedHeight) return {};
   const activeHeight = Math.max(props.layout.estimatedHeight, props.layout.activeMinHeight || 175);

@@ -4,7 +4,7 @@ import {
   prepareWithSegments,
 } from "@chenglou/pretext";
 import { plainTextFromMarkdown } from "../utils/markdownPreview.js";
-import { collectEventTags } from "../utils/timelineNotes.js";
+import { collectNoteTags } from "../utils/timelineNotes.js";
 
 const FONT_PRESETS = {
   timelinePrimary: '700 13.12px "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',
@@ -301,7 +301,7 @@ export function buildTimelineCardLayout(event, options = {}) {
   const settings = { ...TIMELINE_CARD_DEFAULTS, ...options };
   const title = normalizeInlineText(event?.headline || event?.displayLabel || "");
   const bodyText = bodyTextFromEvent(event);
-  const tags = collectEventTags(event).slice(0, 3);
+  const tags = collectNoteTags(event).slice(0, 3);
   const titleLayout = safeMaterializeTextLayout(
     title,
     "timelineCardTitle",

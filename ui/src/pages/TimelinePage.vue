@@ -19,16 +19,16 @@ import { buildCanvasSeedSnapshot } from "@/utils/canvasX6.js";
 import {
   buildFavoriteFacetRows,
   buildOptionId,
-  buildRecentFavoriteEvents,
-  buildGlobalFavoriteEvents,
+  buildRecentFavoriteNotes,
+  buildGlobalFavoriteNotes,
   clampSortForView,
   containerTypeViews,
   findBookshelfByName,
-  compareEventsBySort,
+  compareNotesBySort,
   DEFAULT_SORT,
-  filterFavoriteEventsByScope,
+  filterFavoriteNotesByScope,
   groupTimelineEvents,
-  matchesEventSearch,
+  matchesNoteSearch,
   matchesPropertyFilter,
   mindmapRootData,
   normalizeTopicBookshelf,
@@ -36,7 +36,7 @@ import {
   normalizeSortLevels,
   normalizeTopicColumns,
   resolveDisplayStyle,
-  shouldAutoLoadMoreForFilteredEvents,
+  shouldAutoLoadMoreForFilteredNotes,
   sortBookshelfTree,
   SIDEBAR_SORT_MODES,
 } from "@/utils/timelineNotes";
@@ -384,12 +384,12 @@ const autoLoadContextKey = computed(() =>
 );
 
 const isGlobalFavoritesMode = computed(() => state.collectionMode === "favorites");
-const globalFavoriteEvents = computed(() => buildGlobalFavoriteEvents(notesStore.state.notesIndex));
+const globalFavoriteEvents = computed(() => buildGlobalFavoriteNotes(notesStore.state.notesIndex));
 const favoriteScope = computed(() => normalizeFavoriteScope(state.favoriteScope));
 const favoritesScopedEvents = computed(() =>
-  filterFavoriteEventsByScope(globalFavoriteEvents.value, favoriteScope.value, state.topics, state.activeTopicId)
+  filterFavoriteNotesByScope(globalFavoriteEvents.value, favoriteScope.value, state.topics, state.activeTopicId)
 );
-const favoritesRecentEvents = computed(() => buildRecentFavoriteEvents(favoritesScopedEvents.value, 5));
+const favoritesRecentEvents = computed(() => buildRecentFavoriteNotes(favoritesScopedEvents.value, 5));
 const favoriteTypeRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "type"));
 const favoriteTagRows = computed(() => buildFavoriteFacetRows(favoritesScopedEvents.value, state.topics, "tags"));
 const favoriteTopicRows = computed(() => {
@@ -428,8 +428,8 @@ const favoriteScopeLabel = computed(() => {
   return "全部收藏";
 });
 const favoritesPanel = computed(() => {
-  const recentAll = buildRecentFavoriteEvents(globalFavoriteEvents.value, 5);
-  const currentTopicCount = filterFavoriteEventsByScope(globalFavoriteEvents.value, { kind: "current-topic" }, state.topics, state.activeTopicId).length;
+  const recentAll = buildRecentFavoriteNotes(globalFavoriteEvents.value, 5);
+  const currentTopicCount = filterFavoriteNotesByScope(globalFavoriteEvents.value, { kind: "current-topic" }, state.topics, state.activeTopicId).length;
   const scope = favoriteScope.value;
   return {
     overview: [
@@ -508,7 +508,7 @@ const favoritesSortContext = computed(() => isGlobalFavoritesMode.value && !isMo
 const activeSort = computed(() =>
   clampSortForView(state.sort, effectiveDisplayStyle.value, feedColumns.value, favoritesSortContext.value)
 );
-const activeComparator = computed(() => compareEventsBySort(activeSort.value, feedColumns.value));
+const activeComparator = computed(() => compareNotesBySort(activeSort.value, feedColumns.value));
 
 // The direction the backend feed must page in. Only the primary *time* sort is
 // pushed down for W1 (timeline/outline clamp their primary to time); non-time
@@ -753,7 +753,7 @@ function previewedEvents() {
 function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.propertyFilter, era = state.activeEra, search = state.searchQuery } = {}) {
   if (isGlobalFavoritesMode.value) {
     return [...previewedEvents()]
-      .filter((event) => matchesEventSearch(event, search, []))
+      .filter((event) => matchesNoteSearch(event, search, []))
       .sort(activeComparator.value);
   }
 
@@ -766,7 +766,7 @@ function filterEvents({ filter = state.sidebarFilter, propertyFilter = state.pro
     .filter((event) => event.id === editingId || matchesMainFilter(event, filter))
     .filter((event) => event.id === editingId || !propertyFilter?.key || matchesPropertyFilter(event, propertyFilter))
     .filter((event) => event.id === editingId || !era || event.era === era)
-    .filter((event) => event.id === editingId || matchesEventSearch(event, search, columns))
+    .filter((event) => event.id === editingId || matchesNoteSearch(event, search, columns))
     .sort(activeComparator.value);
 }
 
@@ -798,7 +798,7 @@ watch(
   ([visibleCount, hasMore, eventsLoading, loadingMore, activeTopicId, globalFavoritesMode]) => {
     if (
       state.autoLoadBlockedKey !== autoLoadContextKey.value &&
-      shouldAutoLoadMoreForFilteredEvents({
+      shouldAutoLoadMoreForFilteredNotes({
         activeTopicId,
         globalFavoritesMode,
         hasMore,

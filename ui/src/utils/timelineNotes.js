@@ -204,8 +204,8 @@ function normalizeColumnOptions(options, type) {
 }
 
 export function compareTimelineEvents(left, right) {
-  const leftHasDate = eventHasDate(left);
-  const rightHasDate = eventHasDate(right);
+  const leftHasDate = noteHasDate(left);
+  const rightHasDate = noteHasDate(right);
   if (leftHasDate !== rightHasDate) return leftHasDate ? -1 : 1;
   const leftKey = !leftHasDate
     ? Number.MAX_SAFE_INTEGER * 2
@@ -244,8 +244,8 @@ function formatYearLabel(year) {
 // 编年 spine never shows fabricated "-01-01" day precision. Genuine 1st-of-month
 // dates (e.g. 1927-08-01 南昌起义) keep their full date: month-precision data is
 // stored the same way and can't be told apart, so we never coarsen a real day.
-export function formatEventDate(event) {
-  if (!eventHasDate(event)) return "";
+export function formatNoteDate(event) {
+  if (!noteHasDate(event)) return "";
   const parts = event?.dateParts;
   if (parts && parts.year != null) {
     if (parts.month === 1 && parts.day === 1) return formatYearLabel(parts.year);
@@ -258,10 +258,10 @@ export function formatEventDate(event) {
   return `${parts.year ?? ""}-${padTwo(parts.month)}-${padTwo(parts.day)}`;
 }
 
-// Detail-pane (CJK) date, precision-aware like formatEventDate: year-only →
+// Detail-pane (CJK) date, precision-aware like formatNoteDate: year-only →
 // "1840年"; otherwise full "1921年7月23日". BC years render as "公元前N年".
-export function formatEventDisplayDate(event) {
-  if (!eventHasDate(event)) return event?.displayLabel || "未定时间";
+export function formatNoteDisplayDate(event) {
+  if (!noteHasDate(event)) return event?.displayLabel || "未定时间";
   const parts = event?.dateParts;
   if (!parts || parts.year == null) return event?.displayLabel || "";
   const yearLabel = `${formatYearLabel(parts.year)}年`;
@@ -280,7 +280,7 @@ function previewCacheKey(event, maxLength) {
   return preview ? `${id}|${stamp}|${maxLength}|${preview}` : `${id}|${stamp}|${maxLength}|fallback`;
 }
 
-export function buildEventPreview(event, maxLength = CONTENT_LIMITS.previewText) {
+export function buildNotePreview(event, maxLength = CONTENT_LIMITS.previewText) {
   const cacheKey = previewCacheKey(event, maxLength);
   if (cacheKey && EVENT_PREVIEW_CACHE.has(cacheKey)) return EVENT_PREVIEW_CACHE.get(cacheKey);
   const text =
@@ -480,7 +480,7 @@ export function buildBoardGroups(events, column, sort = null) {
   }
   const ordered = [...buckets.values()];
   if (unassigned.items.length) ordered.push(unassigned);
-  const comparator = sort ? compareEventsBySort(sort) : compareTimelineEvents;
+  const comparator = sort ? compareNotesBySort(sort) : compareTimelineEvents;
   for (const bucket of ordered) bucket.items.sort(comparator);
   return ordered;
 }
@@ -523,7 +523,7 @@ export function mindmapPlainText(value) {
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
-export function eventHasDate(event) {
+export function noteHasDate(event) {
   if (event?.hasDate === false) return false;
   if (event?.dateKey != null) return true;
   return Number.isInteger(event?.dateParts?.year);
@@ -678,14 +678,14 @@ function builtinFieldHasValue(event, field) {
 // undated notes ALWAYS sink below them — in BOTH directions (never a naive * -1),
 // so reversing the timeline reorders only the real-dated span.
 function timeSortRank(event) {
-  if (!eventHasDate(event)) return { sunk: true, key: Number.MAX_SAFE_INTEGER };
+  if (!noteHasDate(event)) return { sunk: true, key: Number.MAX_SAFE_INTEGER };
   if (event?.era === "更早") return { sunk: true, key: Number.MAX_SAFE_INTEGER - 1 };
   return { sunk: false, key: event?.dateKey || 0 };
 }
 
 // Per-LEVEL comparators return that field's order (sink-aware, direction-applied)
 // and 0 when two events tie on the field — NO id tiebreak, so the next level can
-// break the tie. compareEventsBySort chains them and applies one id tiebreak last.
+// break the tie. compareNotesBySort chains them and applies one id tiebreak last.
 function timeLevelCompare(dir) {
   return (a, b) => {
     const ra = timeSortRank(a);
@@ -706,7 +706,7 @@ function builtinLevelCompare(field, dir) {
     if (!ha) return 0;
     const primary =
       field === "title"
-        ? String(eventColumnValue(a, TITLE_SORT_COLUMN)).localeCompare(String(eventColumnValue(b, TITLE_SORT_COLUMN)), "zh")
+        ? String(noteColumnValue(a, TITLE_SORT_COLUMN)).localeCompare(String(noteColumnValue(b, TITLE_SORT_COLUMN)), "zh")
         : (sortTimestamp(a, field) || 0) - (sortTimestamp(b, field) || 0);
     return primary * dir;
   };
@@ -719,7 +719,7 @@ function columnLevelCompare(column, dir) {
     if (column.type === "checkbox") {
       return ((isCheckboxChecked(b?.extra?.[column.key]) ? 1 : 0) - (isCheckboxChecked(a?.extra?.[column.key]) ? 1 : 0)) * dir;
     }
-    return String(eventColumnValue(a, column)).localeCompare(String(eventColumnValue(b, column)), "zh") * dir;
+    return String(noteColumnValue(a, column)).localeCompare(String(noteColumnValue(b, column)), "zh") * dir;
   };
 }
 
@@ -735,7 +735,7 @@ function levelComparator(level, columns) {
 
 // Build the active comparator from a sort level list: chain the per-level
 // comparators (first non-zero wins), closed by a stable id tiebreak.
-export function compareEventsBySort(sort, columns = []) {
+export function compareNotesBySort(sort, columns = []) {
   const comparators = normalizeSortLevels(sort).map((level) => levelComparator(level, columns));
   return (a, b) => {
     for (const compare of comparators) {
@@ -786,9 +786,9 @@ export function clampSortForView(sort, view, columns = [], favorites = false) {
 
 // A property column "has a value" for an event when the row renders something
 // other than the "—" placeholder for it (option chip, checked box, or non-blank
-// text/number/link). Mirrors the per-type rendering in `eventColumnValue` and
+// text/number/link). Mirrors the per-type rendering in `noteColumnValue` and
 // the center-pane template so the two never disagree.
-export function eventColumnHasValue(event, column) {
+export function noteColumnHasValue(event, column) {
   if (!column || column.builtIn) return true;
   if (isOptionColumn(column)) return resolvePropertyChips(event, column).length > 0;
   if (column.type === "checkbox") return isCheckboxChecked(event?.extra?.[column.key]);
@@ -803,11 +803,11 @@ export function eventColumnHasValue(event, column) {
 export function emptyTimelineColumnKeys(columns, events) {
   const list = Array.isArray(events) ? events : [];
   return normalizeTopicColumns(columns)
-    .filter((column) => column.visible && !list.some((event) => eventColumnHasValue(event, column)))
+    .filter((column) => column.visible && !list.some((event) => noteColumnHasValue(event, column)))
     .map((column) => column.key);
 }
 
-export function buildGlobalFavoriteEvents(events) {
+export function buildGlobalFavoriteNotes(events) {
   return [...(events || [])]
     .filter((event) => event?.favorite && !event?.deletedAt)
     .sort(compareTimelineEvents);
@@ -819,7 +819,7 @@ function favoriteRecencyTimestamp(event) {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function buildRecentFavoriteEvents(events, limit = 5) {
+export function buildRecentFavoriteNotes(events, limit = 5) {
   return [...(events || [])]
     .sort((left, right) => favoriteRecencyTimestamp(right) - favoriteRecencyTimestamp(left) || compareTimelineEvents(left, right))
     .slice(0, Math.max(0, Number(limit) || 0));
@@ -890,11 +890,11 @@ export function buildFavoriteFacetRows(events, topics, facetKey) {
     .sort((left, right) => right.count - left.count || left.displayLabel.localeCompare(right.displayLabel, "zh-CN"));
 }
 
-export function filterFavoriteEventsByScope(events, scope = {}, topics = [], activeTopicId = null) {
+export function filterFavoriteNotesByScope(events, scope = {}, topics = [], activeTopicId = null) {
   const list = Array.isArray(events) ? [...events] : [];
   const kind = String(scope?.kind || "all");
   if (kind === "current-topic") return list.filter((event) => Number(event?.topicId) === Number(activeTopicId));
-  if (kind === "recent") return buildRecentFavoriteEvents(list, 5);
+  if (kind === "recent") return buildRecentFavoriteNotes(list, 5);
   if (kind === "topic") return list.filter((event) => Number(event?.topicId) === Number(scope?.topicId));
   if (kind === "type" || kind === "tag") {
     const facetKey = kind === "type" ? "type" : "tags";
@@ -946,7 +946,7 @@ export function aggregateOptionChips(event, columns, hiddenKeys = []) {
 // Tag chips for an event. With a column, labels/colors come from its options;
 // without one (e.g. export layout that lacks column context) the option id is
 // used as the label. Reads the unified `extra.tags` location.
-export function collectEventTags(event, column = null) {
+export function collectNoteTags(event, column = null) {
   if (column) return resolvePropertyChips(event, column);
   const raw = event?.extra?.tags;
   const ids = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -964,9 +964,9 @@ function pushSampleValue(samples, value) {
   samples.push(text.length > SAMPLE_TEXT_LIMIT ? `${text.slice(0, SAMPLE_TEXT_LIMIT).trim()}...` : text);
 }
 
-export function eventColumnValue(event, column) {
+export function noteColumnValue(event, column) {
   if (!column) return "—";
-  if (column.key === "time") return formatEventDate(event);
+  if (column.key === "time") return formatNoteDate(event);
   if (column.key === "title") return event?.headline || event?.era || event?.displayLabel || "未命名事件";
   if (isOptionColumn(column)) {
     const chips = resolvePropertyChips(event, column);
@@ -974,7 +974,7 @@ export function eventColumnValue(event, column) {
   }
   const value = event?.extra?.[column.key];
   // Trimmed-empty (incl. whitespace-only) renders as "—" so it agrees with
-  // `eventColumnHasValue`/auto-hide and the detail pane's trim convention; a
+  // `noteColumnHasValue`/auto-hide and the detail pane's trim convention; a
   // real "0" stays visible (the old `value ? … : "—"` dropped numeric 0).
   return String(value ?? "").trim() !== "" ? String(value) : "—";
 }
@@ -1062,7 +1062,7 @@ export function canChangePropertyType(usage, key) {
   return !usage || (usage.rawValueCounts?.get(key) || 0) === 0;
 }
 
-export function normalizeEventExtra(extra, columns = []) {
+export function normalizeNoteExtra(extra, columns = []) {
   const byKey = new Map(normalizeTopicColumns(columns).map((column) => [column.key, column]));
   const source = extra && typeof extra === "object" ? extra : {};
   const normalized = {};
@@ -1111,7 +1111,7 @@ export function buildReadableDetailGroups(event) {
   };
 }
 
-export function matchesEventSearch(event, query, columns = []) {
+export function matchesNoteSearch(event, query, columns = []) {
   const normalized = String(query || "").trim().toLowerCase();
   if (!normalized) return true;
   const indexedText = String(event?.searchText || "").trim().toLowerCase();
@@ -1148,7 +1148,7 @@ export function matchesEventSearch(event, query, columns = []) {
 }
 
 // Split `text` into segments around case-insensitive occurrences of `query`,
-// flagging which are matches. Mirrors matchesEventSearch's semantics (the whole
+// flagging which are matches. Mirrors matchesNoteSearch's semantics (the whole
 // trimmed query as one case-insensitive substring) so the feed highlights exactly
 // what the filter matched. Output preserves the source's original case. An empty
 // query (or no match) yields a single non-hit segment, so callers always v-for a
@@ -1194,10 +1194,10 @@ function buildEraSubtitle(items) {
 // descending time sort reverses both the era group order (buckets follow first
 // appearance) and the within-group order. Null → the default chronological order.
 export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", columns = [], sort = null) {
-  const comparator = sort ? compareEventsBySort(sort, columns) : compareTimelineEvents;
+  const comparator = sort ? compareNotesBySort(sort, columns) : compareTimelineEvents;
   const filtered = [...(events || [])]
     .sort(comparator)
-    .filter((event) => matchesEventSearch(event, searchQuery, columns));
+    .filter((event) => matchesNoteSearch(event, searchQuery, columns));
 
   if (groupBy === "year" || groupBy === "month") {
     const buckets = new Map();
@@ -1205,7 +1205,7 @@ export function groupTimelineEvents(events, groupBy = "era", searchQuery = "", c
       const parts = event.dateParts || {};
       // Undated notes have no year/month, so they get their own trailing bucket
       // (the sort already sinks them last) instead of a fabricated "null年" group.
-      const undated = !eventHasDate(event);
+      const undated = !noteHasDate(event);
       const isEarlier = !undated && event?.era === "更早";
       const bucketKey = undated ? "undated" : isEarlier ? "earlier" : groupBy === "month" ? `${parts.year}-${padTwo(parts.month)}` : String(parts.year ?? "");
       const title = undated ? "未定时间" : isEarlier ? "更早" : groupBy === "month" ? `${parts.year}年${parts.month}月` : String(parts.year ?? "");
@@ -1250,7 +1250,7 @@ export function buildEditorDraft(event, columns = []) {
   const bodyMarkdown = event?.bodyMarkdown || defaultBodyFromItems(event?.items || []);
 
   // Seed a value slot for every property so inline editors bind cleanly.
-  const existingExtra = normalizeEventExtra(event?.extra, cols);
+  const existingExtra = normalizeNoteExtra(event?.extra, cols);
   const extra = {};
   for (const column of cols) {
     if (column.type === "multiselect") {
@@ -1290,7 +1290,7 @@ export function buildEditorDraft(event, columns = []) {
 //   - anything in between          → "partial" (a half-typed date; the editor rejects it)
 // Range validity (month 1-12, day 1-31, real calendar dates) stays a backend guard —
 // this only decides dated / undated / partial so the editor can shape the payload.
-export function classifyEventDateInput(rawYear, rawMonth, rawDay) {
+export function classifyNoteDateInput(rawYear, rawMonth, rawDay) {
   const raws = [rawYear, rawMonth, rawDay].map((part) => String(part ?? "").trim());
   if (raws.every((part) => part === "")) return { status: "undated", dateFields: {} };
   const [year, month, day] = raws.map((part) => Number.parseInt(part, 10));
@@ -1436,7 +1436,7 @@ export function buildBookshelfTree(topics = [], bookshelves = [], allEvents = []
   return shelves;
 }
 
-export function shouldAutoLoadMoreForFilteredEvents({
+export function shouldAutoLoadMoreForFilteredNotes({
   activeTopicId = null,
   globalFavoritesMode = false,
   hasMore = false,
@@ -1459,7 +1459,7 @@ export function shouldAutoLoadMoreForFilteredEvents({
 // Merge a freshly-fetched page into a topic's already-loaded events. On append,
 // de-dupes by id (a cursor page can re-include a boundary row) so paging never
 // duplicates or drops events; a non-append load replaces outright.
-export function mergeTopicEventPage(existing = [], incoming = [], { append = false } = {}) {
+export function mergeTopicNotePage(existing = [], incoming = [], { append = false } = {}) {
   const incomingList = Array.isArray(incoming) ? incoming : [];
   if (!append) return [...incomingList];
   const existingList = Array.isArray(existing) ? existing : [];

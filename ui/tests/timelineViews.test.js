@@ -7,7 +7,7 @@ import {
   BOARD_UNASSIGNED_ID,
   buildBoardGroups,
   clampSortForView,
-  compareEventsBySort,
+  compareNotesBySort,
   countMindmapNodes,
   IMPLEMENTED_DISPLAY_STYLES,
   isDefaultSort,
@@ -21,7 +21,7 @@ import {
 } from "../src/utils/timelineNotes.js";
 
 function sortIds(events, sort, columns = []) {
-  return [...events].sort(compareEventsBySort(sort, columns)).map((event) => event.id);
+  return [...events].sort(compareNotesBySort(sort, columns)).map((event) => event.id);
 }
 
 test("availableDisplayViews lists only implemented views, flagged per capability", () => {
@@ -249,7 +249,7 @@ test("MINDMAP_LAYOUTS exposes the X6 free/tree presets with stable keys", () => 
 
 // --- Center-column sort (docs/center-sort-design.md) -----------------------
 
-test("compareEventsBySort orders by time and reverses on descending", () => {
+test("compareNotesBySort orders by time and reverses on descending", () => {
   const events = [
     { id: 1, dateKey: 19000101 },
     { id: 2, dateKey: 18000101 },
@@ -259,7 +259,7 @@ test("compareEventsBySort orders by time and reverses on descending", () => {
   assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [1, 3, 2]);
 });
 
-test("compareEventsBySort sinks undated notes to the bottom in BOTH directions", () => {
+test("compareNotesBySort sinks undated notes to the bottom in BOTH directions", () => {
   const events = [
     { id: 1, hasDate: false },
     { id: 2, dateKey: 18000101 },
@@ -271,7 +271,7 @@ test("compareEventsBySort sinks undated notes to the bottom in BOTH directions",
   assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [3, 2, 1]);
 });
 
-test("compareEventsBySort sinks the 更早 bucket below real-dated notes both ways", () => {
+test("compareNotesBySort sinks the 更早 bucket below real-dated notes both ways", () => {
   const events = [
     { id: 1, dateKey: -50000101, era: "更早" },
     { id: 2, dateKey: 18000101 },
@@ -281,7 +281,7 @@ test("compareEventsBySort sinks the 更早 bucket below real-dated notes both wa
   assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [3, 2, 1]);
 });
 
-test("compareEventsBySort sorts title localized and timestamps with missing-sinks", () => {
+test("compareNotesBySort sorts title localized and timestamps with missing-sinks", () => {
   const byTitle = [
     { id: 1, headline: "banana" },
     { id: 2, headline: "apple" },
@@ -312,7 +312,7 @@ test("time sort keeps chronological order INSIDE the 更早 bucket (zero-change 
   assert.deepEqual(sortIds(events, { field: "time", dir: -1 }), [2, 10, 3]);
 });
 
-test("compareEventsBySort delegates custom columns to the column engine", () => {
+test("compareNotesBySort delegates custom columns to the column engine", () => {
   const checkbox = [{ key: "done", label: "完成", type: "checkbox", visible: true }];
   const checkEvents = [
     { id: 1, extra: { done: "false" } },

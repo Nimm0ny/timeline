@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
-import { buildEventPreview, formatEventDisplayDate } from "@/utils/timelineNotes";
+import { buildNotePreview, formatNoteDisplayDate } from "@/utils/timelineNotes";
 
 const props = defineProps({
   error: {
@@ -43,9 +43,9 @@ const rootRef = ref(null);
 const viewportShift = ref(0);
 
 const title = computed(() => props.event?.headline || props.event?.displayLabel || "关联事件");
-const dateLabel = computed(() => formatEventDisplayDate(props.event) || props.event?.isoDate || "未设置日期");
+const dateLabel = computed(() => formatNoteDisplayDate(props.event) || props.event?.isoDate || "未设置日期");
 const groupLabel = computed(() => [props.topicTitle, props.event?.era].filter(Boolean).join(" · ") || "未分组");
-const previewText = computed(() => buildEventPreview(props.event, 220) || "暂无正文预览。");
+const previewText = computed(() => buildNotePreview(props.event, 220) || "暂无正文预览。");
 const mergedStyle = computed(() => {
   const top = pxNumber(props.styleVars?.top);
   const anchorY = pxNumber(props.styleVars?.["--related-anchor-y"], 38);

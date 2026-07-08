@@ -10,13 +10,13 @@ import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.v
 import {
   buildEditorDraft,
   buildReadableDetailGroups,
-  classifyEventDateInput,
-  formatEventDisplayDate,
+  classifyNoteDateInput,
+  formatNoteDisplayDate,
   isCheckboxChecked,
   isCheckboxColumn,
   isLinkColumn,
   isOptionColumn,
-  normalizeEventExtra,
+  normalizeNoteExtra,
   normalizeTopicColumns,
   propertyHref,
   propertyTypeIcon,
@@ -251,7 +251,7 @@ const draftDisplayDate = computed(() => {
   // Reuse the read-mode formatter so the edit trigger matches read exactly
   // (year-only collapses to "1840年", BC → "公元前N年"); the popover still
   // exposes the underlying Y/M/D for editing.
-  return formatEventDisplayDate({ dateParts: { year: y, month: m, day: d } });
+  return formatNoteDisplayDate({ dateParts: { year: y, month: m, day: d } });
 });
 
 // Editor-first detail pane: tag / attachment / related sections only render when
@@ -639,7 +639,7 @@ function submit() {
   if (bodyEditorRef.value?.getMarkdown) {
     draft.bodyMarkdown = bodyEditorRef.value.getMarkdown();
   }
-  const { status: dateStatus, dateFields } = classifyEventDateInput(
+  const { status: dateStatus, dateFields } = classifyNoteDateInput(
     draft.dateYear,
     draft.dateMonth,
     draft.dateDay
@@ -658,7 +658,7 @@ function submit() {
     height: item.height ?? null,
     bytes: item.bytes ?? null,
   }));
-  const extra = normalizeEventExtra(draft.extra, topicColumns.value);
+  const extra = normalizeNoteExtra(draft.extra, topicColumns.value);
 
   // De-temporalized authoring: a note needs a title + body, but the date is optional.
   // All three date fields blank → an undated note; a partial date is rejected; era is a
@@ -896,7 +896,7 @@ onBeforeUnmount(() => {
                   <TimelineLucideIcon name="calendar" :stroke-width="1.5" />日期
                 </span>
                 <div class="detail-prop-value">
-                  <strong v-if="!inEditMode">{{ formatEventDisplayDate(props.event) }}</strong>
+                  <strong v-if="!inEditMode">{{ formatNoteDisplayDate(props.event) }}</strong>
                   <span v-else class="meta-pop-wrap">
                     <button type="button" class="detail-meta-trigger" :class="{ on: dateEditorOpen }" @click.stop="toggleDateEditor">
                       {{ draftDisplayDate }}

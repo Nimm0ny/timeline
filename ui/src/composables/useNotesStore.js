@@ -1,9 +1,9 @@
 import { reactive } from "vue";
 import { api } from "./useApi.js";
 import {
-  buildEventPreview,
+  buildNotePreview,
   compareTimelineEvents,
-  mergeTopicEventPage,
+  mergeTopicNotePage,
   mindmapPlainText,
   planTopicPageFetch,
 } from "../utils/timelineNotes.js";
@@ -98,7 +98,7 @@ function detailToIndexNote(note = {}) {
     deletedAt: note.deletedAt,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
-    preview: buildEventPreview(note, 120),
+    preview: buildNotePreview(note, 120),
     searchText: detailSearchText(note),
     attachmentCount: Array.isArray(note.attachments) ? note.attachments.length : 0,
   });
@@ -216,7 +216,7 @@ export function useNotesStore() {
     if (!id) return;
     const normalized = (notes || []).map((note) => normalizeIndexNote(note, id));
     const existingTopicNotes = append ? state.notesIndex.filter((note) => note.topicId === id) : [];
-    const mergedTopicNotes = mergeTopicEventPage(existingTopicNotes, normalized, { append });
+    const mergedTopicNotes = mergeTopicNotePage(existingTopicNotes, normalized, { append });
     const others = state.notesIndex.filter((note) => note.topicId !== id);
     state.notesIndex.splice(0, state.notesIndex.length, ...others, ...mergedTopicNotes);
     state.notesIndex.sort(compareTimelineEvents);

@@ -32,7 +32,7 @@
  * @property {Array<{tag:string,text:string}>} items
  */
 
-export function normalizeEventNode(node) {
+export function normalizeNoteNode(node) {
   return {
     id: Number(node.id),
     nodeType: "event",
@@ -73,7 +73,7 @@ export function normalizeSummaryNode(node) {
 }
 
 export function normalizeDisplayNode(node) {
-  return node.nodeType === "summary" ? normalizeSummaryNode(node) : normalizeEventNode(node);
+  return node.nodeType === "summary" ? normalizeSummaryNode(node) : normalizeNoteNode(node);
 }
 
 export function normalizeDisplayNodes(nodes) {
