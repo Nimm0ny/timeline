@@ -2984,7 +2984,6 @@ watch(
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
       :event="detailPaneEvent"
-      :candidate-events="state.events"
       :topic-title="activeTopicTitle"
       :topic-columns="topicColumns"
       :loading="detailPaneLoading"

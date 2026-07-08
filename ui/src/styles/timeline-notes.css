@@ -489,7 +489,6 @@ button {
 
 /* Input standard — borderless, soft fill, 13px (spec §2.1). */
 .detail-inline-input,
-.detail-inline-search input,
 .detail-title-field input,
 .col-grid input,
 .col-grid select,
@@ -505,7 +504,6 @@ button {
 }
 
 .detail-inline-input:focus,
-.detail-inline-search input:focus,
 .col-grid input:focus,
 .col-grid select:focus,
 .pop-field input:focus,
@@ -2675,34 +2673,10 @@ button {
   background: var(--accent);
 }
 
-.related-results {
-  display: grid;
-  gap: 8px;
-}
-
 .detail-empty p,
 .timeline-confirm-card p {
   color: var(--text-muted);
   font-size: 13px;
-}
-
-.detail-inline-search {
-  position: relative;
-  display: block;
-  margin-bottom: 10px;
-}
-
-.detail-inline-search .timeline-lucide-icon {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  width: 16px;
-  height: 16px;
-  color: var(--text-faint);
-}
-
-.detail-inline-search input {
-  padding-left: 34px;
 }
 
 .row-list {
@@ -2754,26 +2728,9 @@ button {
   white-space: nowrap;
 }
 
-.lrow-main span,
-.lrow-act {
+.lrow-main span {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.related-result {
-  min-height: 42px;
-  display: grid;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  cursor: pointer;
-  text-align: left;
-}
-
-.related-result:hover {
-  background: var(--bg-hover);
 }
 
 /* W4 反向链接面板：折叠区复用 .pane-sec / .pane-sec-head / .lrow 骨架，只补
