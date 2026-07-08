@@ -5,7 +5,7 @@ import EventDetailPane from "@/components/timeline-notes/EventDetailPane.vue";
 import MobileTopBar from "@/components/timeline-notes/MobileTopBar.vue";
 import RelatedEventPreviewPopover from "@/components/timeline-notes/RelatedEventPreviewPopover.vue";
 import TimelineFeed from "@/components/timeline-notes/TimelineFeed.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import TopicSidebar from "@/components/timeline-notes/TopicSidebar.vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
@@ -3038,7 +3038,7 @@ watch(
       aria-hidden="true"
     ></div>
     <div ref="paneDragGhostEl" class="pane-drag-ghost" aria-hidden="true">
-      <TimelineLucideIcon :name="paneDragGhostIcon" :stroke-width="1.5" />
+      <LucideIcon :name="paneDragGhostIcon" :stroke-width="1.5" />
       <span>{{ paneDragGhostLabel }}</span>
     </div>
 
@@ -3046,18 +3046,18 @@ watch(
       <div class="popover timeline-action-menu" @click.stop>
         <template v-if="state.menuEvent.deletedAt">
           <button type="button" class="pop-item" @click="restoreEvent(state.menuEvent)">
-            <TimelineLucideIcon name="restore" :stroke-width="1.5" class="pop-item-ic" />
+            <LucideIcon name="restore" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">恢复</span>
           </button>
           <span class="pop-divider"></span>
           <button type="button" class="pop-item danger" @click="permanentlyDeleteEvent(state.menuEvent)">
-            <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
+            <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">永久删除</span>
           </button>
         </template>
         <template v-else>
           <button type="button" class="pop-item" @click="moveEventToTrash(state.menuEvent)">
-            <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
+            <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
             <span class="lbl">移入回收站</span>
           </button>
         </template>

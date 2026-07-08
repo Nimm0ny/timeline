@@ -3,7 +3,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const uiSrc = path.join(root, "ui", "src");
-const allowedLucideFile = path.normalize(path.join(uiSrc, "components", "timeline-notes", "TimelineLucideIcon.vue"));
+const allowedLucideFile = path.normalize(path.join(uiSrc, "components", "timeline-notes", "LucideIcon.vue"));
 
 const TARGET_EXTENSIONS = new Set([".vue", ".css", ".js"]);
 
@@ -68,7 +68,7 @@ const checks = [
       return [...source.matchAll(/from\s+["']@lucide\/vue["']/g)].map((match) => ({
         file,
         line: lineNumber(source, match.index),
-        message: "Import Lucide only inside TimelineLucideIcon.vue, then consume icons by name.",
+        message: "Import Lucide only inside LucideIcon.vue, then consume icons by name.",
       }));
     },
   },
@@ -80,7 +80,7 @@ const checks = [
       return [...source.matchAll(/<svg\b/gi)].map((match) => ({
         file,
         line: lineNumber(source, match.index),
-        message: "Use TimelineLucideIcon.vue or CSS DOM primitives instead of inline SVG.",
+        message: "Use LucideIcon.vue or CSS DOM primitives instead of inline SVG.",
       }));
     },
   },

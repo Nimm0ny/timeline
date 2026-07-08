@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from "vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 const props = defineProps({
   topicId: {
@@ -32,7 +32,7 @@ const dotColor = computed(() => NOTEBOOK_COLORS[Math.abs(Number(props.topicId) |
 <template>
   <span class="notebook-chip" :title="label">
     <span class="notebook-chip-dot" :style="{ '--notebook-dot': dotColor }"></span>
-    <TimelineLucideIcon name="notebook" :stroke-width="1.5" />
+    <LucideIcon name="notebook" :stroke-width="1.5" />
     <span class="notebook-chip-label">{{ label }}</span>
   </span>
 </template>

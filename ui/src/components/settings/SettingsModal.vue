@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppearanceSettings from "@/components/settings/AppearanceSettings.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -57,7 +57,7 @@ onBeforeUnmount(() => {
       <div class="settings-nav-head">
         <span class="settings-nav-title">设置</span>
         <button type="button" class="iconbtn" title="关闭设置" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.5" />
+          <LucideIcon name="close" :stroke-width="1.5" />
         </button>
       </div>
       <button
@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
         :class="{ active: section === item.id }"
         @click="section = item.id"
       >
-        <TimelineLucideIcon :name="item.icon" :stroke-width="1.5" />
+        <LucideIcon :name="item.icon" :stroke-width="1.5" />
         <span>{{ item.label }}</span>
       </button>
       </div>

@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import BaseModal from "@/components/BaseModal.vue";
 import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 const props = defineProps({
   open: {
@@ -160,7 +160,7 @@ watch(
   >
     <section class="command-palette" @keydown="onKeydown">
       <label class="command-search-field">
-        <TimelineLucideIcon name="search" :stroke-width="1.5" />
+        <LucideIcon name="search" :stroke-width="1.5" />
         <input
           ref="inputRef"
           :value="props.query"
@@ -209,7 +209,7 @@ watch(
 
             <template v-else>
               <span class="command-row-main command-command-main">
-                <TimelineLucideIcon :name="item.value.icon" :stroke-width="1.5" />
+                <LucideIcon :name="item.value.icon" :stroke-width="1.5" />
                 <span class="command-row-title">{{ item.value.label }}</span>
               </span>
               <span class="command-row-meta">

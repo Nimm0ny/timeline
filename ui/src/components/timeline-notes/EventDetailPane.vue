@@ -6,7 +6,7 @@ import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import AttachmentModal from "@/components/timeline-notes/AttachmentModal.vue";
 import BacklinkPanel from "@/components/timeline-notes/BacklinkPanel.vue";
 import OptionPicker from "@/components/timeline-notes/OptionPicker.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import {
   buildEditorDraft,
   buildReadableDetailGroups,
@@ -798,7 +798,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="actionbar" @pointerdown="onActionbarPointerDown">
         <button v-if="props.mobile" type="button" class="iconbtn" title="返回列表" @click="emit('close')">
-          <TimelineLucideIcon name="arrowLeft" :stroke-width="1.5" />
+          <LucideIcon name="arrowLeft" :stroke-width="1.5" />
         </button>
         <span class="spacer"></span>
         <button
@@ -810,10 +810,10 @@ onBeforeUnmount(() => {
           title="收藏"
           @click="inEditMode ? (draft.favorite = !draft.favorite) : emit('toggle-favorite', props.event)"
         >
-          <TimelineLucideIcon name="star" :stroke-width="1.5" />
+          <LucideIcon name="star" :stroke-width="1.5" />
         </button>
         <button v-if="inEditMode" type="button" class="iconbtn primary" :disabled="props.saving" title="保存" @click="submit">
-          <TimelineLucideIcon name="save" :stroke-width="1.5" />
+          <LucideIcon name="save" :stroke-width="1.5" />
         </button>
         <button
           id="modeBtn"
@@ -826,17 +826,17 @@ onBeforeUnmount(() => {
           @focus="warmEditorNow"
           @click="inEditMode ? emit('cancel') : emit('edit')"
         >
-          <TimelineLucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.5" />
+          <LucideIcon :name="inEditMode ? 'eye' : 'edit'" :stroke-width="1.5" />
         </button>
         <span class="divider"></span>
         <div class="kebab-wrap">
           <button type="button" class="iconbtn" :class="{ on: kebabOpen }" title="更多操作" @click.stop="toggleKebab">
-            <TimelineLucideIcon name="moreVertical" :stroke-width="1.5" />
+            <LucideIcon name="moreVertical" :stroke-width="1.5" />
           </button>
           <div v-if="kebabOpen" class="popover detail-kebab" @click.stop>
             <template v-if="inEditMode">
               <label class="pop-item" :class="{ 'is-disabled': uploading }">
-                <TimelineLucideIcon class="pop-item-ic" name="paperclip" :stroke-width="1.5" />
+                <LucideIcon class="pop-item-ic" name="paperclip" :stroke-width="1.5" />
                 <span class="lbl">添加附件</span>
                 <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event); closeKebab()" />
               </label>
@@ -847,17 +847,17 @@ onBeforeUnmount(() => {
               class="pop-item"
               @click="emit('update-detail-position', props.detailPosition === 'center' ? 'edge' : 'center'); closeKebab()"
             >
-              <TimelineLucideIcon class="pop-item-ic" name="swap" :stroke-width="1.5" />
+              <LucideIcon class="pop-item-ic" name="swap" :stroke-width="1.5" />
               <span class="lbl">{{ props.detailPosition === "center" ? "详情贴边显示" : "详情居中显示" }}</span>
             </button>
             <button type="button" class="pop-item trash-item" :class="{ danger: trashArmed }" @click.stop="onTrashClick">
-              <TimelineLucideIcon class="pop-item-ic" name="trash" :stroke-width="1.5" />
+              <LucideIcon class="pop-item-ic" name="trash" :stroke-width="1.5" />
               <span class="lbl">{{ !isDeleted && trashArmed ? "移入回收站" : "回收站" }}</span>
             </button>
           </div>
         </div>
         <button v-if="!props.mobile" id="closeBtn" type="button" class="iconbtn" title="关闭详情" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.5" />
+          <LucideIcon name="close" :stroke-width="1.5" />
         </button>
       </div>
 
@@ -872,7 +872,7 @@ onBeforeUnmount(() => {
             <h3>属性</h3>
             <div v-if="inEditMode && addableProperties.length" class="detail-prop-add">
               <button type="button" class="pane-sec-add" :class="{ on: addPropOpen }" title="添加属性" @click.stop="toggleAddProp">
-                <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+                <LucideIcon name="plusSign" :stroke-width="1.5" />
               </button>
               <div v-if="addPropOpen" class="popover detail-addprop-pop" @click.stop>
                 <button
@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
                   class="pop-item"
                   @click="revealProperty(column.key); closeAddProp()"
                 >
-                  <TimelineLucideIcon class="pop-item-ic" :name="propertyIcon(column)" :stroke-width="1.5" />
+                  <LucideIcon class="pop-item-ic" :name="propertyIcon(column)" :stroke-width="1.5" />
                   <span class="lbl">{{ column.label }}</span>
                 </button>
               </div>
@@ -893,7 +893,7 @@ onBeforeUnmount(() => {
               <!-- 日期：每条笔记必有，作为元数据首行；编辑态点开沿用现有日期弹层。 -->
               <div class="detail-prop-item">
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon name="calendar" :stroke-width="1.5" />日期
+                  <LucideIcon name="calendar" :stroke-width="1.5" />日期
                 </span>
                 <div class="detail-prop-value">
                   <strong v-if="!inEditMode">{{ formatNoteDisplayDate(props.event) }}</strong>
@@ -917,7 +917,7 @@ onBeforeUnmount(() => {
               <!-- 分组：每条笔记必有（专题·时代）。 -->
               <div class="detail-prop-item">
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon name="leaf" :stroke-width="1.5" />分组
+                  <LucideIcon name="leaf" :stroke-width="1.5" />分组
                 </span>
                 <div class="detail-prop-value">
                   <strong v-if="!inEditMode">{{ `${props.topicTitle} · ${props.event?.era || "未分组"}` }}</strong>
@@ -938,7 +938,7 @@ onBeforeUnmount(() => {
                 class="detail-prop-item"
               >
                 <span class="detail-prop-label">
-                  <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />{{ column.label }}
+                  <LucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />{{ column.label }}
                 </span>
                 <div class="detail-prop-value">
                   <template v-if="isOptionColumn(column)">
@@ -986,7 +986,7 @@ onBeforeUnmount(() => {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      <TimelineLucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />
+                      <LucideIcon :name="propertyIcon(column)" :stroke-width="1.5" />
                       <span>{{ props.event.extra[column.key] }}</span>
                     </a>
                   </template>
@@ -1050,7 +1050,7 @@ onBeforeUnmount(() => {
           <div class="pane-sec-head">
             <h3>附件 · {{ (inEditMode ? draft.attachments : readableGroups.attachments).length }}</h3>
             <label v-if="inEditMode" class="pane-sec-add" :class="{ 'is-disabled': uploading }" title="添加附件">
-              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+              <LucideIcon name="plusSign" :stroke-width="1.5" />
               <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event)" />
             </label>
           </div>
@@ -1070,7 +1070,7 @@ onBeforeUnmount(() => {
                   decoding="async"
                   fetchpriority="low"
                 />
-                <TimelineLucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.5" />
+                <LucideIcon v-else :name="attachmentIconName(attachment)" :stroke-width="1.5" />
               </span>
               <div class="lrow-main">
                 <b>{{ attachment.name || attachment.filename || "附件" }}</b>
@@ -1078,7 +1078,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="lrow-actions">
                 <button type="button" class="iconbtn sm" title="查看" @click="openAttachment(attachment)">
-                  <TimelineLucideIcon name="maximize" :stroke-width="1.5" />
+                  <LucideIcon name="maximize" :stroke-width="1.5" />
                 </button>
                 <button
                   v-if="inEditMode"
@@ -1087,7 +1087,7 @@ onBeforeUnmount(() => {
                   title="插入正文"
                   @click="appendAttachmentMarkdown(attachment)"
                 >
-                  <TimelineLucideIcon name="link" :stroke-width="1.5" />
+                  <LucideIcon name="link" :stroke-width="1.5" />
                 </button>
                 <button
                   v-if="inEditMode"
@@ -1096,7 +1096,7 @@ onBeforeUnmount(() => {
                   title="删除附件"
                   @click="removeAttachment(index)"
                 >
-                  <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+                  <LucideIcon name="trash" :stroke-width="1.5" />
                 </button>
               </div>
             </div>

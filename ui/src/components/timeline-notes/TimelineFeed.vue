@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import ColumnConfigPopover from "@/components/timeline-notes/ColumnConfigPopover.vue";
 import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
 import NotebookChip from "@/components/timeline-notes/NotebookChip.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import {
   chunkGalleryRows,
   FEED_BOARD_COLUMN_OVERSCAN,
@@ -1179,7 +1179,7 @@ defineExpose({
             title="清空当前筛选"
             @click.stop="emit('clear-context-filter')"
           >
-            <TimelineLucideIcon name="close" :stroke-width="1.5" />
+            <LucideIcon name="close" :stroke-width="1.5" />
           </button>
         </span>
       </div>
@@ -1198,7 +1198,7 @@ defineExpose({
               @blur="closeSearchIfEmpty"
             />
             <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">
-              <TimelineLucideIcon name="search" :stroke-width="1.5" />
+              <LucideIcon name="search" :stroke-width="1.5" />
             </button>
           </div>
 
@@ -1210,7 +1210,7 @@ defineExpose({
             title="时间定位"
             @click.stop="togglePopover('locator')"
           >
-            <TimelineLucideIcon name="calendarSearch" :stroke-width="1.5" />
+            <LucideIcon name="calendarSearch" :stroke-width="1.5" />
           </button>
         </div>
 
@@ -1225,7 +1225,7 @@ defineExpose({
             title="切换视图"
             @click.stop="togglePopover('views')"
           >
-            <TimelineLucideIcon :name="currentViewIcon()" :stroke-width="1.5" />
+            <LucideIcon :name="currentViewIcon()" :stroke-width="1.5" />
           </button>
 
           <button
@@ -1237,7 +1237,7 @@ defineExpose({
             title="排序"
             @click.stop="togglePopover('sort')"
           >
-            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
+            <LucideIcon name="arrowUpDown" :stroke-width="1.5" />
           </button>
 
           <button
@@ -1250,7 +1250,7 @@ defineExpose({
             title="列设置"
             @click.stop="togglePopover('columns')"
           >
-            <TimelineLucideIcon name="columns" :stroke-width="1.5" />
+            <LucideIcon name="columns" :stroke-width="1.5" />
           </button>
 
           <button
@@ -1262,7 +1262,7 @@ defineExpose({
             title="显示预览"
             @click="emit('toggle-preview')"
           >
-            <TimelineLucideIcon name="alignLeft" :stroke-width="1.5" />
+            <LucideIcon name="alignLeft" :stroke-width="1.5" />
           </button>
         </div>
 
@@ -1275,7 +1275,7 @@ defineExpose({
             :title="selectMode ? '退出多选' : '多选'"
             @click.stop="toggleSelectMode"
           >
-            <TimelineLucideIcon name="listChecks" :stroke-width="1.5" />
+            <LucideIcon name="listChecks" :stroke-width="1.5" />
           </button>
         </div>
       </div>
@@ -1290,7 +1290,7 @@ defineExpose({
         title="新建笔记"
         @click.stop="togglePopover('newtype')"
       >
-        <TimelineLucideIcon name="plusCircle" :stroke-width="1.5" />
+        <LucideIcon name="plusCircle" :stroke-width="1.5" />
       </button>
 
       <div v-if="activePopover" class="popover tl-pop" :class="`tl-pop-${activePopover}`">
@@ -1302,7 +1302,7 @@ defineExpose({
           </label>
           <div class="pop-foot">
             <button type="submit" class="iconbtn sm primary" title="定位">
-              <TimelineLucideIcon name="check" :stroke-width="1.5" />
+              <LucideIcon name="check" :stroke-width="1.5" />
             </button>
           </div>
         </form>
@@ -1329,9 +1329,9 @@ defineExpose({
             :title="view.enabled ? '' : view.requires"
             @click="pickView(view)"
           >
-            <TimelineLucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.5" />
+            <LucideIcon class="pop-item-ic" :name="view.icon" :stroke-width="1.5" />
             <span class="pop-item-label">{{ view.label }}</span>
-            <TimelineLucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
+            <LucideIcon v-if="view.key === effectiveView()" class="pop-item-check" name="check" :stroke-width="2" />
           </button>
         </template>
 
@@ -1346,20 +1346,20 @@ defineExpose({
               :class="{ 'is-active': props.groupBy === opt.key }"
               @click="pickGroupBy(opt.key)"
             >
-              <TimelineLucideIcon class="pop-item-ic" :name="opt.icon" :stroke-width="1.5" />
+              <LucideIcon class="pop-item-ic" :name="opt.icon" :stroke-width="1.5" />
               <span class="pop-item-label">{{ opt.label }}</span>
-              <TimelineLucideIcon v-if="props.groupBy === opt.key" class="pop-item-check" name="check" :stroke-width="2" />
+              <LucideIcon v-if="props.groupBy === opt.key" class="pop-item-check" name="check" :stroke-width="2" />
             </button>
             <div class="pop-subtitle">方向</div>
             <button type="button" class="pop-item" :class="{ 'is-active': primaryLevel().dir >= 0 }" @click="applySortDir(1)">
-              <TimelineLucideIcon class="pop-item-ic" name="chevronUp" :stroke-width="1.5" />
+              <LucideIcon class="pop-item-ic" name="chevronUp" :stroke-width="1.5" />
               <span class="pop-item-label">时间正序</span>
-              <TimelineLucideIcon v-if="primaryLevel().dir >= 0" class="pop-item-check" name="check" :stroke-width="2" />
+              <LucideIcon v-if="primaryLevel().dir >= 0" class="pop-item-check" name="check" :stroke-width="2" />
             </button>
             <button type="button" class="pop-item" :class="{ 'is-active': primaryLevel().dir < 0 }" @click="applySortDir(-1)">
-              <TimelineLucideIcon class="pop-item-ic" name="chevronDown" :stroke-width="1.5" />
+              <LucideIcon class="pop-item-ic" name="chevronDown" :stroke-width="1.5" />
               <span class="pop-item-label">时间倒序</span>
-              <TimelineLucideIcon v-if="primaryLevel().dir < 0" class="pop-item-check" name="check" :stroke-width="2" />
+              <LucideIcon v-if="primaryLevel().dir < 0" class="pop-item-check" name="check" :stroke-width="2" />
             </button>
           </template>
           <template v-else>
@@ -1377,7 +1377,7 @@ defineExpose({
                 @mousedown.prevent.stop="startSortLevelDrag(i, $event)"
                 @click.stop
               >
-                <TimelineLucideIcon name="grip" :stroke-width="1.5" />
+                <LucideIcon name="grip" :stroke-width="1.5" />
               </span>
               <button
                 type="button"
@@ -1385,12 +1385,12 @@ defineExpose({
                 :title="`点按切换「${sortLabel(level.field)}」升/降序`"
                 @click="flipSortLevel(i)"
               >
-                <TimelineLucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
+                <LucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
                 <span class="pop-item-label">{{ sortLabel(level.field) }}</span>
-                <TimelineLucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+                <LucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
               </button>
               <span v-if="props.sort.length > 1" class="pop-sort-del" title="移除该排序层" @click.stop="removeSortLevel(i)">
-                <TimelineLucideIcon name="close" :stroke-width="1.6" />
+                <LucideIcon name="close" :stroke-width="1.6" />
               </span>
             </div>
             <template v-if="addableSortFields().length">
@@ -1402,9 +1402,9 @@ defineExpose({
                 class="pop-item pop-sort-add"
                 @click="addSortLevel(field.field)"
               >
-                <TimelineLucideIcon class="pop-item-ic" :name="field.icon" :stroke-width="1.5" />
+                <LucideIcon class="pop-item-ic" :name="field.icon" :stroke-width="1.5" />
                 <span class="pop-item-label">{{ field.label }}</span>
-                <TimelineLucideIcon class="pop-item-add-ic" name="plusSign" :stroke-width="1.8" />
+                <LucideIcon class="pop-item-add-ic" name="plusSign" :stroke-width="1.8" />
               </button>
             </template>
           </template>
@@ -1413,15 +1413,15 @@ defineExpose({
         <template v-else-if="activePopover === 'newtype'">
           <div class="pop-title">新建</div>
           <button type="button" class="pop-item" @click="pickNoteType('entry')">
-            <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
+            <LucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
             <span class="pop-item-label">条目</span>
           </button>
           <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
-            <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
+            <LucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
             <span class="pop-item-label">思维导图</span>
           </button>
           <button type="button" class="pop-item" @click="pickNoteType('canvas')">
-            <TimelineLucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
+            <LucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
             <span class="pop-item-label">画布</span>
           </button>
         </template>
@@ -1432,22 +1432,22 @@ defineExpose({
       <span class="batch-cnt">已选 {{ selectedIds.length }} 条</span>
       <template v-if="props.trashView">
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量恢复" @click="submitBatch('batch-restore')">
-          <TimelineLucideIcon name="restore" :stroke-width="1.5" />
+          <LucideIcon name="restore" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量永久删除" @click="submitBatch('batch-permanent-delete')">
-          <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+          <LucideIcon name="trash" :stroke-width="1.5" />
         </button>
       </template>
       <template v-else>
         <button v-if="!props.globalFavoritesMode" type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量收藏" @click="submitBatch('batch-favorite')">
-          <TimelineLucideIcon name="star" :stroke-width="1.5" />
+          <LucideIcon name="star" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn sm" :disabled="!selectedIds.length" title="批量移入回收站" @click="submitBatch('batch-trash')">
-          <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+          <LucideIcon name="trash" :stroke-width="1.5" />
         </button>
       </template>
       <button type="button" class="iconbtn sm" title="退出多选" @click="toggleSelectMode">
-        <TimelineLucideIcon name="close" :stroke-width="1.5" />
+        <LucideIcon name="close" :stroke-width="1.5" />
       </button>
     </div>
 
@@ -1462,7 +1462,7 @@ defineExpose({
         title="继续加载"
         @click="emit('load-more', { auto: false })"
       >
-        <TimelineLucideIcon name="refreshCw" :stroke-width="1.5" />
+        <LucideIcon name="refreshCw" :stroke-width="1.5" />
       </button>
     </div>
       <div v-else-if="effectiveView() === 'timeline'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
@@ -1522,7 +1522,7 @@ defineExpose({
                 class="tcheck"
                 :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }"
               >
-                <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
+                <LucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
               </span>
               <span v-else class="rdot"></span>
               <template v-for="column in visibleColumns()" :key="column.key">
@@ -1534,13 +1534,13 @@ defineExpose({
                 <span v-else-if="column.key === 'title'" class="c-title">
                   <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
                   <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-                    <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+                    <LucideIcon name="mindmap" :stroke-width="1.5" />
                   </span>
                   <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-                    <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
+                    <LucideIcon name="canvas" :stroke-width="1.5" />
                   </span>
                   <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
-                    <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
+                    <LucideIcon name="paperclip" :stroke-width="1.5" />
                   </span>
                   <NotebookChip
                     v-if="props.showSource"
@@ -1567,7 +1567,7 @@ defineExpose({
                   <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
                 </span>
                 <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
-                  <TimelineLucideIcon
+                  <LucideIcon
                     v-if="isCheckboxChecked(activeLinearRows[vRow.index].projected.event.extra?.[column.key])"
                     name="check"
                     :stroke-width="2.2"
@@ -1588,14 +1588,14 @@ defineExpose({
                 :title="props.trashView ? '永久删除' : '移入回收站'"
                 @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
               >
-                <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+                <LucideIcon name="trash" :stroke-width="1.5" />
               </span>
               <span
                 class="c-star"
                 :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }"
                 @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)"
               >
-                <TimelineLucideIcon name="star" :stroke-width="1.5" />
+                <LucideIcon name="star" :stroke-width="1.5" />
               </span>
             </button>
           </div>
@@ -1617,7 +1617,7 @@ defineExpose({
             @click.stop="applyHeaderSort(column.key)"
           >
             <span>{{ column.label }}</span>
-            <TimelineLucideIcon
+            <LucideIcon
               v-if="levelForField(column.key)"
               class="th-caret"
               :name="levelForField(column.key).dir < 0 ? 'chevronDown' : 'chevronUp'"
@@ -1641,7 +1641,7 @@ defineExpose({
           @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
         >
           <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }">
-            <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
+            <LucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
           </span>
           <span v-else aria-hidden="true"></span>
           <template v-for="column in visibleColumns()" :key="column.key">
@@ -1653,13 +1653,13 @@ defineExpose({
             <span v-else-if="column.key === 'title'" class="c-title">
               <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
               <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-                <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+                <LucideIcon name="mindmap" :stroke-width="1.5" />
               </span>
               <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-                <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
+                <LucideIcon name="canvas" :stroke-width="1.5" />
               </span>
               <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
-                <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
+                <LucideIcon name="paperclip" :stroke-width="1.5" />
               </span>
             </span>
             <span v-else-if="isOptionColumn(column)" class="c-tags">
@@ -1680,7 +1680,7 @@ defineExpose({
               <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
             </span>
             <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
-              <TimelineLucideIcon
+              <LucideIcon
                 v-if="isCheckboxChecked(activeLinearRows[vRow.index].projected.event.extra?.[column.key])"
                 name="check"
                 :stroke-width="2.2"
@@ -1701,10 +1701,10 @@ defineExpose({
             :title="props.trashView ? '永久删除' : '移入回收站'"
             @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
           >
-            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+            <LucideIcon name="trash" :stroke-width="1.5" />
           </span>
           <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.5" />
+            <LucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
         <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>
@@ -1738,7 +1738,7 @@ defineExpose({
               <span class="bd-card-foot">
                 <span class="bd-card-date">{{ noteHasDate(projected.event) ? projected.timeText : "" }}</span>
                 <span class="c-star" :class="{ on: projected.event.favorite }" @click.stop="emit('toggle-favorite', projected.event)">
-                  <TimelineLucideIcon name="star" :stroke-width="1.5" />
+                  <LucideIcon name="star" :stroke-width="1.5" />
                 </span>
               </span>
             </button>
@@ -1774,15 +1774,15 @@ defineExpose({
                 decoding="async"
                 fetchpriority="low"
               />
-              <TimelineLucideIcon v-else name="image" :stroke-width="1.6" />
+              <LucideIcon v-else name="image" :stroke-width="1.6" />
               <span v-if="selectMode" class="gl-check tcheck" :class="{ on: isRowSelected(projected.event.id) }">
-                <TimelineLucideIcon v-if="isRowSelected(projected.event.id)" name="check" :stroke-width="2.4" />
+                <LucideIcon v-if="isRowSelected(projected.event.id)" name="check" :stroke-width="2.4" />
               </span>
               <span v-else-if="projected.isMindmap" class="gl-badge" title="思维导图">
-                <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+                <LucideIcon name="mindmap" :stroke-width="1.5" />
               </span>
               <span v-else-if="projected.isCanvas" class="gl-badge" title="画布">
-                <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
+                <LucideIcon name="canvas" :stroke-width="1.5" />
               </span>
             </span>
             <span class="gl-meta">
@@ -1811,10 +1811,10 @@ defineExpose({
               :title="props.trashView ? '永久删除' : '移入回收站'"
               @click.stop="deleteRow(projected.event)"
             >
-              <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+              <LucideIcon name="trash" :stroke-width="1.5" />
             </span>
             <span class="c-star" :class="{ on: projected.event.favorite }" @click.stop="emit('toggle-favorite', projected.event)">
-              <TimelineLucideIcon name="star" :stroke-width="1.5" />
+              <LucideIcon name="star" :stroke-width="1.5" />
             </span>
           </button>
         </div>
@@ -1833,7 +1833,7 @@ defineExpose({
             :class="{ collapsed: activeLinearRows[vRow.index].collapsed }"
             @click="toggleGroup(activeLinearRows[vRow.index].groupKey)"
           >
-            <TimelineLucideIcon class="ol-caret" :name="activeLinearRows[vRow.index].collapsed ? 'chevronRight' : 'chevronDown'" :stroke-width="2" />
+            <LucideIcon class="ol-caret" :name="activeLinearRows[vRow.index].collapsed ? 'chevronRight' : 'chevronDown'" :stroke-width="2" />
             <b class="ol-title"><HighlightedText :text="activeLinearRows[vRow.index].title" :query="props.searchQuery" /></b>
             <span class="ol-sub">{{ activeLinearRows[vRow.index].subtitle }}</span>
           </button>
@@ -1852,7 +1852,7 @@ defineExpose({
             <b class="ol-name"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
             <span class="ol-date">{{ noteHasDate(activeLinearRows[vRow.index].projected.event) ? activeLinearRows[vRow.index].projected.timeText : "" }}</span>
             <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
-              <TimelineLucideIcon name="star" :stroke-width="1.5" />
+              <LucideIcon name="star" :stroke-width="1.5" />
             </span>
           </button>
         </template>
@@ -1876,18 +1876,18 @@ defineExpose({
           @click="onRowClick(activeLinearRows[vRow.index].projected.event.id)"
         >
           <span v-if="selectMode" class="tcheck" :class="{ on: isRowSelected(activeLinearRows[vRow.index].projected.event.id) }">
-            <TimelineLucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
+            <LucideIcon v-if="isRowSelected(activeLinearRows[vRow.index].projected.event.id)" name="check" :stroke-width="2.4" />
           </span>
           <span class="lv-lead">
             <b class="lv-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
             <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-              <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+              <LucideIcon name="mindmap" :stroke-width="1.5" />
             </span>
             <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-              <TimelineLucideIcon name="canvas" :stroke-width="1.5" />
+              <LucideIcon name="canvas" :stroke-width="1.5" />
             </span>
             <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
-              <TimelineLucideIcon name="paperclip" :stroke-width="1.5" />
+              <LucideIcon name="paperclip" :stroke-width="1.5" />
             </span>
             <NotebookChip v-if="props.showSource" :topic-id="activeLinearRows[vRow.index].projected.event.topicId" :topics="props.topics" />
           </span>
@@ -1915,10 +1915,10 @@ defineExpose({
             :title="props.trashView ? '永久删除' : '移入回收站'"
             @click.stop="deleteRow(activeLinearRows[vRow.index].projected.event)"
           >
-            <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+            <LucideIcon name="trash" :stroke-width="1.5" />
           </span>
           <span class="c-star" :class="{ on: activeLinearRows[vRow.index].projected.event.favorite }" @click.stop="emit('toggle-favorite', activeLinearRows[vRow.index].projected.event)">
-            <TimelineLucideIcon name="star" :stroke-width="1.5" />
+            <LucideIcon name="star" :stroke-width="1.5" />
           </span>
         </button>
         <div v-if="linearBottomSpacerPx" class="feed-virtual-spacer" :style="{ height: `${linearBottomSpacerPx}px` }"></div>

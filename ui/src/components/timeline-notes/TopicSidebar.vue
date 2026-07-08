@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
 import { OPTION_COLOR_HEX_MAP, OPTION_COLOR_PRESETS } from "@/constants/tags";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import {
   buildPropertyUsage,
   buildOptionId,
@@ -1228,22 +1228,22 @@ watch(typeMenu, (value) => {
   <aside class="col sidebar">
     <div class="ribbon">
       <button class="rb brand" :title="props.brand">
-        <TimelineLucideIcon name="book" :stroke-width="1.5" />
+        <LucideIcon name="book" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'files' }" title="书架" @click="selectRibbon('files')">
-        <TimelineLucideIcon name="bookshelf" :stroke-width="1.5" />
+        <LucideIcon name="bookshelf" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'search' }" title="搜索" @click="focusSearch">
-        <TimelineLucideIcon name="search" :stroke-width="1.5" />
+        <LucideIcon name="search" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'star' }" title="收藏" @click="openGlobalFavorites">
-        <TimelineLucideIcon name="star" :stroke-width="1.5" />
+        <LucideIcon name="star" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'tags' }" title="属性" @click="selectRibbon('tags')">
-        <TimelineLucideIcon name="sliders" :stroke-width="1.5" />
+        <LucideIcon name="sliders" :stroke-width="1.5" />
       </button>
       <button class="rb" :class="{ active: state.ribbon === 'stats' }" title="统计" @click="selectRibbon('stats')">
-        <TimelineLucideIcon name="bar" :stroke-width="1.5" />
+        <LucideIcon name="bar" :stroke-width="1.5" />
       </button>
     </div>
 
@@ -1252,13 +1252,13 @@ watch(typeMenu, (value) => {
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
           <button v-if="!selectMode" type="button" class="iconbtn" :class="{ on: !!sortMenu }" title="排序" @click="openSortMenu($event)">
-            <TimelineLucideIcon name="arrowUpDown" :stroke-width="1.5" />
+            <LucideIcon name="arrowUpDown" :stroke-width="1.5" />
           </button>
           <button v-if="!selectMode" type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
-            <TimelineLucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.5" />
+            <LucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.5" />
           </button>
           <button type="button" class="iconbtn" :class="{ on: selectMode }" :title="selectMode ? '退出多选' : '多选'" @click="toggleSelectMode">
-            <TimelineLucideIcon name="listChecks" :stroke-width="1.5" />
+            <LucideIcon name="listChecks" :stroke-width="1.5" />
           </button>
         </template>
       </div>
@@ -1272,10 +1272,10 @@ watch(typeMenu, (value) => {
           title="删除所选笔记本"
           @click="submitBatchDelete"
         >
-          <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+          <LucideIcon name="trash" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn sm" title="退出多选" @click="toggleSelectMode">
-          <TimelineLucideIcon name="close" :stroke-width="1.5" />
+          <LucideIcon name="close" :stroke-width="1.5" />
         </button>
       </div>
 
@@ -1291,7 +1291,7 @@ watch(typeMenu, (value) => {
                 title="清空收藏筛选"
                 @click="selectFavoriteScope({ kind: 'all' })"
               >
-                <TimelineLucideIcon name="close" :stroke-width="1.5" />
+                <LucideIcon name="close" :stroke-width="1.5" />
               </button>
             </div>
             <p v-if="favoriteEmptyCopy" class="sidebar-copy fav-copy">{{ favoriteEmptyCopy }}</p>
@@ -1308,7 +1308,7 @@ watch(typeMenu, (value) => {
                   @click="selectFavoriteScope(item.scope)"
                 >
                   <span class="ti-chev"></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="star" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><LucideIcon name="star" :stroke-width="1.5" /></span>
                   <span class="ti-name">{{ item.label }}</span>
                   <span class="ti-cnt">{{ item.count }}</span>
                 </button>
@@ -1328,7 +1328,7 @@ watch(typeMenu, (value) => {
                   @click="selectFavoriteScope(item.scope)"
                 >
                   <span class="ti-chev"></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><LucideIcon name="notebook" :stroke-width="1.5" /></span>
                   <span class="ti-name">{{ item.label }}</span>
                   <span class="ti-cnt">{{ item.count }}</span>
                 </button>
@@ -1384,13 +1384,13 @@ watch(typeMenu, (value) => {
                   @click="openFavoriteEvent(item.id)"
                 >
                   <span class="fav-recent-ic">
-                    <TimelineLucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : item.noteType === 'canvas' ? 'canvas' : 'note'" :stroke-width="1.5" />
+                    <LucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : item.noteType === 'canvas' ? 'canvas' : 'note'" :stroke-width="1.5" />
                   </span>
                   <span class="fav-recent-main">
                     <span class="fav-recent-title">{{ item.headline || item.displayLabel || "未命名笔记" }}</span>
                     <span class="fav-recent-meta">{{ favoriteEventTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : item.noteType === "canvas" ? " · 画布" : "") }}</span>
                   </span>
-                  <TimelineLucideIcon name="arrowRight" :stroke-width="1.5" />
+                  <LucideIcon name="arrowRight" :stroke-width="1.5" />
                 </button>
               </div>
             </section>
@@ -1399,7 +1399,7 @@ watch(typeMenu, (value) => {
 
         <div v-if="panelHas('views')" class="tg" :class="{ collapsed: state.sections.views }">
           <div class="tg-head" @click="toggleSection('views')">
-            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+            <span class="tg-chev"><LucideIcon name="chevronDown" :stroke-width="1.5" /></span>
             <span class="tg-name">视图</span>
           </div>
           <div class="tg-body">
@@ -1412,7 +1412,7 @@ watch(typeMenu, (value) => {
               @click="emit('update:filter', filter.id)"
             >
               <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon :name="filter.icon" :stroke-width="1.5" /></span>
+              <span class="ti-ic"><LucideIcon :name="filter.icon" :stroke-width="1.5" /></span>
               <span class="ti-name">{{ filter.label }}</span>
               <span class="ti-cnt">{{ filter.count }}</span>
             </button>
@@ -1421,13 +1421,13 @@ watch(typeMenu, (value) => {
 
         <div v-if="panelHas('topics')" class="tg" :class="{ collapsed: state.sections.topics }">
           <div class="tg-head" @click="toggleSection('topics')">
-            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+            <span class="tg-chev"><LucideIcon name="chevronDown" :stroke-width="1.5" /></span>
             <span class="tg-name">书架</span>
             <button type="button" class="iconbtn sm" :class="{ on: creatingBookshelf }" title="新建书架" @click.stop="startCreateBookshelf">
-              <TimelineLucideIcon name="bookshelf" :stroke-width="1.5" />
+              <LucideIcon name="bookshelf" :stroke-width="1.5" />
             </button>
             <button type="button" class="iconbtn sm" :class="{ on: creatingTopic }" title="新建笔记本" @click.stop="startCreateTopic()">
-              <TimelineLucideIcon name="notebook" :stroke-width="1.5" />
+              <LucideIcon name="notebook" :stroke-width="1.5" />
             </button>
           </div>
           <div class="tg-body">
@@ -1437,7 +1437,7 @@ watch(typeMenu, (value) => {
               <div v-for="bookshelf in props.bookshelfTree" :key="bookshelf.name">
                 <div v-if="renamingBookshelfName === bookshelf.name" class="ti folder ti-create">
                   <span class="ti-chev"></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><LucideIcon name="bookshelf" :stroke-width="1.5" /></span>
                   <input
                     ref="renameBookshelfInputRef"
                     v-model="renameBookshelfValue"
@@ -1460,16 +1460,16 @@ watch(typeMenu, (value) => {
                   }"
                   @click="toggleBookshelfGroup(bookshelf)"
                 >
-                  <span class="ti-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
-                  <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
+                  <span class="ti-chev"><LucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+                  <span class="ti-ic"><LucideIcon name="bookshelf" :stroke-width="1.5" /></span>
                   <span class="ti-name">{{ bookshelf.title }}</span>
                   <span class="ti-cnt">{{ bookshelf.topicCount }}</span>
                   <span v-if="!selectMode" class="ti-acts">
                     <span class="ti-act" title="更多操作" @click.stop="openBookshelfMenu(bookshelf, $event)">
-                      <TimelineLucideIcon name="more" :stroke-width="1.5" />
+                      <LucideIcon name="more" :stroke-width="1.5" />
                     </span>
                     <span class="ti-act" title="在此书架下新建笔记本" @click.stop="startCreateTopic(bookshelf.name)">
-                      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+                      <LucideIcon name="plusSign" :stroke-width="1.5" />
                     </span>
                   </span>
                 </button>
@@ -1479,7 +1479,7 @@ watch(typeMenu, (value) => {
                       <div v-for="entry in bookshelf.topics" :key="entry.topic.id">
                         <div v-if="renamingTopicId === entry.topic.id" class="ti folder ti-create" :style="{ '--depth': 1 }">
                           <span class="ti-chev"></span>
-                          <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                          <span class="ti-ic"><LucideIcon name="notebook" :stroke-width="1.5" /></span>
                           <input
                             :ref="(el) => (renameInputRef.value = el)"
                             v-model="renameValue"
@@ -1506,18 +1506,18 @@ watch(typeMenu, (value) => {
                           @click="toggleTopic(entry.topic.id)"
                         >
                           <span v-if="selectMode" class="tcheck" :class="{ on: isTopicSelected(entry.topic.id) }">
-                            <TimelineLucideIcon v-if="isTopicSelected(entry.topic.id)" name="check" :stroke-width="2.4" />
+                            <LucideIcon v-if="isTopicSelected(entry.topic.id)" name="check" :stroke-width="2.4" />
                           </span>
                           <span v-else class="ti-chev"></span>
-                          <span class="ti-ic"><TimelineLucideIcon :name="containerTypeIcon(entry.topic.containerType)" :stroke-width="1.5" /></span>
+                          <span class="ti-ic"><LucideIcon :name="containerTypeIcon(entry.topic.containerType)" :stroke-width="1.5" /></span>
                           <span class="ti-name">{{ entry.topic.title || entry.topic.name }}</span>
                           <span class="ti-cnt">{{ entry.topic.eventCount || 0 }}</span>
                           <span v-if="!selectMode" class="ti-acts">
                             <span class="ti-act" title="更多操作" @click.stop="openTopicMenu(entry.topic, $event)">
-                              <TimelineLucideIcon name="more" :stroke-width="1.5" />
+                              <LucideIcon name="more" :stroke-width="1.5" />
                             </span>
                             <span class="ti-act" title="在此笔记本新建笔记" @click.stop="openCreateInTopicMenu(entry.topic.id, $event)">
-                              <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+                              <LucideIcon name="plusSign" :stroke-width="1.5" />
                             </span>
                           </span>
                         </button>
@@ -1525,7 +1525,7 @@ watch(typeMenu, (value) => {
 
                       <div v-if="isCreatingTopicInShelf(bookshelf)" :ref="(el) => registerTopicCreateRef(bookshelf.name, el)" class="ti folder ti-create" :style="{ '--depth': 1 }">
                         <span class="ti-chev"></span>
-                        <span class="ti-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                        <span class="ti-ic"><LucideIcon name="notebook" :stroke-width="1.5" /></span>
                         <input
                           ref="topicInputRef"
                           v-model="topicName"
@@ -1546,7 +1546,7 @@ watch(typeMenu, (value) => {
 
             <div v-if="creatingBookshelf" ref="bookshelfCreateRef" class="ti folder ti-create">
               <span class="ti-chev"></span>
-              <span class="ti-ic"><TimelineLucideIcon name="bookshelf" :stroke-width="1.5" /></span>
+              <span class="ti-ic"><LucideIcon name="bookshelf" :stroke-width="1.5" /></span>
               <input
                 ref="bookshelfInputRef"
                 v-model="bookshelfName"
@@ -1583,9 +1583,9 @@ watch(typeMenu, (value) => {
                 @keydown.space.prevent="togglePropertyTopic(entry.topic.id)"
               >
                 <span class="tg-chev" :class="{ collapsed: !isPropertyTopicOpen(entry.topic.id) }">
-                  <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
+                  <LucideIcon name="chevronDown" :stroke-width="1.5" />
                 </span>
-                <span class="prop-topic-ic"><TimelineLucideIcon name="notebook" :stroke-width="1.5" /></span>
+                <span class="prop-topic-ic"><LucideIcon name="notebook" :stroke-width="1.5" /></span>
                 <span class="prop-topic-name">{{ entry.topic.title || entry.topic.name }}</span>
                 <span v-if="entry.active" class="prop-topic-badge">当前</span>
                 <span class="prop-topic-count">{{ entry.properties.length }}</span>
@@ -1607,7 +1607,7 @@ watch(typeMenu, (value) => {
                     @keydown.enter.prevent="openPropertyPopover(entry.topic, property, $event)"
                     @mouseleave="disarmDelete"
                   >
-                    <span class="prop-row-ic"><TimelineLucideIcon :name="propertyIcon(property.type)" :stroke-width="1.5" /></span>
+                    <span class="prop-row-ic"><LucideIcon :name="propertyIcon(property.type)" :stroke-width="1.5" /></span>
                     <span class="prop-row-name">{{ property.label }}</span>
                     <button
                       v-if="canEditPropertyType(entry.topic.id, property)"
@@ -1618,7 +1618,7 @@ watch(typeMenu, (value) => {
                       @click.stop="toggleRowTypeMenu(entry.topic, property, $event)"
                     >
                       <span>{{ propTypeLabel(property.type) }}</span>
-                      <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
+                      <LucideIcon name="chevronDown" :stroke-width="1.5" />
                     </button>
                     <span v-else class="prop-row-type prop-row-type-locked" title="已使用，类型锁定">{{ propTypeLabel(property.type) }}</span>
                     <span class="prop-row-stat">
@@ -1630,7 +1630,7 @@ watch(typeMenu, (value) => {
                         :title="isDeleteArmed(entry.topic.id, property.key) ? '再次点击删除属性' : '删除属性'"
                         @click.stop="armOrDeleteProperty(entry.topic, property.key, $event)"
                       >
-                        <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+                        <LucideIcon name="trash" :stroke-width="1.5" />
                       </button>
                     </span>
                   </div>
@@ -1653,7 +1653,7 @@ watch(typeMenu, (value) => {
                   </div>
                 </div>
                 <button type="button" class="prop-add-row" @click="addProperty(entry.topic)">
-                  <span class="prop-add-ic"><TimelineLucideIcon name="plusSign" :stroke-width="1.5" /></span>
+                  <span class="prop-add-ic"><LucideIcon name="plusSign" :stroke-width="1.5" /></span>
                   <span>添加属性</span>
                 </button>
               </div>
@@ -1663,7 +1663,7 @@ watch(typeMenu, (value) => {
 
         <div v-if="panelHas('stats')" class="tg" :class="{ collapsed: state.sections.stats }">
           <div class="tg-head" @click="toggleSection('stats')">
-            <span class="tg-chev"><TimelineLucideIcon name="chevronDown" :stroke-width="1.5" /></span>
+            <span class="tg-chev"><LucideIcon name="chevronDown" :stroke-width="1.5" /></span>
             <span class="tg-name">统计</span>
           </div>
           <div class="tg-body">
@@ -1700,14 +1700,14 @@ watch(typeMenu, (value) => {
 
       <div class="pane-foot">
         <button type="button" class="vault-switch">
-          <TimelineLucideIcon name="chevronsUpDown" :stroke-width="1.5" />
+          <LucideIcon name="chevronsUpDown" :stroke-width="1.5" />
           <b>{{ props.brand }}</b>
         </button>
         <button type="button" class="iconbtn" title="帮助">
-          <TimelineLucideIcon name="help" :stroke-width="1.5" />
+          <LucideIcon name="help" :stroke-width="1.5" />
         </button>
         <button type="button" class="iconbtn" title="设置" @click="emit('open-settings')">
-          <TimelineLucideIcon name="settings" :stroke-width="1.5" />
+          <LucideIcon name="settings" :stroke-width="1.5" />
         </button>
       </div>
     </div>
@@ -1715,11 +1715,11 @@ watch(typeMenu, (value) => {
     <div v-if="bookshelfMenu" class="ti-menu-backdrop" @click="closeBookshelfMenu" @contextmenu.prevent="closeBookshelfMenu">
       <div class="popover ti-menu" :style="{ left: bookshelfMenu.x + 'px', top: bookshelfMenu.y + 'px' }" @click.stop>
         <button type="button" class="pop-item" @click="startRenameBookshelf(bookshelfMenu.bookshelf)">
-          <TimelineLucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">重命名</span>
         </button>
         <button type="button" class="pop-item danger" @click="deleteBookshelfFromMenu(bookshelfMenu.bookshelf)">
-          <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">删除</span>
         </button>
       </div>
@@ -1728,7 +1728,7 @@ watch(typeMenu, (value) => {
     <div v-if="topicMenu" class="ti-menu-backdrop" @click="closeTopicMenu" @contextmenu.prevent="closeTopicMenu">
       <div class="popover ti-menu" :style="{ left: topicMenu.x + 'px', top: topicMenu.y + 'px' }" @click.stop>
         <button type="button" class="pop-item" @click="startRenameTopic(topicMenu.topic)">
-          <TimelineLucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="squarePen" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">重命名</span>
         </button>
         <div class="pop-title">类型</div>
@@ -1740,9 +1740,9 @@ watch(typeMenu, (value) => {
           :class="{ 'is-active': ct.key === normalizeContainerType(topicMenu.topic.containerType) }"
           @click="pickContainerType(topicMenu.topic, ct.key)"
         >
-          <TimelineLucideIcon :name="ct.icon" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon :name="ct.icon" :stroke-width="1.5" class="pop-item-ic" />
           <span class="pop-item-label">{{ ct.label }}</span>
-          <TimelineLucideIcon
+          <LucideIcon
             v-if="ct.key === normalizeContainerType(topicMenu.topic.containerType)"
             name="check"
             :stroke-width="2"
@@ -1750,7 +1750,7 @@ watch(typeMenu, (value) => {
           />
         </button>
         <button type="button" class="pop-item danger" @click="deleteFromMenu(topicMenu.topic)">
-          <TimelineLucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="trash" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">删除</span>
         </button>
       </div>
@@ -1759,15 +1759,15 @@ watch(typeMenu, (value) => {
     <div v-if="topicCreateMenu" class="ti-menu-backdrop" @click="closeCreateTopicMenu" @contextmenu.prevent="closeCreateTopicMenu">
       <div class="popover ti-menu" :style="{ left: topicCreateMenu.x + 'px', top: topicCreateMenu.y + 'px' }" @click.stop>
         <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'entry')">
-          <TimelineLucideIcon name="note" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="note" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">条目</span>
         </button>
         <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'mindmap')">
-          <TimelineLucideIcon name="mindmap" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="mindmap" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">思维导图</span>
         </button>
         <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'canvas')">
-          <TimelineLucideIcon name="canvas" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon name="canvas" :stroke-width="1.5" class="pop-item-ic" />
           <span class="lbl">画布</span>
         </button>
       </div>
@@ -1784,9 +1784,9 @@ watch(typeMenu, (value) => {
           :class="{ 'is-active': opt.key === props.sidebarSort }"
           @click="pickSidebarSort(opt.key)"
         >
-          <TimelineLucideIcon :name="opt.icon" :stroke-width="1.5" class="pop-item-ic" />
+          <LucideIcon :name="opt.icon" :stroke-width="1.5" class="pop-item-ic" />
           <span class="pop-item-label">{{ opt.label }}</span>
-          <TimelineLucideIcon v-if="opt.key === props.sidebarSort" name="check" :stroke-width="2" class="pop-item-check" />
+          <LucideIcon v-if="opt.key === props.sidebarSort" name="check" :stroke-width="2" class="pop-item-check" />
         </button>
       </div>
     </div>
@@ -1828,12 +1828,12 @@ watch(typeMenu, (value) => {
           <span class="prop-opt-stat">
             <span class="prop-opt-cnt">{{ optionUsageCount(option) }}</span>
             <button type="button" class="prop-opt-del" title="删除选项" @click="removeDraftOption(editing.column, optionIndex)">
-              <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+              <LucideIcon name="trash" :stroke-width="1.5" />
             </button>
           </span>
         </div>
         <button type="button" class="prop-opt-add" @click="addDraftOption(editing.column)">
-          <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+          <LucideIcon name="plusSign" :stroke-width="1.5" />
           <span>添加</span>
         </button>
       </div>
@@ -1854,9 +1854,9 @@ watch(typeMenu, (value) => {
         :disabled="type.legacy === true"
         @click="chooseType(type.value)"
       >
-        <TimelineLucideIcon :name="propertyIcon(type.value)" :stroke-width="1.5" class="pop-item-ic" />
+        <LucideIcon :name="propertyIcon(type.value)" :stroke-width="1.5" class="pop-item-ic" />
         <span class="lbl">{{ type.label }}</span>
-        <TimelineLucideIcon v-if="type.value === typeMenu.type" name="check" :stroke-width="2" class="prop-type-check" />
+        <LucideIcon v-if="type.value === typeMenu.type" name="check" :stroke-width="2" class="prop-type-check" />
       </button>
     </div>
   </aside>

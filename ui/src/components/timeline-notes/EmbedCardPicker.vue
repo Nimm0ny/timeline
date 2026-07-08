@@ -2,7 +2,7 @@
 import { nextTick, ref, watch } from "vue";
 import BaseModal from "@/components/BaseModal.vue";
 import HighlightedText from "@/components/timeline-notes/HighlightedText.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import { api } from "@/composables/useApi";
 
 // W5 note-embed: search notes and pick one to drop onto the canvas as an embed card.
@@ -141,7 +141,7 @@ watch(
   >
     <section class="command-palette embed-card-picker" @keydown="onKeydown">
       <label class="command-search-field">
-        <TimelineLucideIcon name="search" :stroke-width="1.5" />
+        <LucideIcon name="search" :stroke-width="1.5" />
         <input
           ref="inputRef"
           :value="query"

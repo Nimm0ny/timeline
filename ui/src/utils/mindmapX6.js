@@ -18,7 +18,7 @@ export const NODE_SIZES = [
 ];
 
 // Curated node markers surfaced in the "节点信息" picker. `key` is a name registered
-// in TimelineLucideIcon; a node stores at most one marker in data.icon. Markers are
+// in LucideIcon; a node stores at most one marker in data.icon. Markers are
 // presentation with no clean markdown form, so — like colour/font-size — they live
 // only in the JSON snapshot and are dropped by a .md export.
 export const MINDMAP_NODE_ICONS = [

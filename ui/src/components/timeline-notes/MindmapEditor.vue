@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { Graph } from "@antv/x6";
 import { History } from "@antv/x6-plugin-history";
 import { Selection } from "@antv/x6-plugin-selection";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import {
   buildNodeAttrs,
   buildNodePorts,
@@ -1506,7 +1506,7 @@ onBeforeUnmount(() => {
       @mousedown.prevent
       @click.stop="addChild(control.side, control.nodeId)"
     >
-      <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+      <LucideIcon name="plusSign" :stroke-width="1.5" />
     </button>
     <button
       v-for="toggle in collapseToggles"
@@ -1529,7 +1529,7 @@ onBeforeUnmount(() => {
       :style="{ left: `${badge.x}px`, top: `${badge.y}px` }"
     >
       <span v-if="badge.icon" class="mm-badge is-icon">
-        <TimelineLucideIcon :name="badge.icon" :stroke-width="1.5" />
+        <LucideIcon :name="badge.icon" :stroke-width="1.5" />
       </span>
       <a
         v-if="badge.link"
@@ -1541,7 +1541,7 @@ onBeforeUnmount(() => {
         @mousedown.stop
         @click.stop
       >
-        <TimelineLucideIcon name="link" :stroke-width="1.5" />
+        <LucideIcon name="link" :stroke-width="1.5" />
       </a>
       <button
         v-if="badge.note"
@@ -1551,7 +1551,7 @@ onBeforeUnmount(() => {
         @mousedown.stop
         @click.stop="requestEditMeta(badge.nodeId)"
       >
-        <TimelineLucideIcon name="note" :stroke-width="1.5" />
+        <LucideIcon name="note" :stroke-width="1.5" />
       </button>
       <span v-for="(tag, index) in badge.tags" :key="`tag-${index}`" class="mm-badge-tag">#{{ tag }}</span>
       <span v-if="badge.moreTags" class="mm-badge-more">+{{ badge.moreTags }}</span>

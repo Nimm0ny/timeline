@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 // W4 反向链接面板：列出指向当前笔记的 incoming [[wikilink]]。折叠区默认收起，
 // 首次展开才拉取（api.getBacklinks，lazy）。悬停/点击本组件只 emit，不自持弹层——
@@ -112,7 +112,7 @@ watch(() => props.eventId, reset);
       @click="toggle"
     >
       <span class="backlink-chev">
-        <TimelineLucideIcon :name="expanded ? 'chevronDown' : 'chevronRight'" :stroke-width="1.5" />
+        <LucideIcon :name="expanded ? 'chevronDown' : 'chevronRight'" :stroke-width="1.5" />
       </span>
       <h3>反向链接</h3>
       <span v-if="loaded" class="backlink-count">{{ total }}</span>
@@ -135,7 +135,7 @@ watch(() => props.eventId, reset);
             @blur="onRowLeave(item)"
             @click="onRowClick(item, $event)"
           >
-            <span class="lrow-ic"><TimelineLucideIcon name="link" :stroke-width="1.5" /></span>
+            <span class="lrow-ic"><LucideIcon name="link" :stroke-width="1.5" /></span>
             <div class="lrow-main">
               <b>{{ item.headline || "未命名事件" }}</b>
               <span v-if="item.contextText" class="backlink-snippet">{{ item.contextText }}</span>

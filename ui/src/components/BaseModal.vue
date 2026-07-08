@@ -1,5 +1,5 @@
 <script setup>
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 const props = defineProps({
   modelValue: {
@@ -58,7 +58,7 @@ function onBackdropClick(event) {
         <div v-if="!props.hideHeader" class="modal-head">
           <h3>{{ props.title }}</h3>
           <button type="button" class="icon-btn" title="关闭" @click="close">
-            <TimelineLucideIcon name="close" :stroke-width="1.5" />
+            <LucideIcon name="close" :stroke-width="1.5" />
           </button>
         </div>
         <div class="modal-body" :class="props.bodyClass">

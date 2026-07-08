@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from "vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import { attachmentKind } from "@/utils/editorMarkdown";
 
 const props = defineProps({
@@ -55,7 +55,7 @@ onBeforeUnmount(() => {
         <b>{{ title }}</b>
         <span class="meta-min">{{ meta }}</span>
         <button type="button" class="iconbtn sm" @click="emit('close')">
-          <TimelineLucideIcon name="close" :stroke-width="1.5" />
+          <LucideIcon name="close" :stroke-width="1.5" />
         </button>
       </header>
       <div class="modal-body">

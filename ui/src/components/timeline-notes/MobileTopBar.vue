@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, ref, watch } from "vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 
 const props = defineProps({
   title: {
@@ -61,11 +61,11 @@ watch(
 <template>
   <header class="mobile-topbar">
     <button type="button" class="iconbtn mobile-topbar-btn" title="打开导航" @click="emit('open-drawer')">
-      <TimelineLucideIcon name="menu" :stroke-width="1.5" />
+      <LucideIcon name="menu" :stroke-width="1.5" />
     </button>
 
     <label v-if="props.searchOpen" class="mobile-topbar-search">
-      <TimelineLucideIcon name="search" :stroke-width="1.5" />
+      <LucideIcon name="search" :stroke-width="1.5" />
       <input
         ref="searchInputRef"
         :value="props.searchQuery"
@@ -81,25 +81,25 @@ watch(
     </div>
 
     <button type="button" class="iconbtn mobile-topbar-btn" :class="{ on: props.searchOpen }" title="搜索" @click="toggleSearch">
-      <TimelineLucideIcon name="search" :stroke-width="1.5" />
+      <LucideIcon name="search" :stroke-width="1.5" />
     </button>
     <div class="mobile-topbar-create">
       <button type="button" class="iconbtn mobile-topbar-btn primary" :class="{ on: createMenuOpen }" title="新建笔记" @click="toggleCreateMenu">
-        <TimelineLucideIcon name="plusCircle" :stroke-width="1.5" />
+        <LucideIcon name="plusCircle" :stroke-width="1.5" />
       </button>
       <div v-if="createMenuOpen" class="mobile-topbar-create-backdrop" @click="createMenuOpen = false"></div>
       <div v-if="createMenuOpen" class="popover tl-pop-newtype mobile-topbar-create-menu" @click.stop>
         <div class="pop-title">新建</div>
         <button type="button" class="pop-item" @click="pickNoteType('entry')">
-          <TimelineLucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
+          <LucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
           <span class="pop-item-label">条目</span>
         </button>
         <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
-          <TimelineLucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
+          <LucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
           <span class="pop-item-label">思维导图</span>
         </button>
         <button type="button" class="pop-item" @click="pickNoteType('canvas')">
-          <TimelineLucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
+          <LucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
           <span class="pop-item-label">画布</span>
         </button>
       </div>

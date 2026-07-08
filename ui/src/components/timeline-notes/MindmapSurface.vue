@@ -1,7 +1,7 @@
 <script setup>
 import { nextTick, reactive, ref } from "vue";
 import MindmapEditor from "@/components/timeline-notes/MindmapEditor.vue";
-import TimelineLucideIcon from "@/components/timeline-notes/TimelineLucideIcon.vue";
+import LucideIcon from "@/components/timeline-notes/LucideIcon.vue";
 import { pushToast } from "@/composables/useToast";
 import {
   DEFAULT_EDGE_STYLE,
@@ -258,10 +258,10 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
   <section class="col mm-surface" :class="{ 'is-fullscreen': fullscreen }">
     <header class="mm-bar">
       <button type="button" class="iconbtn lg" title="返回列表" @click="emit('back')">
-        <TimelineLucideIcon name="arrowLeft" :stroke-width="1.5" />
+        <LucideIcon name="arrowLeft" :stroke-width="1.5" />
       </button>
       <div class="mm-head">
-        <TimelineLucideIcon name="mindmap" :stroke-width="1.5" />
+        <LucideIcon name="mindmap" :stroke-width="1.5" />
         <h2>{{ note.headline || "未命名导图" }}</h2>
       </div>
       <button
@@ -272,30 +272,30 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
         :title="note.favorite ? '取消收藏' : '收藏'"
         @click="emit('toggle-favorite', note)"
       >
-        <TimelineLucideIcon name="star" :stroke-width="1.5" />
+        <LucideIcon name="star" :stroke-width="1.5" />
       </button>
       <button v-if="!note.deletedAt" type="button" class="iconbtn lg" title="移入回收站" @click="requestTrash">
-        <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+        <LucideIcon name="trash" :stroke-width="1.5" />
       </button>
       <button v-else type="button" class="iconbtn lg" title="恢复" @click="emit('restore', note)">
-        <TimelineLucideIcon name="restore" :stroke-width="1.5" />
+        <LucideIcon name="restore" :stroke-width="1.5" />
       </button>
       <button v-if="note.deletedAt" type="button" class="iconbtn lg" title="永久删除" @click="requestPermanentDelete">
-        <TimelineLucideIcon name="trash" :stroke-width="1.5" />
+        <LucideIcon name="trash" :stroke-width="1.5" />
       </button>
       <span class="mm-status">{{ note.deletedAt ? "回收站 · 只读" : saving ? "保存中…" : "已保存" }}</span>
       <span class="spacer"></span>
       <button type="button" class="iconbtn lg" :title="fullscreen ? '退出全屏' : '全屏'" @click="toggleFullscreen">
-        <TimelineLucideIcon :name="fullscreen ? 'minimize' : 'maximize'" :stroke-width="1.5" />
+        <LucideIcon :name="fullscreen ? 'minimize' : 'maximize'" :stroke-width="1.5" />
       </button>
     </header>
 
     <div class="mm-tools">
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="撤销" @click="editor?.undo()">
-        <TimelineLucideIcon name="undo" :stroke-width="1.5" />
+        <LucideIcon name="undo" :stroke-width="1.5" />
       </button>
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt" title="重做" @click="editor?.redo()">
-        <TimelineLucideIcon name="redo" :stroke-width="1.5" />
+        <LucideIcon name="redo" :stroke-width="1.5" />
       </button>
       <button
         type="button"
@@ -304,7 +304,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
         title="新增子节点（先选中节点）"
         @click="editor?.addChild()"
       >
-        <TimelineLucideIcon name="plusSign" :stroke-width="1.5" />
+        <LucideIcon name="plusSign" :stroke-width="1.5" />
       </button>
 
       <span class="mm-sep"></span>
@@ -318,8 +318,8 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           :title="`布局：${currentLayoutLabel()}`"
           @click.stop="toggleMenu('layout')"
         >
-          <TimelineLucideIcon name="layout" :stroke-width="1.5" />
-          <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
+          <LucideIcon name="layout" :stroke-width="1.5" />
+          <LucideIcon name="chevronDown" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'layout'" class="mm-menu">
           <button
@@ -331,7 +331,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
             @click="pickLayout(item.key)"
           >
             <span>{{ item.label }}</span>
-            <TimelineLucideIcon v-if="item.key === currentLayout" name="check" :stroke-width="2" />
+            <LucideIcon v-if="item.key === currentLayout" name="check" :stroke-width="2" />
           </button>
         </div>
       </div>
@@ -345,8 +345,8 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           :title="`连线样式：${currentEdgeStyleLabel()}`"
           @click.stop="toggleMenu('edge')"
         >
-          <TimelineLucideIcon name="timeline" :stroke-width="1.5" />
-          <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
+          <LucideIcon name="timeline" :stroke-width="1.5" />
+          <LucideIcon name="chevronDown" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'edge'" class="mm-menu">
           <button
@@ -358,14 +358,14 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
             @click="pickEdgeStyle(item.key)"
           >
             <span>{{ item.label }}</span>
-            <TimelineLucideIcon v-if="item.key === currentEdgeStyle" name="check" :stroke-width="2" />
+            <LucideIcon v-if="item.key === currentEdgeStyle" name="check" :stroke-width="2" />
           </button>
         </div>
       </div>
 
       <div class="mm-ctl">
         <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'bg' }" :disabled="note.deletedAt" title="画布背景" @click.stop="toggleMenu('bg')">
-          <TimelineLucideIcon name="paint" :stroke-width="1.5" />
+          <LucideIcon name="paint" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'bg'" class="mm-menu mm-swatches">
           <button
@@ -385,24 +385,24 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
 
       <div class="mm-ctl">
         <button type="button" class="iconbtn sm" :class="{ on: openMenu === 'bridge' }" title="导入 / 导出" @click.stop="toggleMenu('bridge')">
-          <TimelineLucideIcon name="file" :stroke-width="1.5" />
+          <LucideIcon name="file" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'bridge'" class="mm-menu">
           <button type="button" class="mm-menu-item" @click="exportFile('json')">
             <span>导出 X6 JSON</span>
-            <TimelineLucideIcon name="download" :stroke-width="1.5" />
+            <LucideIcon name="download" :stroke-width="1.5" />
           </button>
           <button type="button" class="mm-menu-item" @click="exportFile('md')">
             <span>导出 Markdown</span>
-            <TimelineLucideIcon name="download" :stroke-width="1.5" />
+            <LucideIcon name="download" :stroke-width="1.5" />
           </button>
           <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('json')">
             <span>导入 X6 JSON</span>
-            <TimelineLucideIcon name="file" :stroke-width="1.5" />
+            <LucideIcon name="file" :stroke-width="1.5" />
           </button>
           <button v-if="!note.deletedAt" type="button" class="mm-menu-item" @click="triggerImport('markdown')">
             <span>导入 Markdown</span>
-            <TimelineLucideIcon name="note" :stroke-width="1.5" />
+            <LucideIcon name="note" :stroke-width="1.5" />
           </button>
         </div>
       </div>
@@ -410,13 +410,13 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
       <span class="mm-sep"></span>
 
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="缩小字号（先选中节点）" @click="editor?.nudgeFontSize(-2)">
-        <TimelineLucideIcon name="fontDown" :stroke-width="1.5" />
+        <LucideIcon name="fontDown" :stroke-width="1.5" />
       </button>
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="放大字号（先选中节点）" @click="editor?.nudgeFontSize(2)">
-        <TimelineLucideIcon name="fontUp" :stroke-width="1.5" />
+        <LucideIcon name="fontUp" :stroke-width="1.5" />
       </button>
       <button type="button" class="iconbtn sm" :disabled="note.deletedAt || !activeCount" title="加粗（先选中节点）" @click="editor?.toggleBold()">
-        <TimelineLucideIcon name="bold" :stroke-width="1.5" />
+        <LucideIcon name="bold" :stroke-width="1.5" />
       </button>
       <div class="mm-ctl">
         <button
@@ -427,7 +427,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           title="文字颜色（先选中节点）"
           @click.stop="toggleMenu('color')"
         >
-          <TimelineLucideIcon name="palette" :stroke-width="1.5" />
+          <LucideIcon name="palette" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'color'" class="mm-menu mm-swatches">
           <button
@@ -450,11 +450,11 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           title="节点信息：超链接 / 备注 / 标签 / 图标（先选中单个节点）"
           @click.stop="toggleMeta"
         >
-          <TimelineLucideIcon name="info" :stroke-width="1.5" />
+          <LucideIcon name="info" :stroke-width="1.5" />
         </button>
         <div v-if="openMenu === 'meta'" class="mm-menu mm-meta-panel" @click.stop @keydown.esc.prevent="openMenu = ''">
           <label class="mm-meta-field">
-            <span class="mm-meta-label"><TimelineLucideIcon name="link" :stroke-width="1.5" />超链接</span>
+            <span class="mm-meta-label"><LucideIcon name="link" :stroke-width="1.5" />超链接</span>
             <input
               ref="metaLinkRef"
               v-model="metaForm.link"
@@ -466,7 +466,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
             />
           </label>
           <label class="mm-meta-field">
-            <span class="mm-meta-label"><TimelineLucideIcon name="note" :stroke-width="1.5" />备注</span>
+            <span class="mm-meta-label"><LucideIcon name="note" :stroke-width="1.5" />备注</span>
             <textarea
               v-model="metaForm.note"
               class="mm-meta-input mm-meta-textarea"
@@ -476,12 +476,12 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
             ></textarea>
           </label>
           <div class="mm-meta-field">
-            <span class="mm-meta-label"><TimelineLucideIcon name="tag" :stroke-width="1.5" />标签</span>
+            <span class="mm-meta-label"><LucideIcon name="tag" :stroke-width="1.5" />标签</span>
             <div class="mm-meta-tags">
               <span v-for="tag in metaForm.tags" :key="tag" class="mm-meta-chip">
                 #{{ tag }}
                 <button type="button" class="mm-meta-chip-x" title="移除标签" @click="removeTag(tag)">
-                  <TimelineLucideIcon name="close" :stroke-width="1.5" />
+                  <LucideIcon name="close" :stroke-width="1.5" />
                 </button>
               </span>
               <input
@@ -495,7 +495,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
             </div>
           </div>
           <div class="mm-meta-field">
-            <span class="mm-meta-label"><TimelineLucideIcon name="star" :stroke-width="1.5" />图标</span>
+            <span class="mm-meta-label"><LucideIcon name="star" :stroke-width="1.5" />图标</span>
             <div class="mm-meta-icons">
               <button
                 v-for="item in MINDMAP_NODE_ICONS"
@@ -506,7 +506,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
                 :title="item.label"
                 @click="pickIcon(item.key)"
               >
-                <TimelineLucideIcon :name="item.key" :stroke-width="1.5" />
+                <LucideIcon :name="item.key" :stroke-width="1.5" />
               </button>
             </div>
           </div>
@@ -525,7 +525,7 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           title="搜索节点"
           @click.stop="toggleSearch"
         >
-          <TimelineLucideIcon name="search" :stroke-width="1.5" />
+          <LucideIcon name="search" :stroke-width="1.5" />
         </button>
         <div v-if="searchOpen" class="mm-find-bar" @click.stop>
           <input
@@ -540,13 +540,13 @@ defineExpose({ pauseAutosave, resumeAutosave, flushAutosave });
           />
           <span class="mm-find-count">{{ searchInfo.count ? `${searchInfo.index}/${searchInfo.count}` : (searchQuery ? "无匹配" : "") }}</span>
           <button type="button" class="iconbtn sm" title="上一个" :disabled="!searchInfo.count" @click="stepSearch(-1)">
-            <TimelineLucideIcon name="chevronUp" :stroke-width="1.5" />
+            <LucideIcon name="chevronUp" :stroke-width="1.5" />
           </button>
           <button type="button" class="iconbtn sm" title="下一个" :disabled="!searchInfo.count" @click="stepSearch(1)">
-            <TimelineLucideIcon name="chevronDown" :stroke-width="1.5" />
+            <LucideIcon name="chevronDown" :stroke-width="1.5" />
           </button>
           <button type="button" class="iconbtn sm" title="关闭搜索" @click="closeSearch">
-            <TimelineLucideIcon name="close" :stroke-width="1.5" />
+            <LucideIcon name="close" :stroke-width="1.5" />
           </button>
         </div>
       </div>
