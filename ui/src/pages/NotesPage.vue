@@ -54,7 +54,10 @@ const mindmapSurfaceRef = ref(null);
 const canvasSurfaceRef = ref(null);
 const mobileFeedScrollTop = ref(0);
 const notesStore = useNotesStore();
-const { isMobile, isCompactDesktop } = useViewport();
+const { isMobile, isCompactDesktop, width: viewportWidth } = useViewport();
+// Minimum readable width for the middle feed. The stored right-pane width is capped so
+// it can never squeeze the feed below this — see paintedRightWidth().
+const MIN_FEED_WIDTH = 420;
 
 const DETAIL_MODES = new Set(["view", "edit", "create"]);
 const FILTERS = new Set(["all", "today", "week", "favorite", "trash"]);
@@ -269,8 +272,8 @@ function normalizeMediaConfig(media = {}) {
 }
 
 const workspaceStyle = computed(() => ({
-  "--left-w": `${isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth}px`,
-  "--right-w": `${isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth}px`,
+  "--left-w": `${paintedLeftWidth()}px`,
+  "--right-w": `${paintedRightWidth()}px`,
 }));
 
 // Painted column widths (workspaceStyle clamps them on compact desktops); the drag
@@ -279,7 +282,13 @@ function paintedLeftWidth() {
   return isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth;
 }
 function paintedRightWidth() {
-  return isCompactDesktop.value ? clamp(state.rightWidth, 360, 380) : state.rightWidth;
+  if (isCompactDesktop.value) return clamp(state.rightWidth, 360, 380);
+  // The stored right width persists across monitors; a width dragged wide on a large
+  // screen must not collapse the middle feed (minmax(0,1fr)) here. Cap it to the current
+  // viewport so the feed always keeps MIN_FEED_WIDTH — non-destructive (state.rightWidth
+  // is untouched, so a bigger window restores the user's width).
+  const maxRight = Math.max(360, viewportWidth.value - paintedLeftWidth() - MIN_FEED_WIDTH);
+  return clamp(state.rightWidth, 360, maxRight);
 }
 
 // Drag-to-swap the feed and detail panes from either toolbar's empty area — the

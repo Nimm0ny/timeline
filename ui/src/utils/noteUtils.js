@@ -964,19 +964,24 @@ function pushSampleValue(samples, value) {
   samples.push(text.length > SAMPLE_TEXT_LIMIT ? `${text.slice(0, SAMPLE_TEXT_LIMIT).trim()}...` : text);
 }
 
+// Canonical placeholder for an empty column value. It is what the SORT comparator
+// compares on (empties order together), so it must stay stable. The feed maps it to
+// a blank cell at DISPLAY time (Notion-style) — see NoteFeed.buildProjectedNote.
+export const EMPTY_COLUMN_TEXT = "—";
+
 export function noteColumnValue(event, column) {
-  if (!column) return "—";
+  if (!column) return EMPTY_COLUMN_TEXT;
   if (column.key === "time") return formatNoteDate(event);
   if (column.key === "title") return event?.headline || event?.era || event?.displayLabel || "未命名事件";
   if (isOptionColumn(column)) {
     const chips = resolvePropertyChips(event, column);
-    return chips.length ? chips.map((chip) => chip.label).join("、") : "—";
+    return chips.length ? chips.map((chip) => chip.label).join("、") : EMPTY_COLUMN_TEXT;
   }
   const value = event?.extra?.[column.key];
-  // Trimmed-empty (incl. whitespace-only) renders as "—" so it agrees with
+  // Trimmed-empty (incl. whitespace-only) renders as the placeholder so it agrees with
   // `noteColumnHasValue`/auto-hide and the detail pane's trim convention; a
   // real "0" stays visible (the old `value ? … : "—"` dropped numeric 0).
-  return String(value ?? "").trim() !== "" ? String(value) : "—";
+  return String(value ?? "").trim() !== "" ? String(value) : EMPTY_COLUMN_TEXT;
 }
 
 // Per-property option rows (with usage counts) for the left "属性" tab.

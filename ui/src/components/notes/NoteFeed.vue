@@ -31,6 +31,7 @@ import {
   dateKeyFromLocator,
   DISPLAY_VIEW_META,
   noteColumnValue,
+  EMPTY_COLUMN_TEXT,
   noteHasDate,
   isCheckboxChecked,
   isDefaultSort,
@@ -393,7 +394,11 @@ function buildProjectedNote(event, columns, { previewLength = 0 } = {}) {
   const resolvedColumnValues = {};
   const chipsByColumn = {};
   for (const column of columns || []) {
-    resolvedColumnValues[column.key] = noteColumnValue(event, column);
+    // Notion-style empty cells: render a blank cell instead of a column full of "—".
+    // Only the display value is blanked — the sort comparator calls noteColumnValue
+    // directly (empties still order together), so ordering is unchanged.
+    const columnValue = noteColumnValue(event, column);
+    resolvedColumnValues[column.key] = columnValue === EMPTY_COLUMN_TEXT ? "" : columnValue;
     if (isOptionColumn(column)) chipsByColumn[column.key] = resolvePropertyChips(event, column);
   }
   const projected = {
@@ -1660,7 +1665,7 @@ defineExpose({
                     :title="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
                     >+{{ activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length - FEED_CHIP_LIMIT }}</span
                   >
-                  <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
+                  <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty"></span>
                 </span>
                 <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
                   <LucideIcon
@@ -1673,8 +1678,8 @@ defineExpose({
                 <span
                   v-else
                   class="c-source"
-                  :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' }"
-                  :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+                  :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '' }"
+                  :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
                 ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
               </template>
               <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
@@ -1773,7 +1778,7 @@ defineExpose({
                 :title="activeLinearRows[vRow.index].projected.chipsByColumn[column.key].slice(FEED_CHIP_LIMIT).map((chip) => chip.label).join('、')"
                 >+{{ activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length - FEED_CHIP_LIMIT }}</span
               >
-              <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty">—</span>
+              <span v-if="!activeLinearRows[vRow.index].projected.chipsByColumn[column.key].length" class="c-source c-empty"></span>
             </span>
             <span v-else-if="column.type === 'checkbox'" class="c-source c-check">
               <LucideIcon
@@ -1786,8 +1791,8 @@ defineExpose({
             <span
               v-else
               class="c-source"
-              :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' }"
-              :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '—' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
+              :class="{ 'c-empty': activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '' }"
+              :title="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key] === '' ? null : activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]"
             ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
           </template>
           <span v-if="hasTrailingSpacer()" class="c-spacer" aria-hidden="true"></span>
