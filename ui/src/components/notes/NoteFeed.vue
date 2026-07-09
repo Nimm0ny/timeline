@@ -232,6 +232,29 @@ const activePopover = ref("");
 const locatorValue = ref("");
 const searchOpen = ref(false);
 const searchInputRef = ref(null);
+// Search input is debounced: the field shows the immediate draft, but the heavy
+// page-side filter → group → project cascade only fires once per typing pause. An
+// empty value flushes immediately (mirrors the many programmatic resets — topic
+// switch / command palette — which set the parent query directly, bypassing this).
+const searchDraft = ref(props.searchQuery);
+let searchEmitTimer = null;
+
+function onSearchInput(value) {
+  searchDraft.value = value;
+  if (searchEmitTimer) {
+    window.clearTimeout(searchEmitTimer);
+    searchEmitTimer = null;
+  }
+  if (!value) {
+    emit("update:searchQuery", "");
+    return;
+  }
+  searchEmitTimer = window.setTimeout(() => {
+    searchEmitTimer = null;
+    emit("update:searchQuery", value);
+  }, 140);
+}
+
 const feedRef = ref(null);
 const rowRefs = new Map();
 const galleryMetrics = ref({ itemsPerRow: 1, rowHeight: 243 });
@@ -341,14 +364,39 @@ function isLinearView(view) {
   return LINEAR_VIEWS.has(view);
 }
 
+// Projection is O(N loaded rows) and rebuilds on every re-sort / re-filter / regroup —
+// including previewText string-building for rows the virtualizer never renders. Memoize
+// by event identity + a view signature (view columns + preview length + row-chip inputs)
+// so a pure reorder/filter reuses cached projections. Keyed on the event OBJECT: the store
+// keeps stable refs across sorts, while a live-edit overlay makes a fresh object (spread),
+// so an edited/previewed row auto-misses and rebuilds with no stale text. The WeakMap
+// auto-evicts a note's entry once it is dropped from the loaded set.
+const projectionMemo = new WeakMap();
+
+function projectionSignature(columns, previewLength) {
+  const viewCols = (columns || []).map((column) => column.key).join(",");
+  const chipCols = (props.columns || []).map((column) => column.key).join(",");
+  const emptyCols = (props.emptyColumnKeys || []).join(",");
+  return `${previewLength}|${viewCols}|${chipCols}|${emptyCols}`;
+}
+
 function buildProjectedNote(event, columns, { previewLength = 0 } = {}) {
+  const signature = projectionSignature(columns, previewLength);
+  let perEvent = projectionMemo.get(event);
+  if (perEvent) {
+    const cached = perEvent.get(signature);
+    if (cached) return cached;
+  } else {
+    perEvent = new Map();
+    projectionMemo.set(event, perEvent);
+  }
   const resolvedColumnValues = {};
   const chipsByColumn = {};
   for (const column of columns || []) {
     resolvedColumnValues[column.key] = noteColumnValue(event, column);
     if (isOptionColumn(column)) chipsByColumn[column.key] = resolvePropertyChips(event, column);
   }
-  return {
+  const projected = {
     key: `event:${event.id}`,
     event,
     titleText: resolvedColumnValues.title || noteColumnValue(event, { key: "title" }),
@@ -362,6 +410,8 @@ function buildProjectedNote(event, columns, { previewLength = 0 } = {}) {
     isCanvas: event.noteType === "canvas",
     thumbUrl: eventThumb(event),
   };
+  perEvent.set(signature, projected);
+  return projected;
 }
 
 function buildTimelineRows(groups, columns) {
@@ -884,7 +934,7 @@ function toggleSearch() {
     return;
   }
   if (searchOpen.value) {
-    if (String(props.searchQuery || "").trim()) {
+    if (String(searchDraft.value || "").trim()) {
       searchInputRef.value?.focus();
     } else {
       searchOpen.value = false;
@@ -894,8 +944,10 @@ function toggleSearch() {
   }
 }
 
+// Read the immediate draft, not the debounced parent query, so a blur/toggle within
+// the debounce window doesn't collapse a field that still holds typed text.
 function closeSearchIfEmpty() {
-  if (!String(props.searchQuery || "").trim()) {
+  if (!String(searchDraft.value || "").trim()) {
     searchOpen.value = false;
   }
 }
@@ -1093,6 +1145,9 @@ watch(
 watch(
   () => props.searchQuery,
   (value) => {
+    // Sync the local draft when the query changes from outside the input (topic
+    // switch clears it, route restore / palette sets it) so the field reflects truth.
+    if (value !== searchDraft.value) searchDraft.value = value;
     if (String(value || "").trim()) {
       searchOpen.value = true;
     }
@@ -1184,6 +1239,10 @@ onBeforeUnmount(() => {
   feedResizeObserver?.disconnect();
   feedResizeObserver = null;
   stopResizingColumn();
+  if (searchEmitTimer) {
+    window.clearTimeout(searchEmitTimer);
+    searchEmitTimer = null;
+  }
 });
 
 defineExpose({
@@ -1220,10 +1279,10 @@ defineExpose({
           <div class="searchbox" :class="{ open: searchOpen }" id="searchbox">
             <input
               ref="searchInputRef"
-              :value="props.searchQuery"
+              :value="searchDraft"
               type="search"
               :placeholder="props.searchPlaceholder"
-              @input="emit('update:searchQuery', $event.target.value)"
+              @input="onSearchInput($event.target.value)"
               @blur="closeSearchIfEmpty"
             />
             <button id="searchBtn" type="button" class="sb-icon" title="搜索" @mousedown.prevent @click.stop="toggleSearch">

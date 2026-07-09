@@ -877,7 +877,10 @@ async function syncRouteState(overrides = {}) {
 }
 
 function setDefaultSelection(preferredNoteId = null) {
-  const items = filterNotes();
+  // Reuse the memoized visibleNotes computed instead of re-running filterNotes():
+  // it is the exact same filter+sort with no overrides, so this reads the cached
+  // result rather than doing a second full O(N) pass on every search/filter change.
+  const items = visibleNotes.value;
   if (preferredNoteId && items.some((event) => event.id === preferredNoteId)) {
     state.selectedNoteId = preferredNoteId;
     return;
@@ -3032,6 +3035,7 @@ watch(
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
       :event="detailPaneNote"
+      :candidate-notes="state.events"
       :topic-title="activeTopicTitle"
       :topic-columns="topicColumns"
       :loading="detailPaneLoading"

@@ -489,6 +489,7 @@ button {
 
 /* Input standard — borderless, soft fill, 13px (spec §2.1). */
 .detail-inline-input,
+.detail-inline-search input,
 .detail-title-field input,
 .col-grid input,
 .col-grid select,
@@ -504,6 +505,7 @@ button {
 }
 
 .detail-inline-input:focus,
+.detail-inline-search input:focus,
 .col-grid input:focus,
 .col-grid select:focus,
 .pop-field input:focus,
@@ -2739,6 +2741,19 @@ button {
   gap: 6px;
 }
 
+/* 编辑态关联事件行尾的删除提示：克制的小图标（点整行即移除该关联）。 */
+.lrow-act {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+
+.lrow-act .timeline-lucide-icon {
+  width: var(--icon-bar);
+  height: var(--icon-bar);
+}
+
 /* Chip rows share ONE box so toggling read<->edit never moves a chip: read uses
    .pane-tags, edit uses .optpick-control. The geometry (display/gap/min-height/
    padding) is defined once here; each selector adds only its own extras below. */
@@ -2776,6 +2791,47 @@ button {
 .timeline-confirm-card p {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* 关联事件编辑态：内联搜索框 + 候选结果网格（正向手动关联；hover 结果行走页面预览弹层）。 */
+.detail-inline-search {
+  position: relative;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.detail-inline-search .timeline-lucide-icon {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+}
+
+.detail-inline-search input {
+  padding-left: 34px;
+}
+
+.related-results {
+  display: grid;
+  gap: 8px;
+}
+
+.related-result {
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.related-result:hover {
+  background: var(--bg-hover);
 }
 
 .row-list {

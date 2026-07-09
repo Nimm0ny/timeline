@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "@/composables/useApi";
 import { pushToast } from "@/composables/useToast";
 import { CONTENT_LIMITS } from "@/constants/contentLimits";
@@ -27,12 +27,19 @@ import {
   attachmentIconName,
   attachmentKind,
   buildAttachmentMarkdown,
+  filterRelatedNoteCandidates,
 } from "@/utils/editorMarkdown";
 
 const props = defineProps({
   event: {
     type: Object,
     default: null,
+  },
+  // Pool of notes (current notebook's loaded events) the 关联事件 editor searches to
+  // add a manual forward relation. Read mode uses the note's own resolved relatedNotes.
+  candidateNotes: {
+    type: Array,
+    default: () => [],
   },
   topicTitle: {
     type: String,
@@ -122,6 +129,9 @@ const initialSnapshot = ref("");
 const uploading = ref(false);
 const sessionUploads = ref([]);
 const pendingDeleteImages = ref([]);
+const relatedSearchQuery = ref("");
+const showRelatedSearch = ref(false);
+const relatedSearchInputRef = ref(null);
 const modalAttachment = ref(null);
 const dateEditorOpen = ref(false);
 const eraEditorOpen = ref(false);
@@ -236,6 +246,28 @@ function setCheckbox(column, event) {
   draft.extra[column.key] = event.target.checked ? "true" : "false";
 }
 
+// 编辑态已选关联：draft.relatedNoteIds 顺序渲染，从候选池 + 已解析 relatedNotes 里查对象。
+const selectedRelatedNotes = computed(() => {
+  const lookup = new Map(
+    [...props.candidateNotes, ...(Array.isArray(draft.relatedNotes) ? draft.relatedNotes : [])]
+      .filter(Boolean)
+      .map((note) => [Number(note.id), note])
+  );
+  return draft.relatedNoteIds.map((id) => lookup.get(Number(id))).filter(Boolean);
+});
+
+// Seamless edit: candidates stay hidden until the user opts in and actually
+// searches, so entering edit mode never dumps a long list of alternatives.
+const candidateRelatedNotes = computed(() => {
+  const query = relatedSearchQuery.value.trim();
+  if (!query) return [];
+  return filterRelatedNoteCandidates(props.candidateNotes, {
+    currentId: draft.id,
+    selectedIds: draft.relatedNoteIds,
+    query,
+  });
+});
+
 const draftDisplayDate = computed(() => {
   const year = String(draft.dateYear || "").trim();
   const month = String(draft.dateMonth || "").trim();
@@ -258,6 +290,9 @@ const draftDisplayDate = computed(() => {
 // they hold content (or, in edit mode, once their toolbar add-button is used).
 const hasAttachments = computed(
   () => (inEditMode.value ? draft.attachments : readableGroups.value.attachments).length > 0
+);
+const hasRelated = computed(
+  () => (inEditMode.value ? selectedRelatedNotes.value : readableGroups.value.relatedNotes).length > 0
 );
 // 属性「有就显示，没有就不显示」：阅读态只渲染有值属性，全空则整区隐藏；
 // 编辑态显示有值 + 用户经「+属性」展开的空属性，底部列出其余未填项供按需添加。
@@ -287,6 +322,13 @@ function revealProperty(key) {
 }
 // 属性区恒显（日期/分组每条笔记必有）；类型/标签/自定义为空则不渲染该行。
 const showAttachmentSection = computed(() => hasAttachments.value);
+// 关联事件同「有就显示，没有就不显示」：读态有关联才渲染；编辑态另在用户点开搜索时显示（空白区域不展示）。
+const showRelatedSection = computed(() => hasRelated.value || (inEditMode.value && showRelatedSearch.value));
+
+function revealRelatedEditor() {
+  showRelatedSearch.value = true;
+  nextTick(() => relatedSearchInputRef.value?.focus());
+}
 
 // Live edit preview pushed up so the center-column row reflects the draft in
 // real time. Null when not editing, which also clears the overlay on the page.
@@ -435,6 +477,8 @@ function applyDraft(sourceNote) {
   draft.deletedAt = next.deletedAt;
   draft.items = next.items;
   draft.extra = next.extra;
+  relatedSearchQuery.value = "";
+  showRelatedSearch.value = false;
   revealedKeys.value = new Set();
   closeMetaEditors();
   addPropOpen.value = false;
@@ -552,6 +596,53 @@ function appendAttachmentMarkdown(attachment) {
   const markdownText = buildAttachmentMarkdown(attachment);
   if (!markdownText) return;
   appendMarkdownBlock(markdownText);
+}
+
+// 正向「关联事件」：编辑态在候选池点选加入 / 点行删除；读态 hover 行→预览弹层、点击→钉住可完整打开，
+// 全部复用页面既有关联机制（preview-related / hide-related-preview / pin-related），不新增导航通道。
+function addRelatedCandidate(noteId) {
+  if (!noteId || draft.relatedNoteIds.includes(noteId)) return;
+  draft.relatedNoteIds = [...draft.relatedNoteIds, noteId];
+  relatedSearchQuery.value = "";
+}
+
+function removeRelatedNote(noteId) {
+  draft.relatedNoteIds = draft.relatedNoteIds.filter((id) => id !== noteId);
+}
+
+function relatedAnchorPayload(item, event) {
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  return {
+    id: item?.id,
+    anchor: rect
+      ? {
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        }
+      : null,
+  };
+}
+
+function previewRelatedNote(item, event) {
+  if (inEditMode.value) return;
+  emit("preview-related", relatedAnchorPayload(item, event));
+}
+
+function hideRelatedPreview(item) {
+  if (inEditMode.value) return;
+  emit("hide-related-preview", item?.id);
+}
+
+function activateRelatedNote(item, event) {
+  if (inEditMode.value) {
+    removeRelatedNote(item.id);
+    return;
+  }
+  emit("pin-related", relatedAnchorPayload(item, event));
 }
 
 // W4 反向链接：BacklinkPanel 只上报 sourceId/topicId/anchor，这里把它翻译成与
@@ -840,6 +931,10 @@ onBeforeUnmount(() => {
                 <span class="lbl">添加附件</span>
                 <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.md,.txt,.docx" hidden :disabled="uploading" @change="uploadAttachment($event); closeKebab()" />
               </label>
+              <button type="button" class="pop-item" @click="revealRelatedEditor(); closeKebab()">
+                <LucideIcon class="pop-item-ic" name="link" :stroke-width="1.5" />
+                <span class="lbl">关联事件</span>
+              </button>
             </template>
             <button
               v-if="!props.mobile"
@@ -1103,8 +1198,59 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <!-- 正向「关联事件」（outgoing）：读态列出手动关联；编辑态可搜索本子事件加入 / 点行移除。
+             空则整区不渲染（showRelatedSection 门控）。hover 行→事件条目预览弹层、点击→钉住。 -->
+        <div v-if="showRelatedSection" class="pane-sec">
+          <div class="pane-sec-head">
+            <h3>关联事件 · {{ (inEditMode ? selectedRelatedNotes : readableGroups.relatedNotes).length }}</h3>
+            <button v-if="inEditMode" type="button" class="pane-sec-add" title="关联事件" @click="revealRelatedEditor">
+              <LucideIcon name="plusSign" :stroke-width="1.5" />
+            </button>
+          </div>
+          <template v-if="inEditMode && showRelatedSearch">
+            <label class="detail-inline-search">
+              <LucideIcon name="search" :stroke-width="1.5" />
+              <input ref="relatedSearchInputRef" v-model="relatedSearchQuery" type="search" placeholder="搜索当前笔记本事件" />
+            </label>
+            <div v-if="candidateRelatedNotes.length" class="related-results">
+              <button
+                v-for="candidate in candidateRelatedNotes"
+                :key="candidate.id"
+                type="button"
+                class="related-result"
+                @click="addRelatedCandidate(candidate.id)"
+              >
+                <strong>{{ candidate.headline }}</strong>
+                <span>{{ candidate.displayLabel || formatNoteDisplayDate(candidate) }}</span>
+              </button>
+            </div>
+          </template>
+          <div v-if="(inEditMode ? selectedRelatedNotes : readableGroups.relatedNotes).length" class="row-list">
+            <button
+              v-for="item in (inEditMode ? selectedRelatedNotes : readableGroups.relatedNotes)"
+              :key="item.id"
+              type="button"
+              class="lrow"
+              @mouseenter="previewRelatedNote(item, $event)"
+              @mouseleave="hideRelatedPreview(item)"
+              @focus="previewRelatedNote(item, $event)"
+              @blur="hideRelatedPreview(item)"
+              @click="activateRelatedNote(item, $event)"
+            >
+              <span class="lrow-ic"><LucideIcon name="calendar" :stroke-width="1.5" /></span>
+              <div class="lrow-main">
+                <b>{{ item.headline || item.displayLabel || "未命名事件" }}</b>
+                <span>{{ item.displayLabel || formatNoteDisplayDate(item) }}</span>
+              </div>
+              <span v-if="inEditMode" class="lrow-act">
+                <LucideIcon name="trash" :stroke-width="1.5" />
+              </span>
+            </button>
+          </div>
+        </div>
+
         <!-- 反向链接：incoming [[wikilink]] 的阅读态面板（收起默认、展开懒加载）。
-             预览/打开转发到页面既有关联机制（同 pin/preview-related）。 -->
+             独立于上方「关联事件」（outgoing）；预览/打开转发到页面既有关联机制（同 pin/preview-related）。 -->
         <BacklinkPanel
           v-if="!inEditMode && props.event?.id"
           :event-id="props.event.id"
