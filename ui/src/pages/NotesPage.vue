@@ -38,7 +38,7 @@ import {
   resolveDisplayStyle,
   shouldAutoLoadMoreForFilteredNotes,
   sortBookshelfTree,
-  SIDEBAR_SORT_MODES,
+  parseSidebarSort,
 } from "@/utils/noteUtils";
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/notes/CommandPalette.vue"));
@@ -118,8 +118,12 @@ function normalizeDetailPosition(value) {
   return value === "center" ? "center" : "edge";
 }
 
+// Canonical sidebar sort is a "mode:dir" string (e.g. "name:1", "updated:-1"). Old
+// values were a bare mode ("name"); parseSidebarSort tolerates both so a stored
+// legacy value keeps working and gains that mode's default direction.
 function normalizeSidebarSort(value) {
-  return SIDEBAR_SORT_MODES.includes(value) ? value : "default";
+  const { mode, dir } = parseSidebarSort(value);
+  return `${mode}:${dir}`;
 }
 
 function parseRouteNumber(name) {
@@ -314,7 +318,10 @@ const paneDragGhostLabel = computed(() => PANE_GHOST[paneSwap.draggedPane.value]
 const bookshelfTree = computed(() => state.bookshelfTree);
 // Presentational re-order of the sidebar tree (shelves + notebooks) by the saved
 // global sort; lookup/logic paths keep using the unsorted bookshelfTree above.
-const sortedBookshelfTree = computed(() => sortBookshelfTree(state.bookshelfTree, state.config.sidebarSort));
+const sortedBookshelfTree = computed(() => {
+  const { mode, dir } = parseSidebarSort(state.config.sidebarSort);
+  return sortBookshelfTree(state.bookshelfTree, mode, dir);
+});
 
 const activeBookshelfName = computed(() => state.focusedBookshelfName || (state.activeTopicMeta ? normalizeTopicBookshelf(state.activeTopicMeta).name : ""));
 
@@ -2591,8 +2598,8 @@ async function updateDetailPosition(position) {
 
 // Global left-tree sort (bookshelves + notebooks). Same optimistic + rollback +
 // localStorage-mirror path as navPosition; the reorder itself is a pure computed.
-async function updateSidebarSort(mode) {
-  const next = normalizeSidebarSort(mode);
+async function updateSidebarSort(value) {
+  const next = normalizeSidebarSort(value);
   const previous = normalizeSidebarSort(state.config.sidebarSort);
   if (next === previous) return;
   state.config.sidebarSort = next;

@@ -1804,6 +1804,101 @@ button {
   opacity: 1;
 }
 
+/* ---- Sort UX: labeled direction pill + state-visible triggers + priority badges ---- */
+
+/* Direction as a first-class, labeled control (chevron + 升序/降序) — replaces the
+   guessed caret. Shared by the left-tree picker and the center multi-level editor. */
+.sort-dir-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 7px 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sort-dir-pill.desc {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sort-dir-pill .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Sort trigger: a plain square icon by default; grows to reveal the active field +
+   direction only when the sort is non-default, so the state is visible without
+   opening the popover. Shared shape for the center feed and the left tree.
+   Specificity matches .iconbtn.lg so the width override wins by source order. */
+.iconbtn.sort-trigger-btn,
+.iconbtn.sidebar-sort-btn {
+  width: auto;
+  min-width: var(--btn);
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sort-trigger-tag,
+.sidebar-sort-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sort-trigger-tag .timeline-lucide-icon,
+.sidebar-sort-tag .timeline-lucide-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Center multi-level editor: field label fills the row so the direction pill sits at
+   the right; a priority badge (主要/其次…) leads each row when there are 2+ levels. */
+.pop-sort-flip .pop-item-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.pop-sort-badge {
+  flex: none;
+  width: 28px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* Left-tree picker: wider than a row-action menu to seat the direction pill; the
+   active field row shows the pill, the rest just the label. Double class beats the
+   later `.ti-menu { width: 152px }` on specificity regardless of source order. */
+.ti-menu.sort-menu {
+  width: 208px;
+}
+
+.sort-field .pop-item-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.sort-field .sort-dir-pill {
+  margin-left: auto;
+}
+
 /* Right-pane actionbar ⋮ menu: anchors a .popover under the kebab button. */
 .kebab-wrap {
   position: relative;

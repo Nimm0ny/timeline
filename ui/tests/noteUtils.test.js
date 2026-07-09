@@ -47,6 +47,9 @@ import {
   findBookshelfByName,
   sortBookshelfTree,
   SIDEBAR_SORT_MODES,
+  SIDEBAR_SORT_DEFAULT_DIR,
+  parseSidebarSort,
+  encodeSidebarSort,
 } from "../src/utils/noteUtils.js";
 
 const tagsColumn = {
@@ -955,6 +958,69 @@ test("sortBookshelfTree leaves the source tree and era lists untouched", () => {
   assert.deepEqual(topicTitles(tree[0]), topicSnapshot);
   const beta = result.find((shelf) => shelf.title === "Beta");
   assert.deepEqual(beta.topics.find((entry) => entry.topic.title === "Cat").eras, [{ era: "e", count: 2 }]);
+});
+
+test("sortBookshelfTree honors an explicit dir override (name desc, count asc)", () => {
+  const nameDesc = sortBookshelfTree(sidebarSortTree(), "name", -1);
+  assert.deepEqual(shelfTitles(nameDesc), ["Beta", "Alpha"]); // Z→A
+  const beta = nameDesc.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(beta), ["Dog", "Cat"]);
+
+  const countAsc = sortBookshelfTree(sidebarSortTree(), "count", 1);
+  assert.deepEqual(shelfTitles(countAsc), ["Beta", "Alpha"]); // 5 before 8
+  const betaAsc = countAsc.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(betaAsc), ["Cat", "Dog"]); // 2 before 9
+});
+
+test("sortBookshelfTree default with dir -1 reverses backend order (shelves + topics)", () => {
+  const result = sortBookshelfTree(sidebarSortTree(), "default", -1);
+  assert.notEqual(result, sidebarSortTree()); // fresh arrays, not the source ref
+  assert.deepEqual(shelfTitles(result), ["Alpha", "Beta"]);
+  const beta = result.find((shelf) => shelf.title === "Beta");
+  assert.deepEqual(topicTitles(beta), ["Dog", "Cat"]);
+});
+
+const updatedSinkTree = () => [
+  {
+    name: "s",
+    title: "Shelf",
+    noteCount: 0,
+    updatedAt: "2026-01-01T00:00:00Z",
+    topics: [
+      { topic: { id: 1, title: "OldDated", updatedAt: "2026-01-01T00:00:00Z" } },
+      { topic: { id: 2, title: "NoDate", updatedAt: null } },
+      { topic: { id: 3, title: "NewDated", updatedAt: "2026-05-01T00:00:00Z" } },
+    ],
+  },
+];
+
+test("sortBookshelfTree updated sinks null updatedAt to the bottom in BOTH directions", () => {
+  const desc = sortBookshelfTree(updatedSinkTree(), "updated", -1)[0];
+  assert.deepEqual(topicTitles(desc), ["NewDated", "OldDated", "NoDate"]); // newest→oldest, null last
+  const asc = sortBookshelfTree(updatedSinkTree(), "updated", 1)[0];
+  assert.deepEqual(topicTitles(asc), ["OldDated", "NewDated", "NoDate"]); // oldest→newest, null STILL last
+});
+
+test("SIDEBAR_SORT_DEFAULT_DIR gives count/updated a desc first pick, name/default asc", () => {
+  assert.deepEqual(SIDEBAR_SORT_DEFAULT_DIR, { default: 1, name: 1, count: -1, updated: -1 });
+});
+
+test("parseSidebarSort tolerates legacy bare mode, canonical mode:dir, and junk", () => {
+  assert.deepEqual(parseSidebarSort("name"), { mode: "name", dir: 1 }); // legacy → mode default
+  assert.deepEqual(parseSidebarSort("count"), { mode: "count", dir: -1 });
+  assert.deepEqual(parseSidebarSort("updated:1"), { mode: "updated", dir: 1 }); // explicit overrides default
+  assert.deepEqual(parseSidebarSort("name:-1"), { mode: "name", dir: -1 });
+  assert.deepEqual(parseSidebarSort(""), { mode: "default", dir: 1 });
+  assert.deepEqual(parseSidebarSort("bogus:9"), { mode: "default", dir: 1 }); // bad mode → default
+  assert.deepEqual(parseSidebarSort("count:0"), { mode: "count", dir: -1 }); // bad dir → mode default
+  assert.deepEqual(parseSidebarSort({ mode: "updated", dir: -1 }), { mode: "updated", dir: -1 });
+});
+
+test("encodeSidebarSort round-trips through the canonical string", () => {
+  assert.equal(encodeSidebarSort("name", -1), "name:-1");
+  assert.equal(encodeSidebarSort("count", 1), "count:1");
+  assert.equal(encodeSidebarSort("bogus", 1), "default:1"); // normalized
+  assert.deepEqual(parseSidebarSort(encodeSidebarSort("updated", -1)), { mode: "updated", dir: -1 });
 });
 
 test("classifyNoteDateInput: full valid triple is dated and carries the fields", () => {

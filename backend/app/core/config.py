@@ -41,9 +41,11 @@ DEFAULT_CONFIG = {
     # most-recently-favorited first (docs/center-sort-design.md §12).
     "favoritesSort": [{"field": "favorited", "dir": -1}],
     # Left-tree ordering applied client-side to both bookshelves and the notebooks
-    # inside each shelf ("default" = backend creation order | "name" | "count" |
-    # "updated"). Global (not per-shelf), cross-device; era sub-lists stay time-sorted.
-    "sidebarSort": "default",
+    # inside each shelf. Canonical "mode:dir" — mode ("default" = backend creation
+    # order | "name" | "count" | "updated"), dir (1 asc / -1 desc). Legacy bare "mode"
+    # values are tolerated by the front-end. Global (not per-shelf), cross-device;
+    # era sub-lists stay time-sorted. Stored/decoded as a plain string (no whitelist).
+    "sidebarSort": "default:1",
     "media": dict(MEDIA_DEFAULT_CONFIG),
 }
 

@@ -1341,38 +1341,88 @@ export function resolveTopicCreateShelfName(shelfName = "", activeBookshelfName 
 
 export const SIDEBAR_SORT_MODES = ["default", "name", "count", "updated"];
 
+// Each mode's natural starting direction when first picked (dir 1 = ascending,
+// -1 = descending). Ascending base semantics: name A→Z, count few→many, updated
+// old→new — so count/updated default to -1 (most notes / most recent on top) to
+// match the intuitive first pick, while name/default default to A→Z / creation order.
+export const SIDEBAR_SORT_DEFAULT_DIR = { default: 1, name: 1, count: -1, updated: -1 };
+
 // Compare two tree nodes (a shelf, or a notebook via entry.topic) for the sidebar
-// sort. count/updated sort descending (most notes / most recent first); name and
-// every tiebreak fall back to title ascending (zh-CN collation).
-function compareSidebarNodes(a, b, mode) {
-  if (mode === "count") {
-    const delta = Number(b?.noteCount || 0) - Number(a?.noteCount || 0);
-    if (delta) return delta;
+// sort. `dir` (+1 asc / -1 desc) flips only the *has-value* region: the ascending
+// base is name A→Z / count few→many / updated old→new, negated when dir<0. Nodes
+// with no updatedAt always sink below dated ones regardless of dir (a never-updated
+// notebook is not "the most recent"). A dir-independent title tiebreak keeps equal
+// rows from jittering.
+function compareSidebarNodes(a, b, mode, dir = 1) {
+  const d = dir < 0 ? -1 : 1;
+  const title = (n) => String(n?.title || n?.name || "");
+  if (mode === "name") {
+    const cmp = title(a).localeCompare(title(b), "zh-CN");
+    if (cmp) return cmp * d;
+  } else if (mode === "count") {
+    const delta = Number(a?.noteCount || 0) - Number(b?.noteCount || 0);
+    if (delta) return delta * d;
   } else if (mode === "updated") {
     const av = a?.updatedAt ? Date.parse(a.updatedAt) : NaN;
     const bv = b?.updatedAt ? Date.parse(b.updatedAt) : NaN;
-    const left = Number.isNaN(av) ? Number.NEGATIVE_INFINITY : av;
-    const right = Number.isNaN(bv) ? Number.NEGATIVE_INFINITY : bv;
-    if (right !== left) return right - left;
+    const aHas = !Number.isNaN(av);
+    const bHas = !Number.isNaN(bv);
+    if (aHas !== bHas) return aHas ? -1 : 1; // has-value always precedes no-value, both dirs
+    if (aHas && bHas && av !== bv) return (av - bv) * d;
   }
-  return String(a?.title || a?.name || "").localeCompare(String(b?.title || b?.name || ""), "zh-CN");
+  return title(a).localeCompare(title(b), "zh-CN");
 }
 
 // Reorder the fetched bookshelf tree client-side so we never touch the backend's
-// per-shelf GROUP BY count query: one global mode sorts the shelves AND the
+// per-shelf GROUP BY count query: one global mode+dir sorts the shelves AND the
 // notebooks inside each shelf. "default" keeps the backend order (bookshelf id asc
-// = creation order); era sub-lists stay time-sorted and are never reordered here.
+// = creation order) when dir>=0, or reverses it (newest-created on top) when dir<0;
+// era sub-lists stay time-sorted and are never reordered here.
 // Non-mutating — returns fresh arrays / shelf objects, leaving the source untouched.
-export function sortBookshelfTree(tree, mode = "default") {
+export function sortBookshelfTree(tree, mode = "default", dir) {
   const shelves = Array.isArray(tree) ? tree : [];
-  if (!SIDEBAR_SORT_MODES.includes(mode) || mode === "default") return shelves;
+  if (!SIDEBAR_SORT_MODES.includes(mode)) return shelves;
+  // Omitted dir → the mode's natural default (SIDEBAR_SORT_DEFAULT_DIR), so a caller
+  // that only names a mode still gets its intuitive direction (count/updated desc).
+  const resolvedDir = dir === 1 || dir === -1 ? dir : SIDEBAR_SORT_DEFAULT_DIR[mode] ?? 1;
+  const d = resolvedDir < 0 ? -1 : 1;
+  if (mode === "default") {
+    if (d === 1) return shelves;
+    return shelves.map((shelf) => ({ ...shelf, topics: [...(shelf?.topics || [])].reverse() })).reverse();
+  }
   const topicNode = (entry) => entry?.topic || entry || {};
   return shelves
     .map((shelf) => ({
       ...shelf,
-      topics: [...(shelf?.topics || [])].sort((x, y) => compareSidebarNodes(topicNode(x), topicNode(y), mode)),
+      topics: [...(shelf?.topics || [])].sort((x, y) => compareSidebarNodes(topicNode(x), topicNode(y), mode, d)),
     }))
-    .sort((x, y) => compareSidebarNodes(x, y, mode));
+    .sort((x, y) => compareSidebarNodes(x, y, mode, d));
+}
+
+// Parse a persisted sidebar sort (canonical "mode:dir", legacy bare "mode", or a
+// {mode,dir} object) into a clean {mode, dir}. Unknown mode → "default"; missing or
+// invalid dir → that mode's SIDEBAR_SORT_DEFAULT_DIR. This tolerance is what keeps
+// old localStorage / app-config values (bare "name") working after the upgrade.
+export function parseSidebarSort(value) {
+  let mode = "default";
+  let dir = null;
+  if (value && typeof value === "object") {
+    mode = value.mode;
+    dir = Number(value.dir);
+  } else if (typeof value === "string" && value) {
+    const idx = value.indexOf(":");
+    mode = idx >= 0 ? value.slice(0, idx) : value;
+    if (idx >= 0) dir = Number(value.slice(idx + 1));
+  }
+  if (!SIDEBAR_SORT_MODES.includes(mode)) mode = "default";
+  if (dir !== 1 && dir !== -1) dir = SIDEBAR_SORT_DEFAULT_DIR[mode] ?? 1;
+  return { mode, dir };
+}
+
+// Canonical "mode:dir" string for persistence (localStorage + app config).
+export function encodeSidebarSort(mode, dir) {
+  const parsed = parseSidebarSort({ mode, dir });
+  return `${parsed.mode}:${parsed.dir}`;
 }
 
 export function buildBookshelfTree(topics = [], bookshelves = [], allNotes = []) {

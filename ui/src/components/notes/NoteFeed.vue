@@ -497,6 +497,13 @@ function applySortDir(dir) {
   emit("change-sort", [{ field: "time", dir }]);
 }
 
+// Priority labels for the multi-level editor (Excel-style: primary key first, then
+// tiebreakers). Only shown when there are 2+ levels; single-level rows have no badge.
+const SORT_LEVEL_BADGES = ["主要", "其次", "再次", "第四", "第五"];
+function sortLevelBadge(i) {
+  return SORT_LEVEL_BADGES[i] || `第${i + 1}`;
+}
+
 // Multi-sort editor (flat views): flip one level, drop one, or append a new one.
 function flipSortLevel(index) {
   emit("change-sort", props.sort.map((level, i) => (i === index ? { ...level, dir: level.dir * -1 } : level)));
@@ -1253,13 +1260,17 @@ defineExpose({
           <button
             v-if="!props.mobile"
             type="button"
-            class="iconbtn lg"
+            class="iconbtn lg sort-trigger-btn"
             data-popover-anchor="sort"
             :class="{ on: activePopover === 'sort' || !isDefaultSort(props.sort) }"
             title="排序"
             @click.stop="togglePopover('sort')"
           >
             <LucideIcon name="arrowUpDown" :stroke-width="1.5" />
+            <span v-if="!isDefaultSort(props.sort)" class="sort-trigger-tag">
+              {{ sortLabel(primaryLevel().field) }}
+              <LucideIcon :name="primaryLevel().dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+            </span>
           </button>
 
           <button
@@ -1392,6 +1403,7 @@ defineExpose({
               class="pop-item pop-sort-level"
               :class="{ 'is-dragging': sortDragging() && i === sortDragOver }"
             >
+              <span v-if="props.sort.length > 1" class="pop-sort-badge">{{ sortLevelBadge(i) }}</span>
               <span
                 v-if="props.sort.length > 1"
                 class="pop-sort-grip"
@@ -1409,7 +1421,10 @@ defineExpose({
               >
                 <LucideIcon class="pop-item-ic" :name="sortIcon(level.field)" :stroke-width="1.5" />
                 <span class="pop-item-label">{{ sortLabel(level.field) }}</span>
-                <LucideIcon class="pop-item-check" :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+                <span class="sort-dir-pill" :class="{ desc: level.dir < 0 }">
+                  <LucideIcon :name="level.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+                  {{ level.dir < 0 ? "降序" : "升序" }}
+                </span>
               </button>
               <span v-if="props.sort.length > 1" class="pop-sort-del" title="移除该排序层" @click.stop="removeSortLevel(i)">
                 <LucideIcon name="close" :stroke-width="1.6" />

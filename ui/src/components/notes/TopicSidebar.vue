@@ -17,6 +17,9 @@ import {
   PROPERTY_TYPE_LABELS,
   propertyTypeIcon,
   resolveTopicCreateShelfName,
+  parseSidebarSort,
+  encodeSidebarSort,
+  SIDEBAR_SORT_DEFAULT_DIR,
 } from "@/utils/noteUtils";
 
 const props = defineProps({
@@ -318,13 +321,23 @@ const SIDEBAR_SORT_OPTIONS = [
   { key: "updated", label: "更新时间", icon: "clock" },
 ];
 
+// The saved sidebar sort, parsed into {mode, dir} for the picker (direction is a
+// first-class control, not a guessed caret). "default:1" = untouched creation order.
+const activeSidebarSort = computed(() => parseSidebarSort(props.sidebarSort));
+const isDefaultSidebarSort = computed(
+  () => activeSidebarSort.value.mode === "default" && activeSidebarSort.value.dir === 1,
+);
+const activeSidebarSortOption = computed(
+  () => SIDEBAR_SORT_OPTIONS.find((opt) => opt.key === activeSidebarSort.value.mode) || SIDEBAR_SORT_OPTIONS[0],
+);
+
 function openSortMenu(event) {
   closeBookshelfMenu();
   closeTopicMenu();
   closeCreateTopicMenu();
   const rect = event.currentTarget.getBoundingClientRect();
-  const width = 152;
-  const x = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const width = 208;
+  const x = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
   const y = Math.min(rect.bottom + 4, window.innerHeight - 184);
   sortMenu.value = { x, y };
 }
@@ -333,9 +346,19 @@ function closeSortMenu() {
   sortMenu.value = null;
 }
 
+// Pick a field, or flip direction on the already-active field. Single level, so
+// there's no add/remove — just field + direction. Stays open (live editor); the
+// backdrop click dismisses. Emits the canonical "mode:dir" string.
 function pickSidebarSort(mode) {
-  closeSortMenu();
-  if (mode !== props.sidebarSort) emit("update:sidebar-sort", mode);
+  const active = activeSidebarSort.value;
+  const dir = mode === active.mode ? active.dir * -1 : SIDEBAR_SORT_DEFAULT_DIR[mode] ?? 1;
+  emit("update:sidebar-sort", encodeSidebarSort(mode, dir));
+}
+
+// "默认" is a creation-order reverse (正序/倒序); the value fields flip 升序/降序.
+function sidebarDirLabel(mode, dir) {
+  if (mode === "default") return dir < 0 ? "倒序" : "正序";
+  return dir < 0 ? "降序" : "升序";
 }
 
 function onPaneScroll() {
@@ -1251,8 +1274,19 @@ watch(typeMenu, (value) => {
       <div class="pane-head" @pointerdown="onPaneHeadPointerDown">
         <span class="ph-title">{{ activePanel.title }}</span>
         <template v-if="activePanel.tree">
-          <button v-if="!selectMode" type="button" class="iconbtn" :class="{ on: !!sortMenu }" title="排序" @click="openSortMenu($event)">
+          <button
+            v-if="!selectMode"
+            type="button"
+            class="iconbtn sidebar-sort-btn"
+            :class="{ on: !!sortMenu || !isDefaultSidebarSort }"
+            title="排序"
+            @click="openSortMenu($event)"
+          >
             <LucideIcon name="arrowUpDown" :stroke-width="1.5" />
+            <span v-if="!isDefaultSidebarSort" class="sidebar-sort-tag">
+              {{ activeSidebarSortOption.label }}
+              <LucideIcon :name="activeSidebarSort.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+            </span>
           </button>
           <button v-if="!selectMode" type="button" class="iconbtn" :title="allCollapsed ? '全部展开' : '全部折叠'" @click="toggleCollapseAll">
             <LucideIcon :name="allCollapsed ? 'unfold' : 'fold'" :stroke-width="1.5" />
@@ -1774,19 +1808,23 @@ watch(typeMenu, (value) => {
     </div>
 
     <div v-if="sortMenu" class="ti-menu-backdrop" @click="closeSortMenu" @contextmenu.prevent="closeSortMenu">
-      <div class="popover ti-menu" :style="{ left: sortMenu.x + 'px', top: sortMenu.y + 'px' }" @click.stop>
-        <div class="pop-title">排序</div>
+      <div class="popover ti-menu sort-menu" :style="{ left: sortMenu.x + 'px', top: sortMenu.y + 'px' }" @click.stop>
+        <div class="pop-title">排序依据</div>
         <button
           v-for="opt in SIDEBAR_SORT_OPTIONS"
           :key="opt.key"
           type="button"
-          class="pop-item"
-          :class="{ 'is-active': opt.key === props.sidebarSort }"
+          class="pop-item sort-field"
+          :class="{ 'is-active': opt.key === activeSidebarSort.mode }"
+          :title="opt.key === activeSidebarSort.mode ? '点按翻转方向' : ''"
           @click="pickSidebarSort(opt.key)"
         >
           <LucideIcon :name="opt.icon" :stroke-width="1.5" class="pop-item-ic" />
           <span class="pop-item-label">{{ opt.label }}</span>
-          <LucideIcon v-if="opt.key === props.sidebarSort" name="check" :stroke-width="2" class="pop-item-check" />
+          <span v-if="opt.key === activeSidebarSort.mode" class="sort-dir-pill" :class="{ desc: activeSidebarSort.dir < 0 }">
+            <LucideIcon :name="activeSidebarSort.dir < 0 ? 'chevronDown' : 'chevronUp'" :stroke-width="2" />
+            {{ sidebarDirLabel(opt.key, activeSidebarSort.dir) }}
+          </span>
         </button>
       </div>
     </div>
