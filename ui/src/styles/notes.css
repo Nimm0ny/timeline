@@ -3788,38 +3788,56 @@ select:focus-visible {
   height: 11px;
 }
 
-/* Select dropdown (options + right checkmark) — shares .popover chrome; sizes to control. */
+/* Select dropdown — shares .popover chrome; sizes to control. Structure (spec
+   §5.1, Notion 手感): a borderless search head closed by a hairline, an 11px
+   section hint, then chip rows — each option renders as the SAME .ptag pill
+   used in read mode (compact metric below), so the tag speaks one language
+   across read / edit / list. */
 .optpick-pop {
-  top: calc(100% + 4px);
-  left: 0;
-  width: 100%;
-  min-width: 200px;
-  padding: 6px;
+  /* Fixed at the overlay layer (position/size measured from the control on
+     open) — the property pane scroll-clips absolute children. */
+  position: fixed;
+  z-index: 52;
+  padding: 0 5px 5px;
 }
 
+/* Search head: no field chrome at all — the popover IS the field. Negative
+   margins let the hairline run edge to edge; the caret is the focus cue, so
+   no ring competes with the panel shadow. */
 .optpick-search {
-  width: 100%;
-  min-height: 30px;
-  margin-bottom: 4px;
+  width: calc(100% + 10px);
+  min-height: 36px;
+  margin: 0 -5px 5px;
+  padding: 1px 14px 0;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: transparent;
   color: var(--text);
   font-size: 13px;
-  padding: 0 10px;
+}
+
+.optpick-search::placeholder {
+  color: var(--text-faint);
 }
 
 .optpick-search:focus {
   outline: none;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+
+.optpick-hint {
+  margin: 0;
+  padding: 5px 9px 3px;
+  color: var(--text-faint);
+  font-size: 11px;
+  user-select: none;
 }
 
 .optpick-list {
   max-height: 240px;
   overflow: auto;
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .optpick-opt,
@@ -3827,8 +3845,8 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  padding: 0 8px;
+  min-height: 32px;
+  padding: 0 6px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -3845,46 +3863,44 @@ select:focus-visible {
   background: var(--bg-hover);
 }
 
-.opt-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  background: var(--dot, var(--accent));
-  flex: none;
-}
-
-.opt-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Compact metric for chips living inside picker rows: same pill, same dot,
+   one size down so a 32px row breathes around it. */
+.optpick-opt .ptag,
+.optpick-create .ptag {
+  min-height: 22px;
+  padding: 0 9px;
+  font-size: 12px;
+  max-width: 100%;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .opt-check {
   display: inline-grid;
   place-items: center;
-  color: var(--accent);
+  margin-left: auto;
+  padding-right: 3px;
+  color: var(--text-muted);
 }
 
 .opt-check .timeline-lucide-icon {
-  width: var(--icon-menu);
-  height: var(--icon-menu);
+  width: 13px;
+  height: 13px;
 }
 
 .optpick-create {
   color: var(--text-muted);
 }
 
-.optpick-create .timeline-lucide-icon {
-  width: var(--icon-menu);
-  height: var(--icon-menu);
-  color: var(--text-faint);
+.optpick-create-word {
+  flex: none;
+  padding-left: 3px;
+  font-size: 12px;
 }
 
 .optpick-empty {
   margin: 0;
-  padding: 8px;
+  padding: 8px 9px 10px;
   color: var(--text-faint);
   font-size: 12px;
 }
@@ -5272,7 +5288,8 @@ button.prop-row-type.open .timeline-lucide-icon {
     right: 8px !important;
     top: auto !important;
     bottom: 8px;
-    width: auto;
+    /* !important: optpick-pop carries an inline JS width; the sheet must win. */
+    width: auto !important;
     min-width: 0;
     max-height: 72dvh;
     overflow: auto;

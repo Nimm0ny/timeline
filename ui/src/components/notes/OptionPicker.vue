@@ -28,6 +28,10 @@ const open = ref(false);
 const query = ref("");
 const rootRef = ref(null);
 const inputRef = ref(null);
+// Fixed-position anchor (viewport coords). The property pane scroll-clips its
+// children, so like the sidebar ⋯ menus the panel lives at the overlay layer
+// and is measured from the control on open.
+const popStyle = ref(null);
 
 const multiple = computed(() => props.column?.type === "multiselect");
 const options = computed(() => props.column?.options || []);
@@ -49,6 +53,9 @@ const canCreate = computed(() => {
   const keyword = query.value.trim();
   return Boolean(keyword) && !options.value.some((option) => option.label.toLowerCase() === keyword.toLowerCase());
 });
+// Color the create-row chip preview with the palette slot the new option WILL
+// get, so what you see in the preview is exactly what lands after Enter.
+const nextColor = computed(() => OPTION_PALETTE[options.value.length % OPTION_PALETTE.length]);
 
 function isSelected(id) {
   return selectedIds.value.includes(id);
@@ -76,7 +83,7 @@ function createOption() {
   const label = query.value.trim();
   if (!label || !canCreate.value) return;
   const id = buildOptionId(label, options.value.map((option) => option.id));
-  const color = OPTION_PALETTE[options.value.length % OPTION_PALETTE.length];
+  const color = nextColor.value;
   emit("create-option", { key: props.column.key, option: { id, label, color } });
   if (multiple.value) {
     emit("update:modelValue", [...selectedIds.value.filter((value) => value !== id), id]);
@@ -88,6 +95,15 @@ function createOption() {
 }
 
 function openPanel() {
+  const rect = rootRef.value?.getBoundingClientRect();
+  if (rect) {
+    // Same-width as the control, clamped so the panel (search 36 + hint 22 +
+    // list ≤240 + padding ≈ 310px) never leaves the viewport.
+    const width = Math.max(rect.width, 220);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 330));
+    popStyle.value = { left: `${left}px`, top: `${top}px`, width: `${width}px` };
+  }
   open.value = true;
   nextTick(() => inputRef.value?.focus());
 }
@@ -110,14 +126,22 @@ function onKeydown(event) {
   if (event.key === "Escape" && open.value) closePanel();
 }
 
+// The fixed panel can't follow its anchor, so any outside scroll dismisses it
+// (option-list scrolling stays inside rootRef and is ignored).
+function onAnyScroll(event) {
+  if (open.value && rootRef.value && !rootRef.value.contains(event.target)) closePanel();
+}
+
 onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointer);
   document.addEventListener("keydown", onKeydown);
+  window.addEventListener("scroll", onAnyScroll, true);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDocumentPointer);
   document.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("scroll", onAnyScroll, true);
 });
 </script>
 
@@ -135,15 +159,16 @@ onBeforeUnmount(() => {
       <span v-else class="optpick-ph">{{ props.placeholder }}</span>
     </button>
 
-    <div v-if="open" class="popover optpick-pop" @click.stop>
+    <div v-if="open" class="popover optpick-pop" :style="popStyle" @click.stop>
       <input
         ref="inputRef"
         v-model="query"
         class="optpick-search"
         type="text"
-        placeholder="搜索或新建…"
+        placeholder="搜索选项…"
         @keydown.enter.prevent="createOption"
       />
+      <p class="optpick-hint">{{ multiple ? "选择或新建选项" : "选择一个选项" }}</p>
       <div class="optpick-list scroll">
         <button
           v-for="option in filtered"
@@ -153,15 +178,18 @@ onBeforeUnmount(() => {
           :class="{ on: isSelected(option.id) }"
           @click="toggle(option.id)"
         >
-          <span class="opt-dot" :style="{ '--dot': option.color || 'var(--accent)' }"></span>
-          <span class="opt-label">{{ option.label }}</span>
+          <span class="ptag" :style="{ '--dot': option.color || 'var(--accent)' }">
+            <i></i>{{ option.label }}
+          </span>
           <span v-if="isSelected(option.id)" class="opt-check">
-            <LucideIcon name="check" :stroke-width="1.5" />
+            <LucideIcon name="check" :stroke-width="1.75" />
           </span>
         </button>
         <button v-if="canCreate" type="button" class="optpick-create" @click="createOption">
-          <LucideIcon name="plusSign" :stroke-width="1.5" />
-          <span>新建「{{ query.trim() }}」</span>
+          <span class="optpick-create-word">新建</span>
+          <span class="ptag" :style="{ '--dot': nextColor }">
+            <i></i>{{ query.trim() }}
+          </span>
         </button>
         <p v-if="!filtered.length && !canCreate" class="optpick-empty">暂无选项</p>
       </div>
