@@ -303,3 +303,15 @@ sudo systemctl start timeline.service
 - 依赖状态：`backend/requirements.txt` 自 `32847e1` 未变，远端 `.venv` 未改动、未安装依赖。
 - 入口端口确认：生产入口 `80` → 内部 `8000`。
 - 本地验证：`agent:check` / `build` / `test:ui`(30) / `pytest`(9) 全通过。
+
+## 14. Deployment Record: 2026-07-10
+
+- 已部署 commit：`2a1e92a`（前值 `c7c4146`；本次 forward 2 commits：OptionPicker 弹层精致化 + 响应式六视图/紧凑桌面 overlay）。
+- 远端备份：`~/timeline_backups/timeline_predeploy_20260710_104535.tar.gz`。
+- 远端服务状态：`timeline.service` active/running。
+- 远端本机 smoke：通过（`revision=commit=2a1e92a`，`topics_count=198`，`index_has_app=true`）。
+- 公网 80 smoke：`/api/topics` 与 `/` 均返回 HTTP `200`。
+- 持久化数据：`data/`、`theme/`、`.venv/` 保留未动。
+- 依赖状态：无依赖变更，远端 `.venv` 未改动。
+- 本地验证：`agent:check` / `build` / `test:ui`(221) / `pytest`(24) 全通过。
+- 事故记录：第一次 switch 因 smoke 固定 `sleep 10` 而误判失败（本 host 服务启动到 bind 约 40s），自愈回滚正确触发并恢复 `c7c4146`（备份 `timeline_predeploy_20260710_104242.tar.gz`）；switch 脚本已改为**就绪轮询（2s×60 次，上限 120s）**后重跑成功。后续部署沿用轮询式 smoke，勿再用固定等待。
