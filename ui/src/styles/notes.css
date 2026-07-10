@@ -4995,6 +4995,61 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
+   Compact desktop 769–1024 (docs/mobile-web-design.md §8): three tracks can't
+   physically coexist (min sum 220+420+360 ≈ 1000px), so the detail leaves the
+   grid and floats over the feed as a fixed overlay — the feed keeps its full
+   width underneath (no condensed fallback while reading). Each variant's grid
+   simply reuses its right-closed track math; the overlay slides from the
+   detail's own outer edge, mirroring .nav-right like the grid did.
+   ============================================================ */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .timeline-workspace.app:not(.is-mobile) {
+    grid-template-columns: var(--left-w) minmax(0, 1fr) 0;
+  }
+
+  .timeline-workspace.app:not(.is-mobile).nav-right {
+    grid-template-columns: 0 minmax(0, 1fr) var(--left-w);
+  }
+
+  .timeline-workspace.app:not(.is-mobile).detail-center {
+    grid-template-columns: var(--left-w) 0 minmax(0, 1fr);
+  }
+
+  .timeline-workspace.app:not(.is-mobile).nav-right.detail-center {
+    grid-template-columns: minmax(0, 1fr) 0 var(--left-w);
+  }
+
+  .timeline-workspace.app:not(.is-mobile) .col.detail {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--right-w);
+    z-index: 45;
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-pop);
+    transform: translateX(100%);
+    transition: transform var(--motion-slow) var(--ease);
+  }
+
+  .timeline-workspace.app:not(.is-mobile):not(.right-closed) .col.detail {
+    transform: none;
+  }
+
+  .timeline-workspace.app:not(.is-mobile).nav-right .col.detail {
+    right: auto;
+    left: 0;
+    border-left: 0;
+    border-right: 1px solid var(--border);
+    transform: translateX(-100%);
+  }
+
+  .timeline-workspace.app:not(.is-mobile).nav-right:not(.right-closed) .col.detail {
+    transform: none;
+  }
+}
+
+/* ============================================================
    Mobile web shell (docs/mobile-web-design.md M1)
    ============================================================ */
 .mobile-topbar {
@@ -5424,6 +5479,65 @@ button.prop-row-type.open .timeline-lucide-icon {
 
   .is-mobile .preset-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   Six views on narrow feeds (docs/mobile-web-design.md §7 / M4).
+   .is-condensed is container-driven (NoteFeed measures itself), so these
+   apply on phones AND on a desktop feed squeezed under ~420px.
+   ============================================================ */
+
+/* Condensed table pans horizontally inside .feed (.feed-x, full columns —
+   collapsing them would defeat the view). The title cell stays pinned left as
+   the row anchor while data columns pan; each translucent row state is rebuilt
+   over the base so covered cells can't bleed through (same gradient trick as
+   .row-act). */
+.view-table.is-condensed .c-title {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-right: 10px;
+  background: var(--bg-timeline);
+  /* Hairline seam so panned data reads as sliding UNDER the pinned anchor. */
+  box-shadow: 1px 0 0 var(--border-soft);
+}
+
+.view-table.is-condensed .row:hover .c-title {
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-timeline);
+}
+
+.view-table.is-condensed .row.active .c-title,
+.view-table.is-condensed .row.selected .c-title {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-timeline);
+}
+
+/* Header row: pin the 事件 head to match its cells. :nth-child(3) = spacer
+   span + time + TITLE — buildVisibleTimelineColumns fixes time/title first. */
+.view-table.is-condensed .tl-cols > :nth-child(3) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-timeline);
+  box-shadow: 1px 0 0 var(--border-soft);
+}
+
+@media (max-width: 768px) {
+  /* The 58% title cap belongs to the condensed timeline rows only. */
+  .is-mobile .view-table .ev-name {
+    max-width: none;
+  }
+
+  /* Board lanes (268px, .feed-x) already pan; just trim the desktop gutter. */
+  .is-mobile .view-board {
+    padding: 0 12px 24px;
+    gap: 10px;
+  }
+
+  /* List rows: chips + date leave the inline summary 2-3 chars of ellipsis on
+     a phone — no signal, all crowding. Title/chips/date carry the row. */
+  .is-mobile .view-list .lv-sum {
+    display: none;
   }
 }
 

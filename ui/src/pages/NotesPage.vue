@@ -526,15 +526,18 @@ const feedCapabilities = computed(() => {
   return [...enabled];
 });
 const showViewSwitcher = computed(
-  () => !isMobile.value && !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
+  () => !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
 );
 // Sort (docs/center-sort-design.md): direction is universal, fields are clamped to
 // what the effective view can sort. Cross-notebook favorites renders as a flat list
 // (own owner key + 收藏时间 field); otherwise the effective view mirrors the feed's
 // effectiveView() (resolveDisplayStyle + mobile→timeline) so both agree on the clamp.
 const effectiveDisplayStyle = computed(() => {
-  if (isMobile.value) return "timeline";
-  if (isGlobalFavoritesMode.value) return "list";
+  // Favorites keeps its split behavior (flat desktop list, era timeline on
+  // mobile — see favoritesSortContext below). Regular notebooks resolve the
+  // persisted style on every breakpoint: the six views are mobile-capable
+  // (docs/mobile-web-design.md §7).
+  if (isGlobalFavoritesMode.value) return isMobile.value ? "timeline" : "list";
   return resolveDisplayStyle(feedDisplayStyle.value, feedCapabilities.value);
 });
 // Clamp/compare against the SAME columns the feed renders (feedColumns is [] in
@@ -3084,7 +3087,9 @@ watch(
     />
 
     <div v-if="!isMobile" id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
-    <div v-if="!isMobile && state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
+    <!-- Compact desktop renders the detail as a fixed overlay (not a grid track),
+         so there is no seam to drag. -->
+    <div v-if="!isMobile && !isCompactDesktop && state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
 
     <!-- Pane-swap drag overlays (docs/pane-swap-drag-design.md §2). The target
          highlight marks where the dragged pane lands once past the midline; the

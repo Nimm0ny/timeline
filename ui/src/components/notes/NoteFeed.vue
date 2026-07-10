@@ -257,6 +257,11 @@ function onSearchInput(value) {
 }
 
 const feedRef = ref(null);
+// Live feed width (container query by hand): the condensed projection below is
+// container-driven, not viewport-driven, so a compact-desktop squeeze or a
+// hand-dragged narrow middle pane degrades exactly like a phone. Starts at
+// Infinity so the desktop first paint renders full columns (no flash).
+const feedWidth = ref(Infinity);
 const rowRefs = new Map();
 const galleryMetrics = ref({ itemsPerRow: 1, rowHeight: 243 });
 const boardViewport = ref({ scrollTop: 0, clientHeight: 0 });
@@ -324,15 +329,15 @@ function togglePopover(name) {
   activePopover.value = activePopover.value === name ? "" : name;
 }
 
-// Display-style views (axis 1). Mobile stays on the timeline; otherwise the
-// effective view is the persisted style resolved against the live capability set
-// (services/timeline.py is SSOT) so an unimplemented/incapable style degrades to
-// table instead of rendering blank.
+// Display-style views (axis 1). The effective view is the persisted style
+// resolved against the live capability set (services/timeline.py is SSOT) so an
+// unimplemented/incapable style degrades to table instead of rendering blank.
+// All six views are mobile-capable (docs/mobile-web-design.md §7).
 function effectiveView() {
-  if (props.mobile) return "timeline";
-  // Cross-notebook favorites always renders as a flat list (docs §4) so it can sort
-  // by 收藏时间 without an era grouping to fight.
-  if (props.globalFavoritesMode) return "list";
+  // Cross-notebook favorites: flat list on desktop so it can sort by 收藏时间
+  // without an era grouping to fight (docs §4); on mobile it keeps the
+  // era-grouped timeline, mirroring NotesPage's favoritesSortContext.
+  if (props.globalFavoritesMode) return props.mobile ? "timeline" : "list";
   return resolveDisplayStyle(props.displayStyle, props.capabilities);
 }
 
@@ -776,9 +781,28 @@ function hasTrailingSpacer() {
   return !props.mobile && timelineHasTrailingSpacer(null, null, effectiveTitleWidth());
 }
 
+// What the full grid actually needs: fixed tracks + 160px of readable title
+// (the flexible track's floor) + indicator/star rails. Below this the
+// minmax(0,1fr) title collapses toward zero — the long-standing failure mode
+// of a many-column notebook in a squeezed pane.
+const fullGridMinWidth = computed(() => {
+  const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
+  return columns.reduce((sum, column) => sum + (Number.isFinite(column.width) ? column.width : 160), 28 + 30);
+});
+
+// A feed too narrow for its full grid degrades per view: linear views condense
+// to the minimal time+title projection (the phone shape — container-driven, so
+// a compact-desktop squeeze or a hand-dragged narrow pane behaves like mobile);
+// the table view instead keeps EVERY visible column and pans horizontally
+// (docs/mobile-web-design.md §7) — collapsing its columns would defeat the one
+// view whose point is the columns.
+const feedCondensed = computed(() => props.mobile || feedWidth.value < fullGridMinWidth.value);
+const condensedLinear = computed(() => feedCondensed.value && effectiveView() !== "table");
+const condensedTable = computed(() => feedCondensed.value && effectiveView() === "table");
+
 const visibleColumnsComputed = computed(() => {
   const columns = buildVisibleTimelineColumns(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
-  if (!props.mobile) return columns;
+  if (!condensedLinear.value) return columns;
   return columns.filter((column) => column.key === "time" || column.key === "title");
 });
 
@@ -787,13 +811,21 @@ function visibleColumns() {
 }
 
 const rowGridComputed = computed(() => {
-  if (props.mobile) return "28px 86px minmax(0, 1fr) 58px";
+  // Condensed keeps the fixed 4-track shape but lets the time track use the
+  // same long-date detection as the full grid (公元前1800000 overflows 86px).
+  if (condensedLinear.value) return `28px ${effectiveTimeWidth()}px minmax(0, 1fr) 58px`;
   return buildTimelineGridTemplate(columnsWithWidthOverrides(), props.emptyColumnKeys, effectiveTimeWidth(), effectiveTitleWidth());
 });
 
 function rowGrid() {
   return rowGridComputed.value;
 }
+
+// Condensed table pans inside .feed (overflow-x): the row grid's flexible
+// title track needs a concrete floor — the full grid's own minimum. The title
+// cell is the sticky row anchor, so its 160px floor is exactly how much panned
+// data it covers; keep it narrow. Full-width table returns null (no clamp).
+const tableMinWidth = computed(() => (condensedTable.value ? `${fullGridMinWidth.value}px` : null));
 
 const timelineRows = computed(() => buildTimelineRows(props.groups, visibleColumnsComputed.value));
 const tableRows = computed(() => sortedFlatNotes.value.map((event) => buildProjectedNote(event, visibleColumnsComputed.value, {})));
@@ -1222,17 +1254,32 @@ watch(
   }
 );
 
+// The scroller only exists once loading/error/empty give way to a view branch,
+// which is AFTER onMounted — track the ref itself so the observer (and the
+// feedWidth condensed threshold) attach the moment the real element lands.
+watch(feedRef, (el) => {
+  if (!el) return;
+  feedWidth.value = el.clientWidth || feedWidth.value;
+  if (feedResizeObserver) {
+    feedResizeObserver.disconnect();
+    feedResizeObserver.observe(el);
+  }
+});
+
 onMounted(() => {
   document.addEventListener("pointerdown", closePopovers);
   document.addEventListener("keydown", handleDocumentKeydown);
   if (typeof ResizeObserver !== "undefined") {
-    feedResizeObserver = new ResizeObserver(() => {
+    feedResizeObserver = new ResizeObserver((entries) => {
+      const width = entries[entries.length - 1]?.contentRect?.width;
+      if (Number.isFinite(width) && width > 0) feedWidth.value = width;
       updateGalleryMetrics();
       updateBoardViewport();
     });
     if (feedRef.value) feedResizeObserver.observe(feedRef.value);
   }
   nextTick(() => {
+    if (feedRef.value) feedWidth.value = feedRef.value.clientWidth || feedWidth.value;
     updateGalleryMetrics();
     updateBoardViewport();
   });
@@ -1322,7 +1369,6 @@ defineExpose({
           </button>
 
           <button
-            v-if="!props.mobile"
             type="button"
             class="iconbtn lg sort-trigger-btn"
             data-popover-anchor="sort"
@@ -1705,8 +1751,8 @@ defineExpose({
       </div>
     </div>
 
-      <div v-else-if="effectiveView() === 'table'" ref="feedRef" class="feed scroll" @scroll="onFeedScroll">
-      <div class="feed-inner view-table" :style="{ '--rowgrid': rowGrid() }">
+      <div v-else-if="effectiveView() === 'table'" ref="feedRef" class="feed scroll" :class="{ 'feed-x': condensedTable }" @scroll="onFeedScroll">
+      <div class="feed-inner view-table" :class="{ 'is-condensed': condensedTable }" :style="{ '--rowgrid': rowGrid(), minWidth: tableMinWidth }">
         <div class="tl-cols">
           <span></span>
           <button
