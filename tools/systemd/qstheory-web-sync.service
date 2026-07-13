@@ -1,0 +1,16 @@
+[Unit]
+Description=Chronicle weekly qstheory web sync
+Requires=timeline.service
+Wants=network-online.target
+After=network-online.target timeline.service
+
+[Service]
+Type=oneshot
+User=Ccclown113
+WorkingDirectory=/home/Ccclown113/timeline
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/Ccclown113/timeline/.venv/bin/python tools/qstheory_scheduled_run.py --source web
+TimeoutStartSec=45min
+Nice=10
+NoNewPrivileges=true
+UMask=0027

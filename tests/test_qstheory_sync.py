@@ -1,8 +1,13 @@
 import json
+from pathlib import Path
+import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
 from tools.qstheory_batch_scraper import latest_issue_link, record_skipped_article
+from tools import qstheory_scheduled_run as scheduled_run
+from tools.qstheory_scheduled_run import backup_database, crawl_command, prune_paths, wait_for_api
 from tools.qstheory_sync import build_sync_plan, canonical_source_url, exclusive_lock, load_batches, sync_batches
 
 
@@ -173,3 +178,140 @@ def test_exclusive_lock_preserves_body_oserror(tmp_path):
     with pytest.raises(OSError, match="network failure"):
         with exclusive_lock(tmp_path / "sync.lock"):
             raise OSError("network failure")
+
+
+def test_backup_database_uses_sqlite_online_backup(tmp_path):
+    source = tmp_path / "source.db"
+    destination = tmp_path / "backups" / "copy.db"
+    with sqlite3.connect(source) as db:
+        db.execute("CREATE TABLE sample (value TEXT)")
+        db.execute("INSERT INTO sample VALUES ('ok')")
+    backup_database(source, destination)
+    assert not (destination.parent / f".{destination.name}.tmp").exists()
+    with sqlite3.connect(destination) as db:
+        assert db.execute("SELECT value FROM sample").fetchone() == ("ok",)
+
+
+def test_prune_paths_keeps_newest_names_and_crawl_modes_are_separate(tmp_path):
+    paths = []
+    for name in ("20260101", "20260102", "20260103"):
+        path = tmp_path / name
+        path.mkdir()
+        paths.append(path)
+    prune_paths(paths, keep=2)
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["20260102", "20260103"]
+    web = crawl_command(tmp_path, "web", tmp_path / "out")
+    magazine = crawl_command(tmp_path, "magazine", tmp_path / "out")
+    assert "--latest-issue" not in web
+    assert "--latest-issue" in magazine
+
+
+def scheduled_args(tmp_path, *, dry_run):
+    return SimpleNamespace(
+        source="web",
+        app_dir=str(tmp_path / "app"),
+        base_url="http://example.test",
+        state_dir=str(tmp_path / "state"),
+        backup_dir=str(tmp_path / "backups"),
+        keep_backups=2,
+        keep_runs=2,
+        ready_timeout=1,
+        ready_delay=0,
+        dry_run=dry_run,
+    )
+
+
+def test_scheduled_cycle_backs_up_before_write(monkeypatch, tmp_path):
+    args = scheduled_args(tmp_path, dry_run=False)
+    events = []
+    monkeypatch.setattr(scheduled_run, "wait_for_api", lambda *a: None)
+    monkeypatch.setattr(scheduled_run.subprocess, "run", lambda *a, **k: events.append("crawl"))
+    monkeypatch.setattr(scheduled_run, "load_batches", lambda *a: [("理论", {"notes": []})])
+    monkeypatch.setattr(scheduled_run, "backup_database", lambda *a: events.append("backup"))
+
+    def fake_sync(client, batches, source, *, dry_run):
+        events.append("plan" if dry_run else "sync")
+        return {"added": 1, "dryRun": dry_run}
+
+    monkeypatch.setattr(scheduled_run, "sync_batches", fake_sync)
+    result = scheduled_run.run_cycle(args)
+    assert events == ["crawl", "plan", "backup", "sync"]
+    assert result["backup"].endswith(".db")
+
+
+def test_scheduled_dry_run_never_backs_up_writes_or_prunes_backups(monkeypatch, tmp_path):
+    args = scheduled_args(tmp_path, dry_run=True)
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    existing_backup = backup_dir / "timeline_db_preqstheory_web_20000101.db"
+    existing_backup.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr(scheduled_run, "wait_for_api", lambda *a: None)
+    monkeypatch.setattr(scheduled_run.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(scheduled_run, "load_batches", lambda *a: [("理论", {"notes": []})])
+
+    calls = []
+
+    def fake_sync(client, batches, source, *, dry_run):
+        calls.append(dry_run)
+        return {"added": 1, "dryRun": dry_run}
+
+    monkeypatch.setattr(scheduled_run, "sync_batches", fake_sync)
+    result = scheduled_run.run_cycle(args)
+    assert calls == [True]
+    assert result["backup"] is None
+    assert existing_backup.read_text(encoding="utf-8") == "keep"
+
+
+def test_failed_scheduled_cycle_prunes_old_runs_but_keeps_current(monkeypatch, tmp_path):
+    args = scheduled_args(tmp_path, dry_run=False)
+    run_root = Path(args.state_dir) / "runs" / "web"
+    for name in ("20000101", "20000102", "20000103"):
+        (run_root / name).mkdir(parents=True)
+    monkeypatch.setattr(scheduled_run, "wait_for_api", lambda *a: None)
+
+    def fail_crawl(*args, **kwargs):
+        raise scheduled_run.subprocess.CalledProcessError(1, "crawler")
+
+    monkeypatch.setattr(scheduled_run.subprocess, "run", fail_crawl)
+    with pytest.raises(scheduled_run.subprocess.CalledProcessError):
+        scheduled_run.run_cycle(args)
+    remaining = sorted(path.name for path in run_root.iterdir())
+    assert len(remaining) == 2
+    assert len(set(remaining) - {"20000101", "20000102", "20000103"}) == 1
+
+
+def test_wait_for_api_retries_with_a_bound():
+    class StartingClient:
+        attempts = 0
+
+        def request(self, method, path):
+            self.attempts += 1
+            if self.attempts < 3:
+                raise OSError("not ready")
+            return []
+
+    client = StartingClient()
+    client.timeout = 30.0
+    wait_for_api(client, total_timeout=1, delay=0.001)
+    assert client.attempts == 3
+    assert client.timeout == 30.0
+
+
+def test_wait_for_api_deadline_includes_blocked_requests():
+    now = [0.0]
+
+    class BlockedClient:
+        timeout = 30.0
+
+        def request(self, method, path):
+            now[0] += self.timeout
+            raise TimeoutError("blocked")
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    client = BlockedClient()
+    with pytest.raises(RuntimeError, match="within 5 seconds"):
+        wait_for_api(client, total_timeout=5, delay=2, clock=lambda: now[0], sleeper=sleep)
+    assert now[0] == 5
+    assert client.timeout == 30.0

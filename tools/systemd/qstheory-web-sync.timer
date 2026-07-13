@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Chronicle qstheory web sync every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 04:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=qstheory-web-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -36,20 +36,35 @@
 ### 求是网
 
 ```powershell
-python tools/qstheory_batch_scraper.py --source web --strict --output-dir .tmp-qstheory/web
-python tools/qstheory_sync.py --source web --input-dir .tmp-qstheory/web --base-url http://127.0.0.1 --dry-run
+python tools/qstheory_scheduled_run.py --source web
 ```
 
-正式同步移除 `--dry-run`，并传入稳定的 `--lock-file data/qstheory-sync/web.lock`。每周一运行，扫描 12 个专题当前列表并追加新文章。
+每周一运行，扫描 12 个专题当前列表并追加新文章。
 
 ### 求是杂志
 
 ```powershell
-python tools/qstheory_batch_scraper.py --source magazine --latest-issue --strict --output-dir .tmp-qstheory/magazine
-python tools/qstheory_sync.py --source magazine --input-dir .tmp-qstheory/magazine --base-url http://127.0.0.1 --dry-run
+python tools/qstheory_scheduled_run.py --source magazine
 ```
 
-正式同步移除 `--dry-run`，并传入稳定的 `--lock-file data/qstheory-sync/magazine.lock`。建议每天检查一次；没有新期或新文章时同步结果为零写入。
+建议每天检查一次；没有新期或新文章时同步结果为零写入。
+
+统一运行器固定执行：跨进程加锁、严格抓取、增量 dry-run、仅在有新增时执行 SQLite online backup、实际追加、清理超出保留数的运行目录和专项备份。默认保留每类最近 `5` 次抓取结果和 `16` 份变更前备份。
+
+SQLite 备份先写隐藏临时文件，通过 `PRAGMA quick_check` 后再原子发布为最终 `.db`。运行器最多等待本机 API `120` 秒；连续失败也会保留当前失败现场并修剪更早的运行目录。
+
+只读预演仍可分两步执行：
+
+```powershell
+python tools/qstheory_batch_scraper.py --source web --strict --output-dir .tmp-qa/qstheory-web
+python tools/qstheory_sync.py --source web --input-dir .tmp-qa/qstheory-web --base-url http://127.0.0.1 --dry-run
+```
+
+也可以验证完整统一入口而不写入：
+
+```powershell
+python tools/qstheory_scheduled_run.py --source magazine --dry-run --state-dir .tmp-qa/qstheory-scheduled
+```
 
 ## 4. 失败边界
 
@@ -57,4 +72,35 @@ python tools/qstheory_sync.py --source magazine --input-dir .tmp-qstheory/magazi
 - 同步器会再次检查 `manifest.errors`，非空时拒绝写入。
 - 目标书架不存在、同名笔记本位于错误书架、JSON 契约异常时同步立即失败。
 - 单篇写入失败时命令返回非零；已成功追加的笔记保留，重跑会跳过它们并继续缺失项。
-- 正式定时任务需要运行锁、写入前数据库备份、结构化日志和失败告警；在部署阶段按生产 runbook 单独实施。
+- systemd 将 stdout/stderr 写入 journal；任何阶段非零退出都会让 service 失败，保留当次抓取目录供排查。
+
+## 5. systemd 定时器
+
+模板位于 `tools/systemd/`。当前生产环境固定为：
+
+- 求是网：每周一 `04:30`，附加最多 `5` 分钟随机延迟。
+- 求是杂志：每天 `06:00` 检查最新一期，附加最多 `5` 分钟随机延迟。
+- 两个日历均显式使用 `Asia/Shanghai`；远端当前时区也已核对为 `Asia/Shanghai`。
+
+安装必须作为单独投产操作执行，不随代码部署自动启用：
+
+```bash
+sudo install -m 0644 tools/systemd/qstheory-*-sync.service tools/systemd/qstheory-*-sync.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now qstheory-web-sync.timer qstheory-magazine-sync.timer
+systemctl list-timers 'qstheory-*-sync.timer' --no-pager
+```
+
+首次启用前分别手动执行 service，并检查结果：
+
+```bash
+sudo systemctl start qstheory-web-sync.service
+sudo systemctl start qstheory-magazine-sync.service
+journalctl -u qstheory-web-sync.service -u qstheory-magazine-sync.service --since today --no-pager
+```
+
+禁用时只停止 timer，不删除已抓取笔记：
+
+```bash
+sudo systemctl disable --now qstheory-web-sync.timer qstheory-magazine-sync.timer
+```
