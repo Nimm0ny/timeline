@@ -11,7 +11,7 @@ import re
 import sqlite3
 import time
 from urllib.error import HTTPError
-from urllib.parse import parse_qsl, unquote, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from lxml import html
@@ -27,6 +27,11 @@ ATTACHMENT_EXTENSIONS = {
     ".7z", ".doc", ".docx", ".ofd", ".pdf", ".ppt", ".pptx",
     ".rar", ".wps", ".xls", ".xlsx", ".zip",
 }
+LAW_STATUS_LABELS = {1: "有效", 2: "已修改", 3: "已废止", 4: "尚未生效"}
+NPC_HTTP_PATH_RE = re.compile(
+    r"^/npc/c2/c12435/c12491/(?:index_\d+\.html)?$"
+    r"|^/npc/c2/(?:c30834|kgfb)/20\d{4}/(?:t20\d{6}_\d+\.html|[PU]0?20\d+\.pdf)$"
+)
 EXTRA_COLUMNS = [
     {"key": "source_id", "label": "来源键", "type": "text", "visible": False},
     {"key": "display_source", "label": "来源", "type": "text", "visible": True},
@@ -59,6 +64,14 @@ def load_registry(path: Path) -> dict:
     ids = [source.get("id") for source in registry.get("sources", [])]
     if not ids or len(ids) != len(set(ids)):
         raise ValueError("Source registry requires unique source ids")
+    insecure = []
+    for source in registry["sources"]:
+        for key, value in source.items():
+            if isinstance(value, str) and (key.endswith("_url") or key.endswith("_api")):
+                if urlsplit(value).scheme == "http" and not allowed_http_url(source, value):
+                    insecure.append(f"{source['id']}.{key}")
+    if insecure:
+        raise ValueError(f"HTTP URL is outside the fixed NPC exception: {', '.join(insecure)}")
     return registry
 
 
@@ -95,6 +108,33 @@ def fetch(url: str, timeout: float, retries: int) -> tuple[bytes, str]:
     raise RuntimeError(f"Failed to fetch {url} after {retries} attempts") from error
 
 
+def fetch_json(
+    url: str, timeout: float, retries: int, *, method: str = "GET",
+    payload: dict | None = None, headers: dict[str, str] | None = None,
+) -> dict:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    request_headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=utf-8",
+        "User-Agent": USER_AGENT,
+        **(headers or {}),
+    }
+    error = None
+    for attempt in range(retries):
+        try:
+            request = Request(url, data=body, method=method, headers=request_headers)
+            with urlopen(request, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            if not isinstance(result, dict):
+                raise ValueError("JSON response must be an object")
+            return result
+        except Exception as exc:  # pragma: no cover - network failures vary by platform
+            error = exc
+            if attempt + 1 < retries:
+                time.sleep(min(2**attempt, 4))
+    raise RuntimeError(f"Failed to fetch JSON {url} after {retries} attempts") from error
+
+
 def decode_html(payload: bytes, content_type: str) -> str:
     match = re.search(r"charset=([\w-]+)", content_type, re.IGNORECASE)
     encodings = [match.group(1)] if match else []
@@ -113,13 +153,40 @@ def canonical_url(value: str) -> str:
     return urlunsplit(((parts.scheme or "https").lower(), parts.netloc.lower(), path, "", ""))
 
 
+def allowed_http_url(source: dict, value: str) -> bool:
+    parts = urlsplit(value)
+    return bool(
+        source.get("allow_http") is True
+        and source.get("id") == "npc_reports"
+        and source.get("adapter") == "npc_reports"
+        and parts.scheme == "http"
+        and parts.hostname == "www.npc.gov.cn"
+        and parts.port in {None, 80}
+        and not parts.username
+        and not parts.password
+        and NPC_HTTP_PATH_RE.fullmatch(parts.path)
+    )
+
+
+def validate_discovered_url(source: dict, value: str) -> None:
+    scheme = urlsplit(value).scheme
+    if scheme not in {"http", "https"} or (scheme == "http" and not allowed_http_url(source, value)):
+        raise ValueError(f"Disallowed article URL for {source['id']}: {value}")
+
+
 def identity_url(value: str) -> str:
+    original = urlsplit(value.strip())
     parts = urlsplit(canonical_url(value))
     port = parts.port
     authority = parts.hostname or ""
     if port and port not in {80, 443}:
         authority = f"{authority}:{port}"
-    return f"{authority}{parts.path}"
+    identity = f"{authority}{parts.path}"
+    if authority == "flk.npc.gov.cn" and parts.path == "/detail":
+        law_id = next((item for key, item in parse_qsl(original.query) if key == "id"), "")
+        if law_id:
+            identity += "?" + urlencode({"id": law_id})
+    return identity
 
 
 def content_link_url(value: str) -> str:
@@ -160,7 +227,7 @@ def url_date_key(url: str) -> str:
     return f"{match.group(1)}00" if match else ""
 
 
-def discover(source: dict, timeout: float, retries: int, limit: int) -> list[dict]:
+def discover_html(source: dict, timeout: float, retries: int, limit: int) -> list[dict]:
     payload, content_type = fetch(source["list_url"], timeout, retries)
     document = html.fromstring(decode_html(payload, content_type), base_url=source["list_url"])
     pattern = re.compile(source["link_pattern"])
@@ -174,12 +241,78 @@ def discover(source: dict, timeout: float, retries: int, limit: int) -> list[dic
             url = urlunsplit(("https", parts.netloc, parts.path, "", ""))
         if urlsplit(url).netloc not in allowed_hosts or not pattern.search(urlsplit(url).path):
             continue
+        validate_discovered_url(source, url)
         found.setdefault(url, {"url": url, "listedTitle": clean_text("".join(anchor.itertext()))})
     if not found:
         raise ValueError(f"Source {source['id']} yielded no article links")
     ordered = sorted(found.values(), key=lambda item: url_date_key(item["url"]), reverse=True)
     effective_limit = limit or int(source.get("max_items", 0))
     return ordered[:effective_limit] if effective_limit else ordered
+
+
+def discover_npc_reports(source: dict, timeout: float, retries: int, limit: int) -> list[dict]:
+    list_urls = [source["list_url"]]
+    list_urls.extend(urljoin(source["list_url"], f"index_{index}.html") for index in range(1, int(source.get("list_pages", 1))))
+    pattern = re.compile(source["link_pattern"])
+    allowed_hosts = set(source["allowed_hosts"])
+    effective_limit = limit or int(source.get("max_items", 0))
+    found: dict[str, dict] = {}
+    for list_url in list_urls:
+        payload, content_type = fetch(list_url, timeout, retries)
+        document = html.fromstring(decode_html(payload, content_type), base_url=list_url)
+        for anchor in document.xpath(source["link_xpath"]):
+            url = canonical_url(urljoin(list_url, str(anchor.get("href") or "")))
+            if urlsplit(url).netloc not in allowed_hosts or not pattern.search(urlsplit(url).path):
+                continue
+            validate_discovered_url(source, url)
+            context = clean_text("".join(anchor.getparent().itertext()))
+            date_match = DATE_RE.search(context) or DATE_RE.search(url)
+            if not date_match:
+                continue
+            published = "-".join(f"{int(value):02d}" if key != "year" else value for key, value in date_match.groupdict().items())
+            found.setdefault(url, {"url": url, "listedTitle": clean_text("".join(anchor.itertext())), "publishedDate": published})
+        if effective_limit and len(found) >= effective_limit:
+            break
+    if not found:
+        raise ValueError(f"Source {source['id']} yielded no report links")
+    ordered = sorted(found.values(), key=lambda item: (item["publishedDate"], item["url"]), reverse=True)
+    return ordered[:effective_limit] if effective_limit else ordered
+
+
+def discover_law_database(source: dict, timeout: float, retries: int, limit: int) -> list[dict]:
+    page_size = limit or int(source.get("max_items", 30))
+    request_payload = {
+        "searchRange": 1, "sxrq": [], "gbrq": [], "searchType": 2, "sxx": [],
+        "gbrqYear": [], "flfgCodeId": [], "zdjgCodeId": [], "searchContent": "",
+        "orderByParam": {"order": "gbrq", "sort": "DESC"}, "pageNum": 1, "pageSize": page_size,
+    }
+    result = fetch_json(
+        source["list_api"], timeout, retries, method="POST", payload=request_payload,
+        headers={"Origin": source["origin"], "Referer": source["list_url"]},
+    )
+    rows = result.get("rows") if result.get("code") == 200 else None
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"Source {source['id']} yielded no law records")
+    items = []
+    ordered_rows = sorted(rows, key=lambda row: (clean_text(row.get("gbrq")), clean_text(row.get("bbbs"))), reverse=True)
+    for row in ordered_rows[:page_size]:
+        law_id, title = clean_text(row.get("bbbs")), clean_text(row.get("title"))
+        if not law_id or not title or not DATE_RE.fullmatch(clean_text(row.get("gbrq"))):
+            continue
+        query = urlencode({"id": law_id, "title": title})
+        items.append({"url": f"{source['detail_url']}?{query}", "listedTitle": title, "record": row})
+    if not items:
+        raise ValueError(f"Source {source['id']} returned incomplete law records")
+    return items
+
+
+def discover(source: dict, timeout: float, retries: int, limit: int) -> list[dict]:
+    adapter = source.get("adapter", "html")
+    if adapter == "npc_reports":
+        return discover_npc_reports(source, timeout, retries, limit)
+    if adapter == "national_law_database":
+        return discover_law_database(source, timeout, retries, limit)
+    return discover_html(source, timeout, retries, limit)
 
 
 def xpath_text(document, expressions: list[str]) -> str:
@@ -212,6 +345,11 @@ def markdown_body(root, article_url: str, allowed_media_hosts: set[str]) -> tupl
         source_text_length += len(text)
         prefix = "## " if node.tag == "h2" else "### " if node.tag == "h3" else "- " if node.tag == "li" else ""
         blocks.append(prefix + text)
+    if source_text_length < 80:
+        fallback = clean_text(" ".join(root.xpath(".//text()[not(ancestor::script) and not(ancestor::style)]")))
+        if len(fallback) >= 80:
+            blocks.append(fallback)
+            source_text_length = len(fallback)
     links = []
     attachments = []
     for anchor in root.xpath(".//a[@href]"):
@@ -234,7 +372,7 @@ def markdown_body(root, article_url: str, allowed_media_hosts: set[str]) -> tupl
     return "\n\n".join(dict.fromkeys(blocks)), attachments, source_text_length, media_count
 
 
-def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict:
+def article_note_html(source: dict, item: dict, timeout: float, retries: int) -> dict:
     payload, content_type = fetch(item["url"], timeout, retries)
     document = html.fromstring(decode_html(payload, content_type), base_url=item["url"])
     title = xpath_text(document, source["title_xpaths"]) or item["listedTitle"]
@@ -252,7 +390,10 @@ def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict
         raise ValueError(f"Incomplete article parse: {item['url']}")
     meta_name = source.get("date_meta")
     meta_date = document.xpath(f"string(//meta[@name='{meta_name}']/@content)") if meta_name else ""
-    date_match = DATE_RE.search(str(meta_date)) or DATE_RE.search(item["url"]) or DATE_RE.search(clean_text("".join(document.itertext())))
+    date_match = (
+        DATE_RE.search(str(meta_date)) or DATE_RE.search(str(item.get("publishedDate", "")))
+        or DATE_RE.search(item["url"]) or DATE_RE.search(clean_text("".join(document.itertext())))
+    )
     if not date_match:
         raise ValueError(f"Missing publication date: {item['url']}")
     body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -267,6 +408,88 @@ def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict
         "extra": {"source_id": source["id"], "display_source": source["name"], "issuer": issuer,
                   "document_no": document_no, "source_url": item["url"], "content_hash": body_hash},
     }
+
+
+def linked_document_note(source: dict, item: dict, label: str) -> dict:
+    date_match = DATE_RE.fullmatch(item["publishedDate"])
+    if not date_match:
+        raise ValueError(f"Missing publication date: {item['url']}")
+    body = "\n\n".join([
+        f"## {label}",
+        "> 官方页面以文件形式提供正文；本工作流仅保留原文链接，不下载、不解析附件。",
+        f"[{label}]({item['url']})",
+    ])
+    parts = {key: int(value) for key, value in date_match.groupdict().items()}
+    return {
+        "dateYear": parts["year"], "dateMonth": parts["month"], "dateDay": parts["day"],
+        "headline": item["listedTitle"], "era": source["group"], "bodyMarkdown": body,
+        "tags": [source["group"], source["name"]], "items": [],
+        "extra": {"source_id": source["id"], "display_source": source["name"], "issuer": source["issuer"],
+                  "document_no": "", "source_url": item["url"],
+                  "content_hash": hashlib.sha256(body.encode("utf-8")).hexdigest()},
+    }
+
+
+def toc_markdown(content: object) -> list[str]:
+    if not isinstance(content, dict):
+        return []
+    lines = []
+    for node in content.get("children") or []:
+        title = clean_text(node.get("title")) if isinstance(node, dict) else ""
+        if title and title not in {"题注", "目录"}:
+            lines.append(("### " if node.get("children") else "- ") + title)
+        lines.extend(toc_markdown(node))
+    return lines
+
+
+def law_database_note(source: dict, item: dict, timeout: float, retries: int) -> dict:
+    law_id = clean_text(item["record"].get("bbbs"))
+    result = fetch_json(
+        f"{source['detail_api']}?{urlencode({'bbbs': law_id})}", timeout, retries,
+        headers={"Origin": source["origin"], "Referer": item["url"]},
+    )
+    detail = result.get("data") if result.get("code") == 200 else None
+    if not isinstance(detail, dict):
+        raise ValueError(f"Incomplete law detail: {item['url']}")
+    title = clean_text(detail.get("title"))
+    published_date = clean_text(detail.get("gbrq"))
+    date_match = DATE_RE.fullmatch(published_date)
+    if (
+        clean_text(detail.get("bbbs")) != law_id or title != item["listedTitle"]
+        or published_date != clean_text(item["record"].get("gbrq")) or not date_match
+    ):
+        raise ValueError(f"Mismatched law detail: {item['url']}")
+    category = clean_text(detail.get("flxz"))
+    issuer = clean_text(detail.get("zdjgName")) or source["issuer"]
+    status = LAW_STATUS_LABELS.get(detail.get("sxx"), "")
+    metadata = [f"- 法律法规分类：{category or '未标注'}", f"- 制定机关：{issuer}", f"- 公布日期：{date_match.group(0)}"]
+    if effective_date := clean_text(detail.get("sxrq")):
+        metadata.append(f"- 施行日期：{effective_date}")
+    if status:
+        metadata.append(f"- 时效性：{status}")
+    body_parts = ["## 法规信息", *metadata, "## 法规正文", f"[在国家法律法规数据库阅读标准文本]({item['url']})"]
+    toc = toc_markdown(detail.get("content"))
+    if toc:
+        body_parts.extend(["## 目录", *toc])
+    body = "\n\n".join(body_parts)
+    parts = {key: int(value) for key, value in date_match.groupdict().items()}
+    return {
+        "dateYear": parts["year"], "dateMonth": parts["month"], "dateDay": parts["day"],
+        "headline": title, "era": source["group"], "bodyMarkdown": body,
+        "tags": list(dict.fromkeys(value for value in [source["group"], source["name"], category] if value)), "items": [],
+        "extra": {"source_id": source["id"], "display_source": source["name"], "issuer": issuer,
+                  "document_no": "", "source_url": item["url"],
+                  "content_hash": hashlib.sha256(body.encode("utf-8")).hexdigest()},
+    }
+
+
+def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict:
+    adapter = source.get("adapter", "html")
+    if adapter == "national_law_database":
+        return law_database_note(source, item, timeout, retries)
+    if adapter == "npc_reports" and urlsplit(item["url"]).path.lower().endswith(".pdf"):
+        return linked_document_note(source, item, "在中国人大网查看 PDF 报告原文")
+    return article_note_html(source, item, timeout, retries)
 
 
 def identity_keys(note: dict) -> set[str]:

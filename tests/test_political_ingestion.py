@@ -27,6 +27,25 @@ SOURCE = {
     "date_meta": "firstpublishedtime",
 }
 
+NPC_SOURCE = {
+    "id": "npc_reports", "name": "中国人大网权威报告", "enabled": True, "priority": 1,
+    "adapter": "npc_reports", "bookshelf": SOURCE["bookshelf"], "notebook": "全国人大",
+    "group": "工作报告", "issuer": "全国人大",
+    "list_url": "http://www.npc.gov.cn/npc/c2/c12435/c12491/", "allow_http": True,
+    "list_pages": 1, "max_items": 30, "allowed_hosts": ["www.npc.gov.cn"],
+    "link_xpath": "//a[@href]", "link_pattern": r"/npc/c2/c30834/20\d{4}/.*\.(?:html|pdf)$",
+    "title_xpaths": ["//h1"], "body_xpaths": ["//*[@id='Zoom']"],
+}
+
+LAW_SOURCE = {
+    "id": "national_law_database", "name": "国家法律法规数据库", "enabled": True, "priority": 1,
+    "adapter": "national_law_database", "bookshelf": SOURCE["bookshelf"], "notebook": "法律法规",
+    "group": "法律法规", "issuer": "全国人大常委会", "list_url": "https://flk.npc.gov.cn/",
+    "origin": "https://flk.npc.gov.cn", "list_api": "https://flk.npc.gov.cn/law-search/search/list",
+    "detail_api": "https://flk.npc.gov.cn/law-search/search/flfgDetails",
+    "detail_url": "https://flk.npc.gov.cn/detail", "max_items": 30,
+}
+
 
 def test_discover_and_normalize_article(monkeypatch):
     pages = {
@@ -119,6 +138,93 @@ def test_image_only_document_rejects_unsafe_or_external_media(monkeypatch, image
         cli.article_note({**SOURCE, "allow_image_only": True}, {"url": article_url, "listedTitle": ""}, 1, 1)
 
 
+def test_markdown_body_falls_back_to_text_only_layout():
+    root = cli.html.fromstring(
+        '<div><style>.ignored { color: red; }</style><script>ignored()</script>'
+        '这是正文第一部分，页面使用换行标签而不是段落标签。<br>'
+        '这是正文第二部分，采集器仍需保存完整文本，不能因为页面排版方式不同而丢弃。<br>'
+        '这是正文第三部分，确保内容长度达到完整性校验要求。</div>'
+    )
+
+    body, _attachments, source_length, _media_count = cli.markdown_body(root, "https://example.gov.cn/a", {"example.gov.cn"})
+
+    assert source_length >= 80
+    assert "这是正文第二部分" in body
+    assert "ignored" not in body
+
+
+def test_npc_reports_support_html_and_link_pdf_without_downloading(monkeypatch):
+    list_page = (
+        '<ul><li><a href="../../c30834/202606/t20260626_1.html">HTML报告</a>2026-06-26</li>'
+        '<li><a href="../../c30834/202606/P0202606251.pdf">PDF报告</a>2026-06-25</li></ul>'
+    ).encode()
+    article_page = (
+        '<h1>HTML报告</h1><div id="Zoom"><p>这是全国人大网站发布的完整报告正文第一段，说明相关工作的总体情况和主要进展。</p>'
+        '<p>这是报告正文第二段，继续说明后续工作安排、监督要求以及需要依法推进的具体事项。</p>'
+        '<p>这是报告正文第三段，用于确认采集器保存的是报告内容而不是列表摘要或页面导航文字。</p></div>'
+    ).encode()
+    fetched = []
+
+    def fake_fetch(url, _timeout, _retries):
+        fetched.append(url)
+        return (list_page if url == NPC_SOURCE["list_url"] else article_page), "text/html; charset=utf-8"
+
+    monkeypatch.setattr(cli, "fetch", fake_fetch)
+    items = cli.discover(NPC_SOURCE, 1, 1, 0)
+    html_note = cli.article_note(NPC_SOURCE, items[0], 1, 1)
+    pdf_note = cli.article_note(NPC_SOURCE, items[1], 1, 1)
+
+    assert [item["listedTitle"] for item in items] == ["HTML报告", "PDF报告"]
+    assert "完整报告正文第一段" in html_note["bodyMarkdown"]
+    assert "不下载、不解析附件" in pdf_note["bodyMarkdown"]
+    assert "[在中国人大网查看 PDF 报告原文](http://www.npc.gov.cn/npc/c2/c30834/202606/P0202606251.pdf)" in pdf_note["bodyMarkdown"]
+    assert fetched == [NPC_SOURCE["list_url"], items[0]["url"]]
+
+
+def test_law_database_uses_json_adapter_and_official_reader_link(monkeypatch):
+    calls = []
+
+    def fake_fetch_json(url, _timeout, _retries, **kwargs):
+        calls.append((url, kwargs))
+        if url == LAW_SOURCE["list_api"]:
+            return {"code": 200, "rows": [
+                {"bbbs": "law-1", "title": "测试法", "gbrq": "2026-06-26"},
+                {"bbbs": "law-2", "title": "超量返回", "gbrq": "2026-06-25"},
+            ]}
+        return {"code": 200, "data": {
+            "bbbs": "law-1", "title": "测试法", "gbrq": "2026-06-26", "sxrq": "2027-01-01", "sxx": 4,
+            "flxz": "法律", "zdjgName": "全国人民代表大会常务委员会",
+            "content": {"children": [{"title": "第一章 总则", "children": [{"title": "第一条", "children": []}]}]},
+        }}
+
+    monkeypatch.setattr(cli, "fetch_json", fake_fetch_json)
+    items = cli.discover(LAW_SOURCE, 1, 1, 1)
+    note = cli.article_note(LAW_SOURCE, items[0], 1, 1)
+
+    assert note["headline"] == "测试法"
+    assert "- 时效性：尚未生效" in note["bodyMarkdown"]
+    assert "### 第一章 总则" in note["bodyMarkdown"]
+    assert "[在国家法律法规数据库阅读标准文本](https://flk.npc.gov.cn/detail?id=law-1&title=%E6%B5%8B%E8%AF%95%E6%B3%95)" in note["bodyMarkdown"]
+    assert note["extra"]["issuer"] == "全国人民代表大会常务委员会"
+    assert calls[0][1]["method"] == "POST"
+    assert calls[0][1]["payload"]["pageSize"] == 1
+    assert calls[0][1]["payload"]["orderByParam"] == {"order": "gbrq", "sort": "DESC"}
+    assert calls[1][0].endswith("?bbbs=law-1")
+
+
+def test_law_database_rejects_mismatched_detail(monkeypatch):
+    item = {
+        "url": "https://flk.npc.gov.cn/detail?id=law-1", "listedTitle": "测试法",
+        "record": {"bbbs": "law-1", "title": "测试法", "gbrq": "2026-06-26"},
+    }
+    monkeypatch.setattr(cli, "fetch_json", lambda *_args, **_kwargs: {
+        "code": 200, "data": {"bbbs": "law-2", "title": "另一部法", "gbrq": "2026-06-25"},
+    })
+
+    with pytest.raises(ValueError, match="Mismatched law detail"):
+        cli.article_note(LAW_SOURCE, item, 1, 1)
+
+
 def test_deduplicate_uses_document_url_fallback_and_hash():
     base = {
         "dateYear": 2026, "dateMonth": 7, "dateDay": 13, "headline": "测试通知",
@@ -137,6 +243,8 @@ def test_deduplicate_uses_document_url_fallback_and_hash():
     assert issuer_plan["added"] == 1
 
     assert cli.identity_url("http://a.gov.cn:80/b?track=1") == cli.identity_url("https://a.gov.cn:443/b")
+    assert cli.identity_url("https://flk.npc.gov.cn/detail?id=law-1&title=a") == "flk.npc.gov.cn/detail?id=law-1"
+    assert cli.identity_url("https://flk.npc.gov.cn/detail?id=law-1") != cli.identity_url("https://flk.npc.gov.cn/detail?id=law-2")
 
 
 def test_clean_text_and_url_date_key_handle_provincial_page_variants():
@@ -164,6 +272,23 @@ def test_registry_rejects_disabled_source(tmp_path):
     loaded = cli.load_registry(path)
     with pytest.raises(ValueError, match="Disabled sources"):
         cli.selected_sources(loaded, [], "all")
+
+
+def test_registry_requires_explicit_http_transport_exception(tmp_path):
+    registry = {"sets": {}, "sources": [{"id": "unsafe", "enabled": True, "list_url": "http://example.test/list"}]}
+    path = tmp_path / "sources.json"
+    path.write_text(json.dumps(registry), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fixed NPC exception"):
+        cli.load_registry(path)
+
+    registry["sources"][0]["allow_http"] = True
+    path.write_text(json.dumps(registry), encoding="utf-8")
+    with pytest.raises(ValueError, match="fixed NPC exception"):
+        cli.load_registry(path)
+
+    path.write_text(json.dumps({"sets": {}, "sources": [NPC_SOURCE]}), encoding="utf-8")
+    assert cli.load_registry(path)["sources"][0]["id"] == "npc_reports"
 
 
 def test_backup_database_is_valid(tmp_path):

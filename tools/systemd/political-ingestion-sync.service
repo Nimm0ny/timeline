@@ -9,7 +9,7 @@ Type=oneshot
 User=Ccclown113
 WorkingDirectory=/home/Ccclown113/timeline
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/Ccclown113/timeline/.venv/bin/python tools/political_ingestion_scheduled_run.py --set weekly
+ExecStart=/home/Ccclown113/timeline/.venv/bin/python tools/political_ingestion_scheduled_run.py --set weekly --timeout 60
 TimeoutStartSec=60min
 Nice=10
 NoNewPrivileges=true
