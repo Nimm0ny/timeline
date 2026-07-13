@@ -4,7 +4,6 @@ import argparse
 from contextlib import closing, contextmanager
 from datetime import datetime
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -12,11 +11,10 @@ import re
 import sqlite3
 import time
 from urllib.error import HTTPError
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from lxml import html
-from pypdf import PdfReader
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +23,10 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrom
 SPACE_RE = re.compile(r"\s+")
 DATE_RE = re.compile(r"(?P<year>20\d{2})[-年/](?P<month>\d{1,2})[-月/](?P<day>\d{1,2})")
 DOC_NO_RE = re.compile(r"[\u4e00-\u9fffA-Za-z]{1,24}[〔\[]20\d{2}[〕\]]\s*\d+\s*号")
-ATTACHMENT_EXTENSIONS = {".pdf", ".wps", ".doc", ".docx", ".xls", ".xlsx"}
+ATTACHMENT_EXTENSIONS = {
+    ".7z", ".doc", ".docx", ".ofd", ".pdf", ".ppt", ".pptx",
+    ".rar", ".wps", ".xls", ".xlsx", ".zip",
+}
 EXTRA_COLUMNS = [
     {"key": "source_id", "label": "来源键", "type": "text", "visible": False},
     {"key": "display_source", "label": "来源", "type": "text", "visible": True},
@@ -112,6 +113,22 @@ def canonical_url(value: str) -> str:
     return urlunsplit(((parts.scheme or "https").lower(), parts.netloc.lower(), path, "", ""))
 
 
+def content_link_url(value: str) -> str:
+    parts = urlsplit(value.strip())
+    if parts.scheme.lower() not in {"http", "https"}:
+        return ""
+    path = re.sub(r"/{2,}", "/", parts.path or "/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, parts.query, ""))
+
+
+def is_attachment_link(anchor, url: str) -> bool:
+    if anchor.get("download") is not None:
+        return True
+    parts = urlsplit(url)
+    candidates = [parts.path, *(value for _key, value in parse_qsl(parts.query, keep_blank_values=True))]
+    return any(Path(urlsplit(unquote(value)).path).suffix.lower() in ATTACHMENT_EXTENSIONS for value in candidates)
+
+
 def clean_text(value: object) -> str:
     return SPACE_RE.sub(" ", str(value or "")).strip()
 
@@ -155,8 +172,9 @@ def xpath_text(document, expressions: list[str]) -> str:
     return ""
 
 
-def markdown_body(root, article_url: str) -> tuple[str, list[tuple[str, str]]]:
+def markdown_body(root, article_url: str) -> tuple[str, list[tuple[str, str]], int]:
     blocks: list[str] = []
+    source_text_length = 0
     for node in root.xpath(".//*[self::h2 or self::h3 or self::p or self::li or self::img]"):
         if node.tag == "img":
             src = str(node.get("src") or node.get("data-src") or "").strip()
@@ -166,27 +184,29 @@ def markdown_body(root, article_url: str) -> tuple[str, list[tuple[str, str]]]:
         text = clean_text("".join(node.itertext()))
         if not text:
             continue
+        source_text_length += len(text)
         prefix = "## " if node.tag == "h2" else "### " if node.tag == "h3" else "- " if node.tag == "li" else ""
         blocks.append(prefix + text)
+    links = []
     attachments = []
     for anchor in root.xpath(".//a[@href]"):
-        url = canonical_url(urljoin(article_url, str(anchor.get("href") or "")))
+        url = content_link_url(urljoin(article_url, str(anchor.get("href") or "")))
+        if not url:
+            continue
         label = clean_text("".join(anchor.itertext())) or Path(urlsplit(url).path).name
-        blocks.append(f"[{label}]({url})")
-        if Path(urlsplit(url).path).suffix.lower() in ATTACHMENT_EXTENSIONS:
+        if is_attachment_link(anchor, url):
             attachments.append((label, url))
-    return "\n\n".join(dict.fromkeys(blocks)), list(dict.fromkeys(attachments))
-
-
-def pdf_markdown(url: str, timeout: float, retries: int) -> str:
-    payload, _ = fetch(url, timeout, retries)
-    if len(payload) > 30 * 1024 * 1024:
-        raise ValueError(f"PDF attachment exceeds 30 MiB: {url}")
-    pages = [clean_text(page.extract_text()) for page in PdfReader(io.BytesIO(payload)).pages]
-    text = "\n\n".join(page for page in pages if page)
-    if len(text) < 80:
-        raise ValueError(f"PDF attachment has no extractable text: {url}")
-    return text
+        else:
+            links.append((label, url))
+    blocks.extend(f"[{label}]({url})" for label, url in dict.fromkeys(links))
+    attachments = list(dict.fromkeys(attachments))
+    if attachments:
+        blocks.extend([
+            "## 原文附件",
+            "> 附件文件不下载、不解析；请通过以下原页面提供的链接查看完整内容。",
+            *(f"- [{label}]({url})" for label, url in attachments),
+        ])
+    return "\n\n".join(dict.fromkeys(blocks)), attachments, source_text_length
 
 
 def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict:
@@ -197,16 +217,8 @@ def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict
         if title.endswith(suffix):
             title = title[: -len(suffix)].strip()
     body_root = next((nodes[0] for expression in source["body_xpaths"] if (nodes := document.xpath(expression))), None)
-    body, attachments = markdown_body(body_root, item["url"]) if body_root is not None else ("", [])
-    parsed_attachments = []
-    for label, url in attachments:
-        if Path(urlsplit(url).path).suffix.lower() == ".pdf":
-            parsed_attachments.append(f"## 附件：{label}\n\n{pdf_markdown(url, timeout, retries)}")
-    if parsed_attachments:
-        body = f"{body}\n\n" + "\n\n".join(parsed_attachments)
-    if attachments and not parsed_attachments and len(body) < 1200:
-        raise ValueError(f"Attachment-only article requires a dedicated parser: {item['url']}")
-    if not title or len(body) < 80:
+    body, attachments, source_text_length = markdown_body(body_root, item["url"]) if body_root is not None else ("", [], 0)
+    if not title or (not attachments and source_text_length < 80):
         raise ValueError(f"Incomplete article parse: {item['url']}")
     meta_name = source.get("date_meta")
     meta_date = document.xpath(f"string(//meta[@name='{meta_name}']/@content)") if meta_name else ""

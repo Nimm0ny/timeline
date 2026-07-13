@@ -36,10 +36,17 @@ def test_discover_and_normalize_article(monkeypatch):
             '<h1>关于测试工作的通知</h1><div id="content"><p>第一段正文，提供足够的正式文件内容。</p>'
             '<p>第二段正文，用于验证 Markdown 正文和稳定哈希生成。</p>'
             '<p>第三段正文，确保正文长度超过完整性检查阈值。</p>'
-            '<p>第四段正文，验证完整文章能够进入标准化结果。</p></div></html>'
+            '<p>第四段正文，验证完整文章能够进入标准化结果。</p>'
+            '<a href="/attachments/policy.wps">政策附件</a></div></html>'
         ).encode(),
     }
-    monkeypatch.setattr(cli, "fetch", lambda url, _timeout, _retries: (pages[url], "text/html; charset=utf-8"))
+    fetched_urls = []
+
+    def fake_fetch(url, _timeout, _retries):
+        fetched_urls.append(url)
+        return pages[url], "text/html; charset=utf-8"
+
+    monkeypatch.setattr(cli, "fetch", fake_fetch)
 
     items = cli.discover(SOURCE, 1, 1, 1)
     note = cli.article_note(SOURCE, items[0], 1, 1)
@@ -48,7 +55,35 @@ def test_discover_and_normalize_article(monkeypatch):
     assert note["headline"] == "关于测试工作的通知"
     assert note["dateYear"] == 2026
     assert "第二段正文" in note["bodyMarkdown"]
+    assert "## 原文附件" in note["bodyMarkdown"]
+    assert "[政策附件](https://example.gov.cn/attachments/policy.wps)" in note["bodyMarkdown"]
+    assert fetched_urls == [SOURCE["list_url"], "https://example.gov.cn/2026/07/13/content_1.htm"]
     assert len(note["extra"]["content_hash"]) == 64
+
+
+def test_attachment_only_page_keeps_query_links_without_fetching_files(monkeypatch):
+    article_url = "https://example.gov.cn/2026/07/13/content_1.htm"
+    page = (
+        '<html><meta name="firstpublishedtime" content="2026-07-13">'
+        '<h1>附件承载的政策文件</h1><div id="content">'
+        '<a href="/download?file=policy%2Epdf&amp;token=abc">PDF附件</a>'
+        '<a href="/download?id=2" download="policy.ofd">OFD附件</a>'
+        '<a href="javascript:alert(1)">危险链接</a></div></html>'
+    ).encode()
+    fetched_urls = []
+
+    def fake_fetch(url, _timeout, _retries):
+        fetched_urls.append(url)
+        return page, "text/html; charset=utf-8"
+
+    monkeypatch.setattr(cli, "fetch", fake_fetch)
+
+    note = cli.article_note(SOURCE, {"url": article_url, "listedTitle": ""}, 1, 1)
+
+    assert "[PDF附件](https://example.gov.cn/download?file=policy%2Epdf&token=abc)" in note["bodyMarkdown"]
+    assert "[OFD附件](https://example.gov.cn/download?id=2)" in note["bodyMarkdown"]
+    assert "javascript:" not in note["bodyMarkdown"]
+    assert fetched_urls == [article_url]
 
 
 def test_deduplicate_uses_document_url_fallback_and_hash():

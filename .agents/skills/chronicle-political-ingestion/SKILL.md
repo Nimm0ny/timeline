@@ -39,4 +39,5 @@ python -m tools.political_ingestion.cli apply --manifest data/political-ingestio
 - Do not enable a disabled dynamic source until its dedicated adapter and tests exist.
 - Do not bypass dry-run, exclusive locking, strict crawl failure, or SQLite backup.
 - Do not overwrite existing notes or synchronize deletions.
+- Keep official attachments as clickable Markdown links; do not download or parse attachment files.
 - Use the same CLI for manual runs, Agent runs, and scheduled services.
