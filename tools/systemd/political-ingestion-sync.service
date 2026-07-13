@@ -1,0 +1,16 @@
+[Unit]
+Description=Chronicle weekly official political document sync
+Requires=timeline.service
+Wants=network-online.target
+After=network-online.target timeline.service
+
+[Service]
+Type=oneshot
+User=Ccclown113
+WorkingDirectory=/home/Ccclown113/timeline
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/Ccclown113/timeline/.venv/bin/python tools/political_ingestion_scheduled_run.py --set weekly
+TimeoutStartSec=60min
+Nice=10
+NoNewPrivileges=true
+UMask=0027

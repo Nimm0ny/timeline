@@ -32,6 +32,12 @@ python -m tools.political_ingestion.cli apply --manifest data/political-ingestio
 
 7. Report added, duplicate and failed counts, backup path, output directory, and any disabled sources.
 
+For the verified weekly source set, use the shared scheduled entry point. Keep `--dry-run` for local validation:
+
+```powershell
+python tools/political_ingestion_scheduled_run.py --set weekly --dry-run --limit 3
+```
+
 ## Guardrails
 
 - Keep the existing `qstheory_*` workflow independent.

@@ -1,6 +1,14 @@
 {
   "sets": {
-    "central-core": ["gov_cn_department_docs", "party_rules"]
+    "central-core": ["gov_cn_department_docs", "party_rules"],
+    "province-pilot": ["beijing_government_docs", "guangdong_government_docs", "jiangsu_government_docs"],
+    "weekly": [
+      "gov_cn_department_docs",
+      "party_rules",
+      "beijing_government_docs",
+      "guangdong_government_docs",
+      "jiangsu_government_docs"
+    ]
   },
   "sources": [
     {
@@ -50,6 +58,73 @@
       "title_suffixes": ["_共产党员网"],
       "body_xpaths": ["//*[@id='font_area']"],
       "date_meta": ""
+    },
+    {
+      "id": "beijing_government_docs",
+      "name": "北京市政府文件",
+      "enabled": true,
+      "priority": 30,
+      "role": "canonical",
+      "bookshelf": {"name": "politics_provincial", "title": "省级政府"},
+      "notebook": "北京市",
+      "group": "政策文件",
+      "issuer": "北京市人民政府",
+      "list_url": "https://www.beijing.gov.cn/zhengce/zfwj/",
+      "max_items": 30,
+      "allowed_hosts": ["www.beijing.gov.cn"],
+      "link_xpath": "//a[contains(@href, 'zfwj2016/') and contains(@href, '/t20')]",
+      "link_pattern": "/zhengce/zfwj/zfwj2016/[^/]+/20\\d{4}/t20\\d+_\\d+\\.html$",
+      "title_xpaths": ["//meta[@name='ArticleTitle']/@content", "//title"],
+      "title_suffixes": ["_市政府文件_首都之窗_北京市人民政府门户网站"],
+      "issuer_xpaths": ["//meta[@name='ContentSource']/@content"],
+      "body_xpaths": ["//div[contains(concat(' ', normalize-space(@class), ' '), ' mainTextBox ')][1]"],
+      "date_meta": "PubDate"
+    },
+    {
+      "id": "guangdong_government_docs",
+      "name": "广东省政府文件",
+      "enabled": true,
+      "priority": 31,
+      "role": "canonical",
+      "bookshelf": {"name": "politics_provincial", "title": "省级政府"},
+      "notebook": "广东省",
+      "group": "政策文件",
+      "issuer": "广东省人民政府",
+      "list_url": "https://www.gd.gov.cn/zwgk/wjk/qbwj/index.html",
+      "max_items": 30,
+      "allowed_hosts": ["www.gd.gov.cn"],
+      "allowed_media_hosts": ["www.gd.gov.cn"],
+      "allow_image_only": true,
+      "link_xpath": "//a[contains(@href, '/zwgk/wjk/qbwj/') and contains(@href, '/content/post_')]",
+      "link_pattern": "/zwgk/wjk/qbwj/[^/]+/content/post_\\d+\\.html$",
+      "title_xpaths": ["//meta[@name='ArticleTitle']/@content", "//title"],
+      "title_suffixes": ["  广东省人民政府门户网站"],
+      "body_xpaths": [
+        "//div[contains(concat(' ', normalize-space(@class), ' '), ' zw ')][1]",
+        "//div[contains(concat(' ', normalize-space(@class), ' '), ' viewList ')][1]"
+      ],
+      "date_meta": "PubDate"
+    },
+    {
+      "id": "jiangsu_government_docs",
+      "name": "江苏省政府文件",
+      "enabled": true,
+      "priority": 32,
+      "role": "canonical",
+      "bookshelf": {"name": "politics_provincial", "title": "省级政府"},
+      "notebook": "江苏省",
+      "group": "政策文件",
+      "issuer": "江苏省人民政府",
+      "list_url": "https://www.jiangsu.gov.cn/col/col31255/index.html",
+      "max_items": 30,
+      "allowed_hosts": ["www.jiangsu.gov.cn"],
+      "force_https": true,
+      "link_xpath": "//a[contains(@href, '/art/20') and contains(@href, '/art_46144_')]",
+      "link_pattern": "/art/20\\d{2}/\\d{1,2}/\\d{1,2}/art_46144_\\d+\\.html$",
+      "title_xpaths": ["//meta[@name='ArticleTitle']/@content", "//title"],
+      "issuer_xpaths": ["//meta[@name='ContentSource']/@content"],
+      "body_xpaths": ["//div[contains(concat(' ', normalize-space(@class), ' '), ' article_content ')][1]"],
+      "date_meta": "PubDate"
     },
     {
       "id": "npc_reports",

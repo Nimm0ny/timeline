@@ -113,6 +113,15 @@ def canonical_url(value: str) -> str:
     return urlunsplit(((parts.scheme or "https").lower(), parts.netloc.lower(), path, "", ""))
 
 
+def identity_url(value: str) -> str:
+    parts = urlsplit(canonical_url(value))
+    port = parts.port
+    authority = parts.hostname or ""
+    if port and port not in {80, 443}:
+        authority = f"{authority}:{port}"
+    return f"{authority}{parts.path}"
+
+
 def content_link_url(value: str) -> str:
     parts = urlsplit(value.strip())
     if parts.scheme.lower() not in {"http", "https"}:
@@ -130,14 +139,23 @@ def is_attachment_link(anchor, url: str) -> bool:
 
 
 def clean_text(value: object) -> str:
-    return SPACE_RE.sub(" ", str(value or "")).strip()
+    normalized = str(value or "").replace("\u200b", "").replace("\ufeff", "")
+    return SPACE_RE.sub(" ", normalized).strip()
+
+
+def nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be at least 0")
+    return parsed
 
 
 def url_date_key(url: str) -> str:
     path = urlsplit(url).path
-    match = re.search(r"/(20\d{2})/(\d{2})/(\d{2})/", path)
+    match = re.search(r"/(20\d{2})/(\d{1,2})/(\d{1,2})/", path)
     if match:
-        return "".join(match.groups())
+        year, month, day = (int(value) for value in match.groups())
+        return f"{year:04d}{month:02d}{day:02d}"
     match = re.search(r"/(20\d{4})/", path)
     return f"{match.group(1)}00" if match else ""
 
@@ -151,13 +169,17 @@ def discover(source: dict, timeout: float, retries: int, limit: int) -> list[dic
     for anchor in document.xpath(source["link_xpath"]):
         href = anchor.get("href") if hasattr(anchor, "get") else ""
         url = canonical_url(urljoin(source["list_url"], str(href or "")))
+        if source.get("force_https") and urlsplit(url).scheme == "http":
+            parts = urlsplit(url)
+            url = urlunsplit(("https", parts.netloc, parts.path, "", ""))
         if urlsplit(url).netloc not in allowed_hosts or not pattern.search(urlsplit(url).path):
             continue
         found.setdefault(url, {"url": url, "listedTitle": clean_text("".join(anchor.itertext()))})
     if not found:
         raise ValueError(f"Source {source['id']} yielded no article links")
     ordered = sorted(found.values(), key=lambda item: url_date_key(item["url"]), reverse=True)
-    return ordered[:limit] if limit else ordered
+    effective_limit = limit or int(source.get("max_items", 0))
+    return ordered[:effective_limit] if effective_limit else ordered
 
 
 def xpath_text(document, expressions: list[str]) -> str:
@@ -172,14 +194,17 @@ def xpath_text(document, expressions: list[str]) -> str:
     return ""
 
 
-def markdown_body(root, article_url: str) -> tuple[str, list[tuple[str, str]], int]:
+def markdown_body(root, article_url: str, allowed_media_hosts: set[str]) -> tuple[str, list[tuple[str, str]], int, int]:
     blocks: list[str] = []
     source_text_length = 0
+    media_count = 0
     for node in root.xpath(".//*[self::h2 or self::h3 or self::p or self::li or self::img]"):
         if node.tag == "img":
             src = str(node.get("src") or node.get("data-src") or "").strip()
-            if src:
-                blocks.append(f"![{clean_text(node.get('alt'))}]({urljoin(article_url, src)})")
+            url = content_link_url(urljoin(article_url, src)) if src else ""
+            if url and urlsplit(url).netloc in allowed_media_hosts:
+                blocks.append(f"![{clean_text(node.get('alt'))}]({url})")
+                media_count += 1
             continue
         text = clean_text("".join(node.itertext()))
         if not text:
@@ -206,7 +231,7 @@ def markdown_body(root, article_url: str) -> tuple[str, list[tuple[str, str]], i
             "> 附件文件不下载、不解析；请通过以下原页面提供的链接查看完整内容。",
             *(f"- [{label}]({url})" for label, url in attachments),
         ])
-    return "\n\n".join(dict.fromkeys(blocks)), attachments, source_text_length
+    return "\n\n".join(dict.fromkeys(blocks)), attachments, source_text_length, media_count
 
 
 def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict:
@@ -214,11 +239,16 @@ def article_note(source: dict, item: dict, timeout: float, retries: int) -> dict
     document = html.fromstring(decode_html(payload, content_type), base_url=item["url"])
     title = xpath_text(document, source["title_xpaths"]) or item["listedTitle"]
     for suffix in source.get("title_suffixes", []):
+        suffix = clean_text(suffix)
         if title.endswith(suffix):
             title = title[: -len(suffix)].strip()
     body_root = next((nodes[0] for expression in source["body_xpaths"] if (nodes := document.xpath(expression))), None)
-    body, attachments, source_text_length = markdown_body(body_root, item["url"]) if body_root is not None else ("", [], 0)
-    if not title or (not attachments and source_text_length < 80):
+    body, attachments, source_text_length, media_count = (
+        markdown_body(body_root, item["url"], set(source.get("allowed_media_hosts", source["allowed_hosts"])))
+        if body_root is not None else ("", [], 0, 0)
+    )
+    image_only = bool(source.get("allow_image_only")) and media_count > 0
+    if not title or (not attachments and not image_only and source_text_length < 80):
         raise ValueError(f"Incomplete article parse: {item['url']}")
     meta_name = source.get("date_meta")
     meta_date = document.xpath(f"string(//meta[@name='{meta_name}']/@content)") if meta_name else ""
@@ -248,8 +278,9 @@ def identity_keys(note: dict) -> set[str]:
     if extra.get("document_no"):
         document_no = re.sub(r"\s+", "", str(extra["document_no"])).lower()
         keys.add(f"doc:{issuer}:{document_no}")
+        keys.add(f"doc-title:{document_no}:{title}")
     if extra.get("source_url"):
-        keys.add("url:" + canonical_url(str(extra["source_url"])))
+        keys.add("url:" + identity_url(str(extra["source_url"])))
     if extra.get("content_hash"):
         keys.add("hash:" + str(extra["content_hash"]))
     return keys
@@ -381,9 +412,11 @@ def write_manifest(path: Path, manifest: dict) -> None:
 
 
 def source_contract(source: dict) -> dict:
+    encoded = json.dumps(source, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return {
         "id": source["id"], "enabled": bool(source.get("enabled")), "bookshelf": source["bookshelf"],
         "notebook": source["notebook"], "group": source["group"],
+        "configHash": hashlib.sha256(encoded).hexdigest(),
     }
 
 
@@ -496,7 +529,7 @@ def parse_args() -> argparse.Namespace:
         sub.add_argument("--set", dest="set_name")
         sub.add_argument("--timeout", type=float, default=20.0)
         sub.add_argument("--retries", type=int, default=3)
-        sub.add_argument("--limit", type=int, default=0)
+        sub.add_argument("--limit", type=nonnegative_int, default=0)
         if command == "run":
             sub.add_argument("--base-url", default="http://127.0.0.1")
             sub.add_argument("--state-dir", default=str(ROOT / "data" / "political-ingestion"))

@@ -1,9 +1,11 @@
+import argparse
 import json
 import sqlite3
 
 import pytest
 
 from tools.political_ingestion import cli
+from tools import political_ingestion_scheduled_run as scheduled
 
 
 SOURCE = {
@@ -17,6 +19,7 @@ SOURCE = {
     "issuer": "测试机构",
     "list_url": "https://example.gov.cn/list/",
     "allowed_hosts": ["example.gov.cn"],
+    "force_https": True,
     "link_xpath": "//a[@href]",
     "link_pattern": "/2026/07/13/content_1\\.htm$",
     "title_xpaths": ["//h1"],
@@ -29,7 +32,9 @@ def test_discover_and_normalize_article(monkeypatch):
     pages = {
         SOURCE["list_url"]: (
             b'<html><a href="/2025/01/01/content_1.htm">Old duplicate path</a>'
-            b'<a href="/2026/07/13/content_1.htm">Listed title</a><a href="https://evil.test/x">x</a></html>'
+            b'<a href="/2026/07/13/content_1.htm">Listed title</a>'
+            b'<a href="http://example.gov.cn/2026/07/13/content_1.htm">HTTP duplicate</a>'
+            b'<a href="https://evil.test/x">x</a></html>'
         ),
         "https://example.gov.cn/2026/07/13/content_1.htm": (
             '<html><meta name="firstpublishedtime" content="2026-07-13-09:00:00">'
@@ -86,6 +91,34 @@ def test_attachment_only_page_keeps_query_links_without_fetching_files(monkeypat
     assert fetched_urls == [article_url]
 
 
+def test_image_only_official_document_is_kept_as_remote_markdown_image(monkeypatch):
+    article_url = "https://example.gov.cn/2026/07/13/content_1.htm"
+    page = (
+        '<html><meta name="firstpublishedtime" content="2026-07-13">'
+        '<h1>图片正文政策文件</h1><div id="content">'
+        '<p><img src="/images/policy.jpg" alt="政策正文"></p></div></html>'
+    ).encode()
+    monkeypatch.setattr(cli, "fetch", lambda *_args: (page, "text/html; charset=utf-8"))
+
+    source = {**SOURCE, "allow_image_only": True}
+    note = cli.article_note(source, {"url": article_url, "listedTitle": ""}, 1, 1)
+
+    assert "![政策正文](https://example.gov.cn/images/policy.jpg)" in note["bodyMarkdown"]
+
+
+@pytest.mark.parametrize("image_url", ["javascript:alert(1)", "data:image/png;base64,abc", "https://evil.test/a.jpg"])
+def test_image_only_document_rejects_unsafe_or_external_media(monkeypatch, image_url):
+    article_url = "https://example.gov.cn/2026/07/13/content_1.htm"
+    page = (
+        '<html><meta name="firstpublishedtime" content="2026-07-13">'
+        f'<h1>无效图片正文</h1><div id="content"><img src="{image_url}"></div></html>'
+    ).encode()
+    monkeypatch.setattr(cli, "fetch", lambda *_args: (page, "text/html; charset=utf-8"))
+
+    with pytest.raises(ValueError, match="Incomplete article parse"):
+        cli.article_note({**SOURCE, "allow_image_only": True}, {"url": article_url, "listedTitle": ""}, 1, 1)
+
+
 def test_deduplicate_uses_document_url_fallback_and_hash():
     base = {
         "dateYear": 2026, "dateMonth": 7, "dateDay": 13, "headline": "测试通知",
@@ -101,7 +134,26 @@ def test_deduplicate_uses_document_url_fallback_and_hash():
 
     other_issuer = {**base, "extra": {**base["extra"], "issuer": "某省人民政府", "source_url": "https://c.gov.cn/a", "content_hash": "ghi"}}
     _, issuer_plan = cli.deduplicate([{"notes": [base, other_issuer]}], [])
-    assert issuer_plan["added"] == 2
+    assert issuer_plan["added"] == 1
+
+    assert cli.identity_url("http://a.gov.cn:80/b?track=1") == cli.identity_url("https://a.gov.cn:443/b")
+
+
+def test_clean_text_and_url_date_key_handle_provincial_page_variants():
+    assert cli.clean_text("\u200b北京市人民政府\ufeff") == "北京市人民政府"
+    assert cli.url_date_key("https://www.jiangsu.gov.cn/art/2026/6/5/article.html") == "20260605"
+
+
+def test_source_max_items_bounds_default_discovery(monkeypatch):
+    source = {**SOURCE, "max_items": 1, "link_pattern": "/20\\d{2}/07/13/content_1\\.htm$"}
+    page = (
+        b'<a href="/2026/07/13/content_1.htm">Newest</a>'
+        b'<a href="/2025/07/13/content_1.htm">Older</a>'
+    )
+    monkeypatch.setattr(cli, "fetch", lambda *_args: (page, "text/html; charset=utf-8"))
+
+    assert len(cli.discover(source, 1, 1, 0)) == 1
+    assert len(cli.discover(source, 1, 1, 2)) == 2
 
 
 def test_registry_rejects_disabled_source(tmp_path):
@@ -187,6 +239,97 @@ def test_manifest_must_match_enabled_registry_contract():
     disabled = {**SOURCE, "enabled": False}
     with pytest.raises(ValueError, match="no longer valid"):
         cli.validate_manifest_registry(manifest, {"sources": [disabled]})
+
+    changed_adapter = {**SOURCE, "body_xpaths": ["//main"]}
+    with pytest.raises(ValueError, match="no longer valid"):
+        cli.validate_manifest_registry(manifest, {"sources": [changed_adapter]})
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_scheduled_cycle_applies_only_the_new_manifest(monkeypatch, tmp_path, dry_run):
+    registry = {"sets": {"weekly": [SOURCE["id"]]}, "sources": [SOURCE]}
+    manifest_path = tmp_path / "runs" / "new" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    applied = []
+
+    monkeypatch.setattr(scheduled.cli, "load_registry", lambda _path: registry)
+    monkeypatch.setattr(scheduled, "wait_for_api", lambda *_args: None)
+    monkeypatch.setattr(
+        scheduled.cli,
+        "run_workflow",
+        lambda *_args: {
+            "outputDir": str(manifest_path.parent), "manifest": str(manifest_path),
+            "dryRun": True, "plan": {"candidates": 1, "added": 1, "duplicates": 0},
+        },
+    )
+    monkeypatch.setattr(
+        scheduled.cli,
+        "apply_manifest",
+        lambda args, _registry: applied.append(args.manifest) or {"status": "complete"},
+    )
+    args = argparse.Namespace(
+        registry=str(tmp_path / "sources.json"), set_name="weekly", state_dir=str(tmp_path),
+        database=str(tmp_path / "timeline.db"), base_url="http://127.0.0.1",
+        backup_dir=str(tmp_path / "backups"), timeout=1, retries=1, limit=1,
+        keep_runs=8, keep_backups=16, ready_timeout=1, ready_delay=0.01, dry_run=dry_run,
+    )
+
+    result = scheduled.run_cycle(args)
+
+    assert applied == ([] if dry_run else [str(manifest_path)])
+    assert result["apply"] == (None if dry_run else {"status": "complete"})
+
+
+def test_scheduled_pruning_is_bounded_and_backup_specific(tmp_path):
+    run_root = tmp_path / "runs"
+    backup_dir = tmp_path / "backups"
+    for name in ("001", "002", "003"):
+        (run_root / name).mkdir(parents=True)
+        (backup_dir / f"timeline_db_prepolitics_{name}.db").parent.mkdir(parents=True, exist_ok=True)
+        (backup_dir / f"timeline_db_prepolitics_{name}.db").touch()
+    unrelated = backup_dir / "timeline_predeploy_keep.db"
+    unrelated.touch()
+
+    scheduled.prune_runs(run_root, 2)
+    scheduled.prune_backups(backup_dir, 2)
+
+    assert sorted(path.name for path in run_root.iterdir()) == ["002", "003"]
+    assert sorted(path.name for path in backup_dir.glob("timeline_db_prepolitics_*.db")) == [
+        "timeline_db_prepolitics_002.db", "timeline_db_prepolitics_003.db",
+    ]
+    assert unrelated.exists()
+
+
+def test_scheduled_cycle_prunes_after_crawl_failure(monkeypatch, tmp_path):
+    registry = {"sets": {"weekly": [SOURCE["id"]]}, "sources": [SOURCE]}
+    run_root = tmp_path / "runs"
+    backup_dir = tmp_path / "backups"
+    for name in ("001", "002"):
+        (run_root / name).mkdir(parents=True)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        (backup_dir / f"timeline_db_prepolitics_{name}.db").touch()
+    monkeypatch.setattr(scheduled.cli, "load_registry", lambda _path: registry)
+    monkeypatch.setattr(scheduled, "wait_for_api", lambda *_args: None)
+    monkeypatch.setattr(scheduled.cli, "run_workflow", lambda *_args: (_ for _ in ()).throw(RuntimeError("crawl failed")))
+    args = argparse.Namespace(
+        registry=str(tmp_path / "sources.json"), set_name="weekly", state_dir=str(tmp_path),
+        database=str(tmp_path / "timeline.db"), base_url="http://127.0.0.1",
+        backup_dir=str(backup_dir), timeout=1, retries=1, limit=1,
+        keep_runs=1, keep_backups=1, ready_timeout=1, ready_delay=0.01, dry_run=False,
+    )
+
+    with pytest.raises(RuntimeError, match="crawl failed"):
+        scheduled.run_cycle(args)
+
+    assert [path.name for path in run_root.iterdir()] == ["002"]
+    assert [path.name for path in backup_dir.iterdir()] == ["timeline_db_prepolitics_002.db"]
+
+
+def test_limit_parser_rejects_negative_values():
+    with pytest.raises(argparse.ArgumentTypeError):
+        cli.nonnegative_int("-1")
+    with pytest.raises(argparse.ArgumentTypeError):
+        scheduled.positive_float("nan")
 
 
 def test_real_api_contract_is_idempotent(client):

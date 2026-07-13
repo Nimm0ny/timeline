@@ -27,6 +27,7 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/images/
+data/political-ingestion/
 
 # Logs and local environment files
 *.log
