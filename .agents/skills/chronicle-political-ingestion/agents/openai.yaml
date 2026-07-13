@@ -1,0 +1,4 @@
+interface:
+  display_name: "编年时政采集"
+  short_description: "审计抓取去重并安全导入中国官方时政信息源到编年项目"
+  default_prompt: "使用编年时政采集工作流审计信息源，先 dry-run，再按明确授权执行导入。"

@@ -1,0 +1,71 @@
+# 时政信息源采集工作流
+
+## 0. Define-First
+
+- **Goal**：建立独立于求是抓取器的、配置驱动且可由人工、Agent 和 systemd 共用的时政信息采集工作流。
+- **Non-goals**：本阶段不修改求是流程，不部署远端定时器，不一次性接入全部省市县，也不为动态站点伪造通用 HTML 适配能力。
+- **Scope**：来源注册表、静态列表页抓取、正文标准化、跨来源候选去重、Chronicle 增量导入、SQLite 写前备份、Agent Skill 和专项测试。
+- **Acceptance**：来源可枚举和审计；中央核心来源可生成完整笔记；默认运行只预演；显式写入可安全重跑且第二次新增为 `0`。
+- **Verification**：专项 pytest、CLI 来源枚举、官方列表页 audit、受限文章数 dry-run、同一批 fixture 重复规划。
+
+## 1. 分层设计
+
+仓库工作流是唯一业务实现。Agent Skill 只负责选择命令和执行安全顺序，systemd 也直接调用同一 CLI。
+
+```text
+官方列表页 -> 链接发现 -> 正文抓取 -> 标准化 -> 候选去重 -> dry-run -> 备份 -> 增量写入
+```
+
+首批启用来源：
+
+- `gov_cn_department_docs`：中国政府网国务院部门文件。
+- `party_rules`：共产党员网党内法规近期更新。
+
+国家法律法规数据库和全国人大报告登记为待专用适配来源；只有完成动态 API、TLS 或 PDF 验证后才能启用。
+
+## 2. Chronicle 映射
+
+| 数据层 | Chronicle 层级 |
+| --- | --- |
+| 权威层级 | 书架，例如 `党中央`、`中央国家机关` |
+| 发布机构或稳定来源 | 笔记本，例如 `党内法规`、`国务院部门文件` |
+| 文种 | 分组 `era`，例如 `政策文件`、`工作报告` |
+| 文件标题 | 笔记标题 `headline` |
+| 文件全文 | `bodyMarkdown` |
+
+来源 URL、来源键、发文字号、发布机构和正文哈希写入 `extra`，并为目标笔记本补齐对应属性列。
+
+## 3. 去重契约
+
+候选按来源优先级排序，再依次生成以下身份键：
+
+1. `发布机构 + 发文字号`；
+2. 规范化后的原文 URL，删除 query 和 fragment；
+3. `发布机构 + 发布日期 + 规范化标题`；
+4. 正文 SHA-256。
+
+任一身份键与更高优先级候选或任一时政书架中的既有笔记相同即跳过。草案、正式稿、修订和废止文件通过标题版本词保持独立；后续阶段再增加显式版本关系。
+
+## 4. 安全边界
+
+- `run` 只生成带校验和的 dry-run manifest；`apply --manifest` 只能写入该批已审阅候选。
+- 写入前必须获取独占锁并对 SQLite 执行 online backup 和 `PRAGMA quick_check`。
+- `apply` 只接受回环 API 和当前 checkout 的 `data/timeline.db`，远端导入必须登录目标 host 后本机执行。
+- 写入前还必须比对 API 返回的数据库路径指纹，确保备份文件与 API 实际写入同一实例。
+- manifest 固化来源注册契约；来源被禁用或目标书架/笔记本映射变化后必须重新生成计划。
+- 抓取存在任何错误时拒绝写入；失败现场保留在状态目录。
+- PDF 正文附件会合并进 Markdown；仅有 WPS/Office 附件且网页正文不足时严格失败，不导入残缺文章。
+- 目标书架和笔记本可在 `apply` 时创建，dry-run 会提前校验全局同名冲突。
+- 不同步删除，不覆盖用户编辑，不改变收藏和关联关系。
+- 远端执行和定时器启用属于独立投产操作。
+
+## 5. CLI
+
+```powershell
+python -m tools.political_ingestion.cli sources
+python -m tools.political_ingestion.cli audit --set central-core
+python -m tools.political_ingestion.cli run --set central-core --limit 3
+python -m tools.political_ingestion.cli apply --manifest data/political-ingestion/runs/<run>/manifest.json
+```
+
+省级扩展沿用相同注册表和适配器接口，按地区分批加入，不复制一套新的同步器。

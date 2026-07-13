@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from backend.app.api.bookshelves import router as bookshelves_router
+from backend.app.api.config import router as config_router
 from backend.app.api.topics import router as topics_router
 from backend.app.db.session import Base, get_db
 from backend.app.models.entities import Bookshelf, NoteItem, Note, Topic
@@ -42,6 +43,7 @@ def db_session() -> Generator[Session, None, None]:
 @pytest.fixture()
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     app = FastAPI()
+    app.include_router(config_router)
     app.include_router(bookshelves_router)
     app.include_router(topics_router)
 

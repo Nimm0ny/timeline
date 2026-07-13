@@ -1,0 +1,81 @@
+{
+  "sets": {
+    "central-core": ["gov_cn_department_docs", "party_rules"]
+  },
+  "sources": [
+    {
+      "id": "gov_cn_department_docs",
+      "name": "中国政府网国务院部门文件",
+      "enabled": true,
+      "priority": 10,
+      "role": "canonical",
+      "bookshelf": {"name": "politics_central", "title": "中央国家机关"},
+      "notebook": "国务院部门文件",
+      "group": "政策文件",
+      "issuer": "国务院部门",
+      "list_url": "https://www.gov.cn/zhengce/zhengceku/bmwj/home.htm",
+      "allowed_hosts": ["www.gov.cn"],
+      "link_xpath": "//a[contains(@href, 'content_') and contains(@href, '../20')]",
+      "link_pattern": "/zhengce/zhengceku/\\d{6}/content_\\d+\\.htm$",
+      "title_xpaths": [
+        "(//*[contains(@class, 'policyLibraryOverview_header')]//td[normalize-space()='标 题：']/following-sibling::td[1])[1]",
+        "//*[contains(@class, 'policyLibraryOverview')]//*[self::h1 or self::h2][1]",
+        "//title"
+      ],
+      "title_suffixes": ["_国务院部门文件_中国政府网"],
+      "issuer_xpaths": [
+        "(//*[contains(@class, 'policyLibraryOverview_header')]//td[normalize-space()='发文机关：']/following-sibling::td[1])[1]"
+      ],
+      "document_no_xpaths": [
+        "(//*[contains(@class, 'policyLibraryOverview_header')]//td[normalize-space()='发文字号：']/following-sibling::td[1])[1]"
+      ],
+      "body_xpaths": ["//*[@id='UCAP-CONTENT']", "//div[contains(@class, 'trs_editor_view')][1]"],
+      "date_meta": "firstpublishedtime"
+    },
+    {
+      "id": "party_rules",
+      "name": "共产党员网党内法规",
+      "enabled": true,
+      "priority": 20,
+      "role": "canonical",
+      "bookshelf": {"name": "politics_party", "title": "党中央"},
+      "notebook": "党内法规",
+      "group": "党内法规",
+      "issuer": "中共中央及其工作机关",
+      "list_url": "https://www.12371.cn/special/dnfg/ldfg/",
+      "allowed_hosts": ["www.12371.cn"],
+      "link_xpath": "//a[@href]",
+      "link_pattern": "/\\d{4}/\\d{2}/\\d{2}/ARTI\\d+\\.shtml$",
+      "title_xpaths": ["//h1[1]", "//title"],
+      "title_suffixes": ["_共产党员网"],
+      "body_xpaths": ["//*[@id='font_area']"],
+      "date_meta": ""
+    },
+    {
+      "id": "npc_reports",
+      "name": "中国人大网权威报告",
+      "enabled": false,
+      "priority": 10,
+      "role": "canonical",
+      "disabled_reason": "等待专用 TLS 与分页适配器验证",
+      "bookshelf": {"name": "politics_central", "title": "中央国家机关"},
+      "notebook": "全国人大",
+      "group": "工作报告",
+      "issuer": "全国人大",
+      "list_url": "https://www.npc.gov.cn/npc/c2/c12435/c12491/"
+    },
+    {
+      "id": "national_law_database",
+      "name": "国家法律法规数据库",
+      "enabled": false,
+      "priority": 1,
+      "role": "canonical",
+      "disabled_reason": "等待动态 API 与附件标准文本适配器验证",
+      "bookshelf": {"name": "politics_central", "title": "中央国家机关"},
+      "notebook": "法律法规",
+      "group": "法律法规",
+      "issuer": "全国人大常委会",
+      "list_url": "https://flk.npc.gov.cn/"
+    }
+  ]
+}

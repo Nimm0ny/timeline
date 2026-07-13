@@ -14,7 +14,11 @@ htmlcov/
 
 # Local QA and browser profiles
 .tmp-qa/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/chronicle-political-ingestion/
+!.agents/skills/chronicle-political-ingestion/**
 .playwright-cli/
 
 # Runtime data and secrets
