@@ -93,6 +93,12 @@ def parse_args() -> argparse.Namespace:
         description="Crawl qstheory.cn and emit one timeline schemaVersion 2 JSON per topic group."
     )
     parser.add_argument(
+        "--source",
+        choices=("all", "web", "magazine"),
+        default="all",
+        help="Crawl both sources (default), only 求是网, or only 求是杂志.",
+    )
+    parser.add_argument(
         "--seed",
         action="append",
         default=[],
@@ -104,6 +110,11 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help="Restrict 求是杂志 crawling to specific years like 2026. Repeatable.",
+    )
+    parser.add_argument(
+        "--latest-issue",
+        action="store_true",
+        help="With --source magazine, crawl only the latest issue discovered in the archive.",
     )
     parser.add_argument("--subtitle", default="", help="Optional subtitle written to every generated topic JSON.")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory for grouped topic JSON files.")
@@ -120,6 +131,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES, help="Per-request retry count.")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Pause between requests in seconds.")
     parser.add_argument("--verbose", action="store_true", help="Print crawl progress.")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return a non-zero exit code when any crawl error is recorded.",
+    )
     return parser.parse_args()
 
 
@@ -462,6 +478,7 @@ def build_manifest(stats: dict, output_dir: Path, manifest_name: str) -> dict:
         )
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": stats.get("source", "all"),
         "outputDir": str(output_dir),
         "manifest": manifest_name,
         "topics": topics,
@@ -507,6 +524,21 @@ def should_crawl_magazine(raw_specs: list[str], topic_filters: list[str]) -> boo
 
 def issue_year_filters(values: list[str]) -> set[str]:
     return {clean_text(value).removesuffix("年") for value in values if clean_text(value)}
+
+
+def latest_issue_link(issue_links: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    def issue_number(item: tuple[str, str]) -> int:
+        match = re.search(r"第(\d+)期$", item[0])
+        return int(match.group(1)) if match else -1
+
+    return [max(issue_links, key=issue_number)] if issue_links else []
+
+
+def record_skipped_article(
+    failures: list[str], article_url: str, exc: Exception, *, strict: bool, latest_issue: bool = False
+) -> None:
+    if strict or latest_issue:
+        failures.append(f"{article_url} :: {exc}")
 
 
 def extract_qishi_year_links(document, archive_url: str, allowed_years: set[str]) -> list[tuple[str, str]]:
@@ -599,6 +631,8 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict[str, dict], dic
         return {}, {"errors": failures, "issueCount": 0, "articleCount": 0, "channelsByIssue": issue_channels}
 
     year_links = extract_qishi_year_links(archive_doc, archive_url, year_filters)
+    if args.latest_issue and year_links:
+        year_links = [max(year_links, key=lambda item: int(item[0]))]
     issue_count = 0
     for year, year_url in year_links:
         try:
@@ -615,6 +649,8 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict[str, dict], dic
             failures.append(f"{year_url} :: {exc}")
             continue
         issue_links = extract_qishi_issue_links(year_doc, year_url, year)
+        if args.latest_issue:
+            issue_links = latest_issue_link(issue_links)
         for issue_label, issue_url in issue_links:
             issue_count += 1
             try:
@@ -651,10 +687,24 @@ def crawl_qishi_magazine(args: argparse.Namespace) -> tuple[dict[str, dict], dic
                     payload = qishi_issue_payload(issue_label, listed_title, article_url, article_doc)
                     issue_events[issue_label].append(payload)
                     issue_channels[issue_label].add(payload["extra"]["channel"])
-                except SkipArticle:
+                except SkipArticle as exc:
+                    record_skipped_article(
+                        failures,
+                        article_url,
+                        exc,
+                        strict=args.strict,
+                        latest_issue=args.latest_issue,
+                    )
                     continue
                 except HTTPError as exc:  # pragma: no cover - network variance
                     if exc.code == 404:
+                        record_skipped_article(
+                            failures,
+                            article_url,
+                            exc,
+                            strict=args.strict,
+                            latest_issue=args.latest_issue,
+                        )
                         continue
                     failures.append(f"{article_url} :: {exc}")
                 except Exception as exc:  # pragma: no cover - network variance
@@ -680,7 +730,7 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
     channels_by_topic: dict[str, set[str]] = defaultdict(set)
     memberships_by_url: dict[str, dict[str, tuple[Seed, str]]] = defaultdict(dict)
     failures: list[str] = []
-    seeds = configured_seeds(args.seed, args.topic)
+    seeds = configured_seeds(args.seed, args.topic) if args.source in {"all", "web"} else []
     for seed in seeds:
         if args.verbose:
             print(f"[seed] {seed.topic}/{seed.channel} <- {seed.url}", file=sys.stderr)
@@ -721,6 +771,9 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
                 events_by_topic[topic].append(payload)
                 event_count_by_topic[topic] += 1
                 channels_by_topic[topic].add(payload["extra"]["channel"])
+        except SkipArticle as exc:
+            record_skipped_article(failures, article_url, exc, strict=args.strict)
+            continue
         except Exception as exc:  # pragma: no cover - network variance
             failures.append(f"{article_url} :: {exc}")
     payloads = {
@@ -729,6 +782,7 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
         if events
     }
     stats = {
+        "source": args.source,
         "seedCount": len(seeds),
         "linkCount": len(memberships_by_url),
         "errors": failures,
@@ -736,7 +790,7 @@ def crawl(args: argparse.Namespace) -> tuple[dict[str, dict], dict]:
         "eventCountByTopic": dict(event_count_by_topic),
         "channelsByTopic": channels_by_topic,
     }
-    if should_crawl_magazine(args.seed, args.topic):
+    if args.source in {"all", "magazine"} and should_crawl_magazine(args.seed, args.topic):
         magazine_payloads, magazine_stats = crawl_qishi_magazine(args)
         stats["errors"].extend(magazine_stats["errors"])
         stats["linkCount"] += magazine_stats["articleCount"]
@@ -771,7 +825,9 @@ def main() -> int:
     )
     for item in stats["errors"]:
         print(f"[warn] {item}", file=sys.stderr)
-    return 0 if total_events else 1
+    if not total_events:
+        return 1
+    return 2 if args.strict and stats["errors"] else 0
 
 
 if __name__ == "__main__":
