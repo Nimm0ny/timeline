@@ -11,26 +11,32 @@ Use the repository workflow as the only implementation. Do not reproduce scraper
 
 1. Read `AGENTS.md` and `docs/political-ingestion-workflow.md`.
 2. Inspect the registry with `python -m tools.political_ingestion.cli sources`.
-3. Audit requested sources before crawling:
+3. Validate the complete planning matrix before source work. `sources.yaml` is inventory; only production mappings in `sources.json` are runnable:
+
+```powershell
+python -m tools.political_ingestion.source_matrix
+```
+
+4. Audit requested sources before crawling:
 
 ```powershell
 python -m tools.political_ingestion.cli audit --set central-core
 ```
 
-4. Run a bounded dry-run first. Omit `--limit` only after the bounded run succeeds.
+5. Run a bounded dry-run first. Omit `--limit` only after the bounded run succeeds.
 
 ```powershell
 python -m tools.political_ingestion.cli run --set central-core --limit 3
 ```
 
-5. Inspect `plan`, `errors`, target shelves/notebooks, and the generated manifest. Never apply a manifest containing errors.
-6. Apply the exact reviewed manifest only when the user explicitly requests import or synchronization. Run the command on the target host; the CLI rejects non-loopback APIs.
+6. Inspect `plan`, `errors`, target shelves/notebooks, and the generated manifest. Never apply a manifest containing errors.
+7. Apply the exact reviewed manifest only when the user explicitly requests import or synchronization. Run the command on the target host; the CLI rejects non-loopback APIs.
 
 ```powershell
 python -m tools.political_ingestion.cli apply --manifest data/political-ingestion/runs/<run>/manifest.json
 ```
 
-7. Report added, duplicate and failed counts, backup path, output directory, and any disabled sources.
+8. Report added, duplicate and failed counts, backup path, output directory, and any disabled sources.
 
 For the verified weekly source set, use the shared scheduled entry point. Keep `--dry-run` for local validation:
 
@@ -41,6 +47,7 @@ python tools/political_ingestion_scheduled_run.py --set weekly --dry-run --limit
 ## Guardrails
 
 - Keep the existing `qstheory_*` workflow independent.
+- Never treat a `planned` matrix entry as runnable or add it to a scheduled set before its rules, adapter, and tests are verified.
 - Treat the official source registry and canonical URLs as source-of-truth metadata.
 - Do not enable a disabled dynamic source until its dedicated adapter and tests exist.
 - Do not bypass dry-run, exclusive locking, strict crawl failure, or SQLite backup.

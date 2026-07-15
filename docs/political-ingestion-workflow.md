@@ -28,6 +28,16 @@
 
 三个省级来源组成 `province-pilot`；中央核心来源和三个省级来源共同组成周任务使用的 `weekly` 来源集。
 
+完整来源底账位于 `tools/political_ingestion/sources.yaml`：中央 S0 共 `10` 项，大陆 `31` 个省级行政区政府门户加新疆生产建设兵团共 `32` 项。`sources.yaml` 是规划与核验真相，逐项记录目标内容类型及列表页、正文、附件和分页状态；`runtime_content_coverage` 单独记录现有适配器真正覆盖的内容类型。`sources.json` 仍是唯一运行注册表。只有标记为 `production` 且映射到 `sources.json` 的来源可被 CLI 或周任务执行，`planned` 仅表示已纳入矩阵，不表示已经覆盖抓取。
+
+矩阵校验器固定官方目录、地区到门户的映射和状态词表，并要求每个生产来源的 `list_url` 与 `sources.json` 一致；更新官方入口时必须同时提交来源依据、矩阵、运行注册表和测试，禁止只改一侧绕过漂移检查。
+
+求是网与求是杂志在矩阵中标记为 `external`，继续由独立 `qstheory_*` 工作流管理。扩展新来源时必须先核验矩阵，再完成站点规则、适配器和测试，最后同时将生命周期改为 `production` 并加入 `sources.json`：
+
+```powershell
+python -m tools.political_ingestion.source_matrix
+```
+
 中国人大网当前 HTTPS 在本项目运行环境中无法完成 TLS 握手，因此 `npc_reports` 仅对注册表中明确标记的 `http://www.npc.gov.cn` 启用受限 HTTP；其他 HTTP 来源一律拒绝加载。国家法律法规数据库正文由官方 OFD 阅读器承载，采集器不下载附件，仅在笔记中保存法规元数据、目录和官方阅读入口。
 
 ## 2. Chronicle 映射
