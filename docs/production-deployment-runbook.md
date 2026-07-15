@@ -326,3 +326,16 @@ sudo systemctl start timeline.service
 - 调度状态：`political-ingestion-sync.service` 与 `.timer` 已安装并执行 `daemon-reload`，timer 保持 `disabled/inactive`，未开始自动导入。
 - 远端 dry-run：`python tools/political_ingestion_scheduled_run.py --set weekly --dry-run --limit 2` 成功生成 10 条候选、0 条重复，结果为 `apply: null`；清单位于 `data/political-ingestion/runs/20260713_203656_656951/manifest.json`。
 - 本地验证：`agent:check` / `build` / `test:ui`(221) / `pytest`(45) / skill quick validation 全通过。
+
+## 16. Deployment Record: 2026-07-15
+
+- 已部署 commit：`225d00e`（前值 `36a394a`；新增全国人大报告与国家法律法规数据库专用适配器及测试）。
+- 远端代码备份：`~/timeline_backups/timeline_predeploy_20260715_160239.tar.gz`；部署切换保留 `.venv/`、`data/`、`theme/`，未操作 CLAW 网关或隧道。
+- 首次 weekly dry-run：manifest 为 `data/political-ingestion/runs/20260715_160343_048929/manifest.json`，校验和 `099177072642db1afe27d53cc7f1334af788c8c071da979d9813f39f780804d0`，`errors=0`、`candidates=161`、`added=161`、`duplicates=0`。
+- 导入结果：创建 3 个书架、7 个笔记本并新增 161 条笔记；写前数据库备份为 `~/timeline_backups/timeline_db_prepolitics_20260715_160635_857561.db`。
+- 分布核对：中央国家机关 80 条（法律法规 30、国务院部门文件 20、全国人大 30），党中央 15 条，省级政府 66 条（北京 30、广东 20、江苏 16）。
+- 去重验收：重放同一已校验 manifest 得到 `added=0`、`duplicates=161`，无数据库写入且未生成冗余备份。
+- 来源限流：导入后立即重复全量抓取时，国家法律法规数据库先出现单条详情失败，继续单源重试后列表接口被限流；严格失败门禁正确拒绝生成可应用计划。不要用连续重新抓取测试幂等，优先重放同一 manifest；预计正常周频触发同类限流的风险较低，仍需检查 2026-07-20 首次定时运行结果。
+- 调度状态：`political-ingestion-sync.timer` 已 `enabled/active`，下一次为 2026-07-20 周一约 05:23（包含随机延迟），同步 service 当前 `inactive`。
+- 生产 smoke：`timeline.service=active`，`topics_count=207`，目标 7 个笔记本合计 `noteCount=161`；公网 `/` 与 `/api/topics` 均返回 HTTP `200`。
+- 本地验证：`agent:check` / `build` / `test:ui`(221) / `pytest`(50) / skill quick validation 已在 commit `225d00e` 发布前通过；独立 review 结论为 `No blocking findings`。
