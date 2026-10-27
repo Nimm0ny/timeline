@@ -50,7 +50,7 @@ python -m pytest tests/test_timeline_api.py tests/test_date_utils.py
 
 - 停止本任务启动的进程；清理本任务创建且来源明确的临时文件。不得清理 `data/`、`node_modules/`、`.git/`、上传资源、数据库或用户文件。归档的视觉 QA 截图是交付物。
 - 恢复本任务修改的环境变量、配置、端口和服务状态，无法恢复时说明影响。结束前执行 `git status --short`，确认只包含本任务改动；用户/并行改动须明确排除。
-- 最终回复简要包含 Read、Startup、Changed、Verified、Review、Cleanup、Risks；视觉任务另报 Visual QA。测试未运行须说明原因。
+- 回复聚焦本次改动和实际验证，不使用固定栏目；只有未运行的验证或实质风险需要交代时才说明。
 
 ## 6. 「编年」Obsidian 前端硬约束
 
