@@ -21,7 +21,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-note", "create-mindmap", "create-canvas"]);
+const emit = defineEmits(["open-drawer", "update:searchQuery", "update:searchOpen", "create-note"]);
 
 const searchInputRef = ref(null);
 const createMenuOpen = ref(false);
@@ -44,9 +44,9 @@ function toggleCreateMenu() {
   createMenuOpen.value = !createMenuOpen.value;
 }
 
-function pickNoteType(type) {
+function createNote() {
   createMenuOpen.value = false;
-  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-note");
+  emit("create-note");
 }
 
 watch(
@@ -90,17 +90,9 @@ watch(
       <div v-if="createMenuOpen" class="mobile-topbar-create-backdrop" @click="createMenuOpen = false"></div>
       <div v-if="createMenuOpen" class="popover tl-pop-newtype mobile-topbar-create-menu" @click.stop>
         <div class="pop-title">新建</div>
-        <button type="button" class="pop-item" @click="pickNoteType('entry')">
+        <button type="button" class="pop-item" @click="createNote">
           <LucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
-          <span class="pop-item-label">条目</span>
-        </button>
-        <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
-          <LucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
-          <span class="pop-item-label">思维导图</span>
-        </button>
-        <button type="button" class="pop-item" @click="pickNoteType('canvas')">
-          <LucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
-          <span class="pop-item-label">画布</span>
+          <span class="pop-item-label">笔记</span>
         </button>
       </div>
     </div>

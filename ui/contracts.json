@@ -1,0 +1,595 @@
+{
+  "schemaVersion": 1,
+  "contracts": [
+    {
+      "id": "notes.browse",
+      "featureId": "notes.browse",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记本侧栏、笔记列表和视图切换",
+      "dataCondition": "服务端返回一个或多个笔记本。",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "timeline",
+        "table",
+        "board",
+        "gallery",
+        "outline",
+        "trash"
+      ],
+      "operationIds": [
+        "topics_list",
+        "notes_index",
+        "notes_list"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/TopicSidebar.vue",
+        "ui/src/components/notes/NoteFeed.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.read",
+      "featureId": "notes.read",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "选择笔记后打开详情面板",
+      "dataCondition": "目标笔记存在且未被永久删除。",
+      "states": [
+        "loading",
+        "reading",
+        "editing",
+        "saving",
+        "saved",
+        "error"
+      ],
+      "operationIds": [
+        "notes_get"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/NoteDetailPane.vue",
+        "ui/src/components/notes/MarkdownLiveEditor.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.search",
+      "featureId": "notes.search",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "在编年页面按 Ctrl+K 打开搜索命令面板",
+      "dataCondition": "隔离数据中有一条标题包含本次唯一查询词的笔记。",
+      "states": [
+        "search-results"
+      ],
+      "operationIds": [
+        "notes_search"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/CommandPalette.vue",
+        "ui/src/components/notes/NoteFeed.vue",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "notes.search-visible-result",
+          "title": "从搜索命令面板找到并回读笔记",
+          "summary": "通过键盘打开命令面板，输入查询词，观察可见结果和正式搜索请求，再通过 API 回读目标笔记。",
+          "inputSchema": "UiSearchScenarioInput",
+          "targetState": "search-results",
+          "preconditions": [
+            "query uniquely matches expectedNoteId"
+          ],
+          "cleanup": "none",
+          "actions": [
+            {
+              "action": "press",
+              "key": "Control+k"
+            },
+            {
+              "action": "expect-visible",
+              "role": "dialog",
+              "name": "搜索命令面板"
+            },
+            {
+              "action": "expect-focused",
+              "role": "searchbox",
+              "name": "搜索事件、笔记本或命令"
+            },
+            {
+              "action": "fill",
+              "role": "searchbox",
+              "name": "搜索事件、笔记本或命令",
+              "valueFrom": "query"
+            },
+            {
+              "action": "expect-visible",
+              "role": "option",
+              "textFrom": "expectedHeadline"
+            }
+          ],
+          "assertions": [
+            {
+              "kind": "operation-observed",
+              "operationId": "notes_search"
+            },
+            {
+              "kind": "no-horizontal-overflow"
+            }
+          ],
+          "readback": {
+            "operationId": "notes_search",
+            "queryFrom": "query",
+            "containsIdFrom": "expectedNoteId",
+            "limit": 8
+          }
+        }
+      ],
+      "manualReview": [
+        "结果层级、文案和视觉品质仍需人工判断"
+      ],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.analysis",
+      "featureId": "notes.analysis",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记视图中的分组摘要",
+      "dataCondition": "当前笔记本包含分组日期。",
+      "states": [
+        "grouped",
+        "empty"
+      ],
+      "operationIds": [
+        "topics_summary"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/NoteFeed.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.create",
+      "featureId": "notes.create",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记列表工具栏、移动端新建菜单或笔记本菜单",
+      "dataCondition": "已选择一个笔记本。",
+      "states": [
+        "create",
+        "saving",
+        "saved",
+        "error"
+      ],
+      "operationIds": [
+        "notes_create"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/NoteDetailPane.vue",
+        "ui/src/components/notes/NoteFeed.vue",
+        "ui/src/components/notes/TopicSidebar.vue",
+        "ui/src/components/notes/MobileTopBar.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.update",
+      "featureId": "notes.update",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记详情面板中的保存、回收和恢复操作",
+      "dataCondition": "目标笔记存在，编辑使用当前版本。",
+      "states": [
+        "reading",
+        "editing",
+        "saving",
+        "saved",
+        "conflict",
+        "trash",
+        "restored",
+        "error"
+      ],
+      "operationIds": [
+        "notes_update",
+        "notes_delete"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/NoteDetailPane.vue",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "topics.manage",
+      "featureId": "topics.manage",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记本侧栏中的选择、新建、改名和删除操作",
+      "dataCondition": "应用至少可以读取笔记本目录。",
+      "states": [
+        "list",
+        "selected",
+        "creating",
+        "renaming",
+        "deleting",
+        "error"
+      ],
+      "operationIds": [
+        "topics_list",
+        "topics_get",
+        "topics_create",
+        "topics_delete",
+        "topics_meta_get",
+        "topics_meta_update"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/TopicSidebar.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "bookshelves.manage",
+      "featureId": "bookshelves.manage",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记本侧栏中的分组操作",
+      "dataCondition": "应用可以读取笔记本分组树。",
+      "states": [
+        "tree",
+        "creating",
+        "renaming",
+        "deleting",
+        "error"
+      ],
+      "operationIds": [
+        "bookshelves_list",
+        "bookshelves_tree",
+        "bookshelves_create",
+        "bookshelves_update",
+        "bookshelves_delete"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/notes/TopicSidebar.vue"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "notes.transfer",
+      "featureId": "notes.transfer",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "设置面板中的导入与导出操作",
+      "dataCondition": "选定笔记本存在且可以读写。",
+      "states": [
+        "ready",
+        "exporting",
+        "importing",
+        "complete",
+        "error"
+      ],
+      "operationIds": [
+        "topics_export",
+        "topics_import"
+      ],
+      "sourcePaths": [
+        "ui/src/components/settings/SettingsModal.vue",
+        "ui/src/services/timelineExport.js",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "media.manage",
+      "featureId": "media.manage",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "笔记详情面板中的图片和附件操作",
+      "dataCondition": "已打开笔记详情面板。",
+      "states": [
+        "ready",
+        "uploading",
+        "attached",
+        "error"
+      ],
+      "operationIds": [
+        "media_upload",
+        "media_delete"
+      ],
+      "sourcePaths": [
+        "ui/src/components/notes/NoteDetailPane.vue",
+        "ui/src/components/notes/AttachmentModal.vue",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "app.settings",
+      "featureId": "app.settings",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "页面工具栏中的设置面板",
+      "dataCondition": "应用设置接口可用。",
+      "states": [
+        "closed",
+        "open",
+        "saving",
+        "saved",
+        "error"
+      ],
+      "operationIds": [
+        "config_get",
+        "config_update"
+      ],
+      "sourcePaths": [
+        "ui/src/pages/NotesPage.vue",
+        "ui/src/components/settings/SettingsModal.vue",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    },
+    {
+      "id": "app.themes",
+      "featureId": "app.themes",
+      "app": "web",
+      "route": "/",
+      "entryPoint": "设置面板中的主题选择和变量编辑",
+      "dataCondition": "主题目录可读取。",
+      "states": [
+        "list",
+        "preview",
+        "saving",
+        "saved",
+        "error"
+      ],
+      "operationIds": [
+        "themes_list",
+        "themes_vars_get",
+        "themes_vars_update"
+      ],
+      "sourcePaths": [
+        "ui/src/components/settings/AppearanceSettings.vue",
+        "ui/src/components/settings/SettingsModal.vue",
+        "ui/src/composables/useTheme.js",
+        "ui/src/composables/useApi.js"
+      ],
+      "variants": [
+        {
+          "id": "mobile",
+          "minWidth": 1,
+          "maxWidth": 767
+        },
+        {
+          "id": "compact-desktop",
+          "minWidth": 768,
+          "maxWidth": 1023
+        },
+        {
+          "id": "desktop",
+          "minWidth": 1024,
+          "maxWidth": 3840
+        }
+      ],
+      "scenarios": [],
+      "manualReview": [],
+      "mediaPolicy": "none"
+    }
+  ]
+}

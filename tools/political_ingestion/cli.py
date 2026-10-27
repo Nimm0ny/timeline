@@ -18,6 +18,8 @@ from lxml import html
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = Path(os.environ.get("CHRONICLE_DATA_DIR", ROOT / ".chronicle-data")).expanduser().resolve()
+DEFAULT_DATABASE = DATA_DIR / "timeline.db"
 DEFAULT_REGISTRY = Path(__file__).with_name("sources.json")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36"
 SPACE_RE = re.compile(r"\s+")
@@ -695,8 +697,8 @@ def run_workflow(args, sources: list[dict], all_shelf_names: set[str]) -> dict:
 def validate_apply_target(base_url: str, database: Path) -> None:
     if urlsplit(base_url).hostname not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("Apply only supports a loopback Chronicle API; run the command on the target host")
-    if database.resolve() != (ROOT / "data" / "timeline.db").resolve():
-        raise ValueError("Apply database must be this Chronicle checkout's data/timeline.db")
+    if database.resolve() != DEFAULT_DATABASE.resolve():
+        raise ValueError("Apply database must match this Chronicle checkout's CHRONICLE_DATA_DIR")
 
 
 def local_database_identity(database: Path) -> str:
@@ -754,12 +756,12 @@ def parse_args() -> argparse.Namespace:
         sub.add_argument("--retries", type=int, default=3)
         sub.add_argument("--limit", type=nonnegative_int, default=0)
         if command == "run":
-            sub.add_argument("--base-url", default="http://127.0.0.1")
+            sub.add_argument("--base-url", default="http://127.0.0.1:8000")
             sub.add_argument("--state-dir", default=str(ROOT / "data" / "political-ingestion"))
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("--manifest", required=True)
-    apply_parser.add_argument("--base-url", default="http://127.0.0.1")
-    apply_parser.add_argument("--database", default=str(ROOT / "data" / "timeline.db"))
+    apply_parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    apply_parser.add_argument("--database", default=str(DEFAULT_DATABASE))
     apply_parser.add_argument("--backup-dir", default=str(Path.home() / "timeline_backups"))
     apply_parser.add_argument("--timeout", type=float, default=20.0)
     return parser.parse_args()

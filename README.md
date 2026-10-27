@@ -1,340 +1,133 @@
-# 历史长河 TimeLine
+# 编年 Chronicle
 
-一个以时间轴为核心的历史笔记系统，采用 `Vue 3 + FastAPI + SQLite` 构建，适合本地或局域网环境下管理历史专题、维护时间节点并以可视化方式浏览内容。
+编年是一个本地优先、以普通 Markdown 笔记为核心的应用。仓库名为 `timeline`；时间线是笔记的一种集合视图，不再代表产品的全部定位。
 
-## 功能概览
+## 产品定位
 
-- 支持三栏时间线笔记界面：左栏分类，中栏时间线，右栏详情/编辑
-- 支持专题切换、专题创建与删除，以及全部、今天、本周、收藏、回收站筛选
-- 支持标签自动聚合、搜索、时间定位和底部快速记录入口
-- 支持时间点新增、Markdown 编辑、收藏、软删除、恢复和永久删除
-- 支持附件上传、正文插入和关联时间点选择
-- 支持 legacy JSON 导入与 `schemaVersion: 2` 结构化导出
-- 支持主题变量接口和基础站点配置
-- 本地优先 / 开源：无需登录，所有写操作直接生效
+编年面向用户与 Agent 共同维护笔记。用户可以让 Agent 订正文字、优化格式或扩写内容；Agent 的工作应限定在用户授权的笔记和范围内，并基于明确的笔记版本提出建议。用户查看差异后决定接受、拒绝或继续修改。旧版本建议不能覆盖用户之后的编辑。
 
-## 技术栈
+计划由用户连接外部 Agent 运行时。编年不托管模型或凭据；真实模型调用、凭据读取及费用操作需要另行授权。
 
-前端：
+## 产品范围
 
-- `Vue 3`
-- `Vue Router 4`
-- `Vite`
+产品范围包括：
 
-后端：
+- 普通 Markdown 笔记，以及笔记本和书架等组织方式。
+- 时间线、列表、表格、看板、画廊和大纲等集合视图。
+- 标签、属性、搜索、收藏、附件和回收站等日常笔记能力。
+- FastAPI、Web 客户端和 CLI 共用有类型的 API 契约；写入围绕笔记身份、版本、操作身份和回读设计。
+- Feature Map 与 CLI，让用户和 Agent 能发现正式 API 操作、执行 schema 校验的读写操作并运行可复现的场景。
 
-- `FastAPI`
-- `SQLAlchemy`
-- `Uvicorn`
-- `python-multipart`
+产品目标不包括知识图谱能力：思维导图、自由画布、图关系浏览、反向链接和自动链接解析。普通 Markdown 正文、标签、属性和集合视图仍属于产品范围。
 
-数据与资源：
+既有图形笔记、关联数据、数据库、附件和备份都是用户数据。任何转换或迁移都应先预览，再在数据库副本上核对，并保留恢复方式；不得因产品方向变化而自动删除或覆盖这些数据。
 
-- `SQLite`：主数据存储
-- `data/images/`：上传图片目录
-- `theme/*.css`：主题变量文件
-- `frontend/`：前端构建产物，由后端直接托管
+## 当前实现状态
 
-## 系统架构
+图形笔记、画布、笔记链接与反向链接已从后端 Feature Map、API 路由和 Web 界面移除。旧 `data/timeline.db` 仍保留在原位置，应用不会导入或迁移其中的数据。新应用默认使用 `.chronicle-data/`。
 
-项目采用“前端源码独立开发、后端统一提供 API 和静态托管”的结构：
+CLI 通过 OpenAPI 与 FastAPI 共享 schema 验证全部 32 个 active API operation。写入通过正式 HTTP API 执行；命令需要 `--confirm`，笔记更新和删除还要提供 `If-Match` 版本。CLI 不访问 SQLite，也不提供任意 API 代理或页面脚本。12 个 Web Feature 都有 UI contract，目前只有笔记搜索有可执行浏览器场景。
 
-- `ui/` 存放前端源码
-- `npm run build` 将前端构建到 `frontend/`
-- `backend/app/main.py` 创建 FastAPI 应用并挂载 API、图片目录、主题目录和前端静态资源
-- 浏览器访问 `http://localhost:8000` 时，实际由 FastAPI 返回 `frontend/index.html`
+Agent 提交建议、用户审阅差异、接受后保存的完整共写界面仍是产品目标，尚未端到端交付。README 中的产品方向不代表这些能力已全部实现。
 
-前端页面启动后的主要数据流如下：
+## 技术架构
 
-1. 读取站点配置 `GET /api/config`
-2. 读取专题列表 `GET /api/topics`
-3. 根据 URL 中的 `topic / event / mode / filter / tag / date` 参数恢复当前工作区
-4. 加载专题信息 `GET /api/topics/{topicId}/meta`
-5. 加载事件列表 `GET /api/topics/{topicId}/events`
-6. 写操作通过新版 REST API 提交到后端
-7. 后端将主数据写入 `data/timeline.db`
+- 前端：Vue 3、Vue Router、Vite。
+- 后端：FastAPI、SQLAlchemy、Uvicorn。
+- 主数据库：SQLite，默认位于 `.chronicle-data/timeline.db`。
+- 图片和附件：存放于 `.chronicle-data/images/`。
+- Feature Map：由后端注册信息提供，CLI 与正式 API 共用。
 
-## 目录结构
+`CHRONICLE_DATA_DIR` 可指定另一份应用数据目录。未设置时使用仓库根目录下的 `.chronicle-data/`。旧 `data/timeline.db` 保持原样，应用启动不会导入或迁移它。
 
-```text
-timeline/
-├─ backend/
-│  ├─ app/
-│  │  ├─ api/         # FastAPI 路由
-│  │  ├─ core/        # 核心配置与路径定义
-│  │  ├─ db/          # 数据库会话
-│  │  ├─ models/      # SQLAlchemy 数据模型
-│  │  ├─ schemas/     # Pydantic 模型
-│  │  └─ services/    # 业务逻辑与迁移逻辑
-│  ├─ requirements.txt
-│  └─ server.py       # 启动入口
-├─ data/
-│  ├─ images/         # 上传图片
-│  ├─ config.json     # 站点默认配置
-│  ├─ *.json          # 旧版专题 JSON，可作为迁移来源
-│  └─ timeline.db     # SQLite 数据库
-├─ frontend/          # Vite 构建输出目录
-├─ theme/             # 主题 CSS 文件
-├─ ui/                # Vue 前端源码
-├─ package.json
-├─ run.bat
-└─ README.md
-```
-
-## 页面说明
-
-### 时间轴页 `/`
-
-- 展示当前专题的三栏时间线笔记工作区
-- 左栏提供专题、主筛选、标签和设置入口
-- 中栏提供搜索、时间定位、纵向事件流和底部 composer
-- 右栏提供阅读态、Markdown 编辑态、附件、标签和关联时间点
-- 支持导入、导出、收藏、回收站、恢复和永久删除
-
-### 兼容重定向 `/editor`
-
-`/editor` 当前作为历史入口保留，并重定向到 `/`。编辑能力已并入右栏详情/编辑面板，不再维护独立 `EditorPage.vue`。
+前端源码位于 `ui/`。运行 `npm run build` 后生成后端托管的 `frontend/` 构建产物。FastAPI 提供应用 API，并托管前端和资源。
 
 ## 快速启动
 
-### 方式一：Windows 一键启动
-
-在项目根目录执行：
+Windows 可在仓库根目录运行：
 
 ```bat
 run.bat
 ```
 
-脚本会自动完成以下步骤：
-
-1. 安装 Python 依赖
-2. 安装前端依赖
-3. 构建前端
-4. 启动 FastAPI 服务
-
-启动后访问：
-
-- 时间轴页面：`http://localhost:8000`
-- `/editor` 历史入口会重定向到时间轴页面
-
-### 方式二：手动启动
-
-安装后端依赖：
+也可手动安装并启动：
 
 ```bash
 python -m pip install -r backend/requirements.txt
-```
-
-安装前端依赖：
-
-```bash
 npm install
-```
-
-构建前端：
-
-```bash
 npm run build
-```
-
-启动后端：
-
-```bash
 python backend/server.py
 ```
 
-说明：
-
-- 如果未先构建前端，访问根路径时后端会返回 “Frontend has not been built yet”
-- 后端默认监听 `0.0.0.0:8000`
-- 启动后会打印本机和局域网访问地址
-
-## 开发模式
-
-前端开发服务：
+默认访问地址为 `http://localhost:8000`。前端开发模式可另开终端运行：
 
 ```bash
 npm run dev
 ```
 
-后端开发服务：
+Vite 默认监听 `http://localhost:5173`，并将 API 请求代理到后端。
+
+## CLI
+
+开发时用 CLI 启动独立 API 和 Vite 服务，再通过 `tools/chronicle_cli.py` 访问正式 HTTP API：
 
 ```bash
-python backend/server.py
+python tools/chronicle_cli.py dev up
+python tools/chronicle_cli.py dev status
+python tools/chronicle_cli.py dev doctor
+python tools/chronicle_cli.py dev logs --service all
+python tools/chronicle_cli.py --base-url <apiUrl> feature list
+python tools/chronicle_cli.py --base-url <apiUrl> feature describe notes.read
+python tools/chronicle_cli.py --base-url <apiUrl> note list --topic-id 1
+python tools/chronicle_cli.py --base-url <apiUrl> note get --note-id 1
+python tools/chronicle_cli.py --base-url <apiUrl> note search --query "关键词"
+python tools/chronicle_cli.py --base-url <apiUrl> api list
+python tools/chronicle_cli.py --base-url <apiUrl> api describe notes_get
+python tools/chronicle_cli.py --base-url <apiUrl> api call notes_get --input-json '{"path":{"note_id":1}}'
+python tools/chronicle_cli.py --base-url <apiUrl> api call media_read --input-json '{"path":{"filename":"<filename>"}}' --output-file ./attachment.bin
+python tools/chronicle_cli.py --base-url <apiUrl> api call notes_update --input-json '{"path":{"note_id":1},"headers":{"If-Match":"<updatedAt>"},"body":{"headline":"新标题","bodyMarkdown":"正文","items":[]}}' --confirm
+python tools/chronicle_cli.py scenario list
+python tools/chronicle_cli.py ui guide --contract notes.search
+python tools/chronicle_cli.py ui check --feature notes.search
+python tools/chronicle_cli.py ui inspect --url <uiUrl> --viewport-width 390 --viewport-height 844
+python tools/chronicle_cli.py --base-url <apiUrl> ui measure notes.search-visible-result --ui-url <uiUrl> --input-json '{"query":"词条关键词","expectedNoteId":1,"expectedHeadline":"目标笔记标题"}' --repeat 5 --dataset-size 1 --run-mode development
+python tools/chronicle_cli.py --base-url <apiUrl> doctor
+python tools/chronicle_cli.py --local-catalog feature list
+python tools/chronicle_cli.py dev down
 ```
 
-Vite 开发服务器默认监听 `0.0.0.0:5173`，并将以下路径代理到后端：
+将 `<apiUrl>` 和 `<uiUrl>` 替换为 `dev up` 返回的地址。CLI 为每个开发会话创建独立数据目录；`dev down` 停止本次会话启动的服务并保留该目录。
 
-- `/api`
-- `/images`
-- `/theme`
+CLI 默认连接 `http://127.0.0.1:8000`，也可以传入 `--base-url`。结果以 JSON 写入 stdout；`--debug` 将诊断进度写入 stderr。CLI 只运行 Feature Map 中已登记且 lifecycle 为 `active` 的 operation。写入必须带 `--confirm`，笔记更新和删除还必须带读取时的 `If-Match` 版本。
 
-常见开发访问方式：
+`api call` 只接受 Feature Map 中的 `operationId`，并按 OpenAPI 参数及 FastAPI schema 校验输入和响应。二进制读取要求提供一个尚不存在的 `--output-file` 路径，CLI 不覆盖已有文件。`--local-catalog` 从当前工作树读取目录，不需要服务；实际 API 调用仍通过 HTTP。`ui guide` 和 `ui check` 读取本地 contract 并核对全部 Web Feature 的绑定；`ui inspect` 观察可访问的 loopback 页面。当前真实浏览器场景覆盖搜索流程。`ui check` 会单独列出还没有可执行 UI 场景的 Feature，不把静态 contract 检查报告成业务通过。`ui measure` 重复运行已登记的 UI 场景并报告耗时。CLI 不管理或运行仓库测试套件。
 
-- 前端开发页面：`http://localhost:5173`
-- 后端直出页面：`http://localhost:8000`
+## 数据与安全
 
-## 生产部署
+- 应用当前按本地或局域网单用户模式运行，不提供账号认证。
+- 旧 `data/timeline.db`、附件、图形笔记及关联数据均视为用户数据，不得直接清理。
+- 默认应用数据位于 `.chronicle-data/`。应用不会从旧 `data/` 自动迁移内容。
+- CLI 通过 HTTP API 读写应用，不直接写 SQLite。
+- 迁移先做 dry-run 并在副本上验证；未获用户明确指令，不对现有数据库执行内容迁移或永久删除。
+- Agent 写入应绑定笔记身份和来源版本，并处理冲突、未知结果及回读；用户确认前不得覆盖正文。
 
-当前公网 host 的完整投产流程以 `docs/production-deployment-runbook.md` 为准。
+## 开发检查
 
-生产环境采用 systemd 管理 FastAPI 服务：
-
-- 服务名：`timeline.service`
-- 应用目录：`~/timeline`
-- 内部监听：`0.0.0.0:8000`
-- 生产入口：`http://<host>/`
-- 端口关系：系统网络层将生产入口 `80` redirect 到内部 `8000`
-
-部署原则：
-
-- 本地先运行 `agent:check`、`build`、`test:ui` 和后端 pytest。
-- 部署包从当前 `HEAD` 生成，加入本地 `frontend/` 构建产物。
-- 远端保留 `data/`、`theme/`、`.venv/`，不覆盖 SQLite、上传资源、主题文件和虚拟环境。
-- 每次切换前在 `~/timeline_backups/` 创建可回滚备份。
-- 发布后用生产入口 `80` 验证 `/` 和 `/api/topics`。
-
-## 数据与存储
-
-当前项目已从旧的 JSON 文件模式迁移到数据库模式，主数据以 `SQLite` 为准：
-
-- 数据库文件：`data/timeline.db`
-- 图片目录：`data/images/`
-- 主题目录：`theme/`
-- 默认配置：`data/config.json`
-
-说明：
-
-- 旧专题 JSON 文件仍可保留在 `data/*.json` 作为历史备份
-- 页面实际读写的主体数据来自数据库，而不是直接改 JSON 文件
-- 主题变量目前仍保存在 `theme/*.css` 中
-
-## 旧数据迁移
-
-应用首次启动时会自动执行以下动作：
-
-1. 初始化数据库结构
-2. 初始化默认站点配置
-3. 当数据库为空时，将 `data/*.json` 中的旧专题数据导入 SQLite
-
-迁移后：
-
-- 旧 JSON 文件不会自动删除
-- 后续新增或修改的数据默认写入数据库
-
-## 鉴权说明
-
-当前为**本地优先 / 开源**模式，**已移除登录与认证**：所有写操作（新建、编辑、删除、收藏、导入、上传、列定义、主题）无需登录直接生效。若后续要做在线多用户托管，再单独引入可选认证。
-
-## API 概览
-
-### 站点配置
-
-- `GET /api/config`
-- `PUT /api/config`
-
-### 新版专题接口
-
-- `GET /api/topics`
-- `POST /api/topics`
-- `GET /api/topics/{topicId}`
-- `DELETE /api/topics/{topicId}`
-- `GET /api/topics/{topicId}/meta`
-- `PUT /api/topics/{topicId}/meta`
-- `GET /api/topics/{topicId}/events`
-- `POST /api/topics/{topicId}/events`
-- `POST /api/topics/{topicId}/import`
-- `GET /api/topics/{topicId}/export`
-
-### 节点接口
-
-- `PUT /api/events/{eventId}`
-- `DELETE /api/events/{eventId}`
-
-### 主题与媒体
-
-- `GET /api/themes`
-- `GET /api/themes/{name}/vars`
-- `PUT /api/themes/{name}/vars`
-- `POST /api/media/upload`
-- `DELETE /api/media/by-filename/{filename}`
-
-说明：旧版兼容接口（`/api/data-files`、`/api/data-meta`、`/api/events?topicId=`、`/api/export`、`/api/upload`、`/api/images/{filename}`）已移除，统一走上述新版 REST 路由；旧 JSON 数据仍由启动时的自动迁移导入，不依赖这些接口。
-
-## 常用命令
-
-安装依赖：
+按改动选择相关检查，不需要每次运行整套命令：
 
 ```bash
-python -m pip install -r backend/requirements.txt
-npm install
-```
-
-前端开发：
-
-```bash
-npm run dev
-```
-
-前端构建：
-
-```bash
+npm run agent:check
 npm run build
+python tools/generate_api_types.py --check
 ```
 
-前端预览：
+当前仓库不保留自动化测试文件。CLI 的场景执行和测量仍可直接验证真实页面行为；新增测试文件需先按 `AGENTS.md` 的规则通过 test-audit 必要性审查。
 
-```bash
-npm run preview
-```
+## 常用入口
 
-启动后端：
-
-```bash
-python backend/server.py
-```
-
-后端语法检查：
-
-```bash
-python -m py_compile backend/server.py
-```
-
-后端模块编译检查：
-
-```bash
-python -m compileall backend/app backend/server.py
-```
-
-## 测试现状
-
-当前仓库已有轻量自动化验收入口：
-
-- `cmd /c npm run agent:check`
-- `cmd /c npm run build`
-- `cmd /c npm run test:ui`
-- `python -m pytest tests/test_timeline_api.py tests/test_date_utils.py`
-
-其中 `test:ui` 使用 Node 内置测试运行 `ui/tests/*.test.js`，后端测试覆盖 timeline API、导入导出、日期工具和事件状态契约。
-
-## 已知限制
-
-- 公网 host 已有投产流程，但不是通用云部署方案；具体环境以 `docs/production-deployment-runbook.md` 为准
-- 当前为无鉴权的本地/开源模式，写操作不需要登录；在线多用户托管需另行引入认证
-- 主题变量仍存储在 `theme/*.css`，尚未纳入数据库
-
-## 关键入口文件
-
-- 前端源码入口：`ui/src/main.js`
-- 前端路由入口：`ui/src/router/index.js`
-- 时间轴页面：`ui/src/pages/TimelinePage.vue`
-- FastAPI 应用入口：`backend/app/main.py`
-- 服务启动入口：`backend/server.py`
-
-## 后续建议
-
-如果你准备继续迭代，建议优先考虑以下方向：
-
-1. 在线托管时引入可选认证与多用户支持
-2. 扩展前端交互 smoke 测试和视觉 QA 自动化记录
-3. 将主题变量与更多系统配置纳入数据库管理
+- 前端页面：`ui/src/pages/NotesPage.vue`
+- 前端 API 客户端：`ui/src/composables/useApi.js`
+- FastAPI 应用：`backend/app/main.py`
+- Feature Map：`backend/app/features.py`
+- CLI：`tools/chronicle_cli.py`
+- Python 依赖：`backend/requirements.txt`

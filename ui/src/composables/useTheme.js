@@ -11,7 +11,6 @@ import {
 // Token-override theme engine: a few knobs (mode/accent/background/foreground/
 // contrast/fonts/markdown) derive the full :root token set. A pure preset applies
 // its exact base tokens (no drift); customized knobs overlay recomputed groups.
-// See docs/appearance-system-design.md.
 
 const state = reactive({
   config: { ...DEFAULT_THEME },

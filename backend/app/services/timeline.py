@@ -1,16 +1,16 @@
 import hashlib
-import html
 import io
 import json
 import mimetypes
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select, text, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.app.core.config import CONFIG_FILE, DEFAULT_CONFIG, IMAGES_DIR, MEDIA_DEFAULT_CONFIG, THEME_DIR, encode_config_value
@@ -20,7 +20,6 @@ from backend.app.models.entities import (
     NoteItem,
     ImageAsset,
     Note,
-    NoteLink,
     Topic,
     TopicEraStat,
     TopicStat,
@@ -46,22 +45,13 @@ COLUMN_TYPES = {"text", "number", "date", "checkbox", "url", "email", "phone", "
 OPTION_COLUMN_TYPES = {"select", "multiselect"}
 CHECKBOX_TRUE = {"true", "1", "yes", "on"}
 
-# Note kinds (axis 2). "entry" = markdown body + display-style views; "mindmap" =
-# node tree and "canvas" = free-form board, both stored as an X6 snapshot in body_json.
-# See docs/note-types-and-views-design.md.
-NOTE_TYPES = {"entry", "mindmap", "canvas"}
-DEFAULT_NOTE_TYPE = "entry"
 UNDATED_LABEL = "未定时间"
-# Upper bound on a structured body (mindmap tree) so a single note can't store an
-# unbounded blob. 5 MB is generous for a text tree (tens of thousands of nodes) yet
-# bounded even when nodes carry inline base64 images.
-MAX_BODY_JSON_BYTES = 5_000_000
 # Display styles for "entry" notes (axis 1); unlocked per data capability.
 DISPLAY_STYLES = {"timeline", "table", "board", "gallery", "list", "outline"}
 DEFAULT_DISPLAY_STYLE = "timeline"
 # Container type (axis 0, "数字图书馆"): each type presets an ORDERED view set (first =
 # default view). This is the container-level view gate replacing the data-capability
-# gate on the FE (see docs/notes-app-pivot-design.md §4).
+# gate on the FE.
 CONTAINER_TYPES = {"notebook", "book", "album"}
 DEFAULT_CONTAINER_TYPE = "notebook"
 CONTAINER_TYPE_VIEWS = {
@@ -69,7 +59,7 @@ CONTAINER_TYPE_VIEWS = {
     "book": ["outline", "table", "list", "timeline", "gallery"],
     "album": ["gallery", "board"],
 }
-# Center-column sort/grouping persisted per notebook (docs/center-sort-design.md §12).
+# Center-column sort/grouping persisted per notebook.
 GROUP_BY_DIMENSIONS = {"era", "year", "month"}
 DEFAULT_GROUP_BY = "era"
 DEFAULT_SORT_LEVELS = [{"field": "time", "dir": 1}]
@@ -157,95 +147,8 @@ def normalize_sort_levels(value) -> list[dict]:
     return levels or [dict(level) for level in DEFAULT_SORT_LEVELS]
 
 
-def normalize_note_type(value: str | None) -> str:
-    candidate = str(value or "").strip()
-    return candidate if candidate in NOTE_TYPES else DEFAULT_NOTE_TYPE
-
-
 def undated_display_label() -> str:
     return UNDATED_LABEL
-
-
-def normalize_html_text(value) -> str:
-    raw = html.unescape(str(value or ""))
-    raw = re.sub(r"<[^>]+>", " ", raw)
-    return re.sub(r"\s+", " ", raw).strip()
-
-
-def mindmap_root_data(value):
-    if not isinstance(value, dict):
-        return None
-    root = value.get("root") if isinstance(value.get("root"), dict) else value
-    data = root.get("data") if isinstance(root, dict) else None
-    if not isinstance(root, dict) or not isinstance(data, dict):
-        return None
-    return root
-
-
-def collect_mindmap_text(value) -> str:
-    root = mindmap_root_data(value)
-    if not root:
-        return ""
-    parts: list[str] = []
-
-    def visit(node):
-        if not isinstance(node, dict):
-            return
-        data = node.get("data") if isinstance(node.get("data"), dict) else {}
-        parts.extend(
-            text
-            for text in [
-                normalize_html_text(data.get("text")),
-                normalize_html_text(data.get("note")),
-                " ".join(str(item or "").strip() for item in (data.get("tag") or []) if str(item or "").strip()),
-                normalize_html_text(data.get("hyperlink")),
-            ]
-            if text
-        )
-        for child in node.get("children") or []:
-            visit(child)
-
-    visit(root)
-    return " ".join(parts)
-
-
-def collect_x6_snapshot_text(value) -> str:
-    """Pull the text out of an X6 snapshot (mindmap or canvas): what the front end
-    actually persists is `{ _fmt, cells: [...] }`, where each node cell carries its
-    label under `data.text` (mirrored into `attrs.label.text`). Walk the node cells
-    and concatenate. Edges have no text. Returns "" for a non-snapshot value."""
-    cells = value.get("cells") if isinstance(value, dict) else value
-    if not isinstance(cells, list):
-        return ""
-    parts: list[str] = []
-    for cell in cells:
-        if not isinstance(cell, dict) or cell.get("shape") == "edge":
-            continue
-        data = cell.get("data") if isinstance(cell.get("data"), dict) else {}
-        label = cell.get("attrs", {}).get("label", {}) if isinstance(cell.get("attrs"), dict) else {}
-        text = normalize_html_text(data.get("text")) or normalize_html_text(label.get("text") if isinstance(label, dict) else None)
-        note = normalize_html_text(data.get("note"))
-        # Embed cards (data.kind == "embed") carry no `text`; their searchable content is the
-        # embedded note's cached headline + preview, so the canvas is findable by what it embeds
-        # (§5.5 seam #4). Other card kinds have no headline/preview keys → None → skipped.
-        headline = normalize_html_text(data.get("headline"))
-        preview = normalize_html_text(data.get("preview"))
-        tags = " ".join(str(item or "").strip() for item in (data.get("tag") or []) if str(item or "").strip())
-        link = normalize_html_text(data.get("hyperlink"))
-        parts.extend(part for part in (text, note, headline, preview, tags, link) if part)
-    return " ".join(parts)
-
-
-def collect_structured_text(value) -> str:
-    """Text of any structured (non-entry) body for preview/search. The live shape is
-    an X6 snapshot (cells); a legacy shape is a mindmap tree (root/children). Handle
-    both so search works for FE-authored notes (which store snapshots) as well as the
-    tree contract older payloads/tests use."""
-    if isinstance(value, dict) and isinstance(value.get("cells"), list):
-        return collect_x6_snapshot_text(value)
-    if isinstance(value, list):
-        return collect_x6_snapshot_text(value)
-    return collect_mindmap_text(value)
 
 
 def topic_capability_signals(columns: list | None, *, event_count: int, has_dated: bool, has_image: bool) -> dict:
@@ -540,30 +443,6 @@ def deserialize_json_dict(value: str | None, *, fallback: dict | None = None) ->
     return parsed if isinstance(parsed, dict) else dict(fallback or {})
 
 
-def deserialize_body_json(value: str | None):
-    """Parse a note's structured body (mindmap tree); None when absent/invalid."""
-    if value is None:
-        return None
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
-def normalize_body_json(value, note_type: str):
-    """Entry notes have no structured body (they use body_markdown). Other note
-    types keep an object/array tree; anything else is a 400."""
-    if note_type == DEFAULT_NOTE_TYPE:
-        return None
-    if value is None:
-        return None
-    if not isinstance(value, (dict, list)):
-        raise HTTPException(status_code=400, detail="bodyJson must be an object or array")
-    if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > MAX_BODY_JSON_BYTES:
-        raise HTTPException(status_code=413, detail="bodyJson is too large")
-    return value
-
-
 def default_body_markdown(items: list[dict]) -> str:
     lines = []
     for item in items:
@@ -742,21 +621,6 @@ def merge_orphan_extra(existing_extra: dict, next_extra: dict, topic: Topic | No
     return {**preserved, **next_extra}
 
 
-def normalize_related_note_ids(payload: dict) -> list[int]:
-    raw = payload.get("relatedNoteIds") or []
-    if not isinstance(raw, list):
-        raise HTTPException(status_code=400, detail="Related events must be an array")
-    ids = []
-    for value in raw:
-        try:
-            note_id = int(value)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="Related event ids must be integers") from exc
-        if note_id > 0:
-            ids.append(note_id)
-    return list(dict.fromkeys(ids))
-
-
 def build_attachment_payload(attachment: dict) -> dict:
     filename = attachment["filename"]
     mime_type = attachment.get("mimeType")
@@ -782,14 +646,13 @@ def build_attachment_payload(attachment: dict) -> dict:
     return payload
 
 
-def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> dict:
+def note_to_dict(event: Note) -> dict:
     headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
     date_payload = note_date_payload(date_key=event.date_key, sort_key=event.sort_key, headline=headline)
     image_filename = event.image.filename if event.image else None
     thumb_filename = event.image.thumb_filename if event.image else None
     items = serialize_items(event)
     attachments = [build_attachment_payload(item) for item in deserialize_json_list(event.attachments_json)]
-    related_ids = [int(value) for value in deserialize_json_list(event.related_note_ids_json) if str(value).strip().isdigit()]
     return {
         "id": event.id,
         "topicId": event.topic_id,
@@ -799,7 +662,6 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
         "headline": headline,
         "legacyYear": event.year,
         "era": event.era,
-        "noteType": normalize_note_type(event.note_type),
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         # Thumb (with full-image fallback) so the gallery card keeps its real thumb
@@ -810,11 +672,8 @@ def note_to_dict(event: Note, related_lookup: dict[int, dict] | None = None) -> 
             else (f"/images/{image_filename}" if image_filename else None)
         ),
         "bodyMarkdown": event.body_markdown or default_body_markdown(items),
-        "bodyJson": deserialize_body_json(event.body_json),
         "extra": deserialize_json_dict(event.extra_json),
         "attachments": attachments,
-        "relatedNoteIds": related_ids,
-        "relatedNotes": [related_lookup[note_id] for note_id in related_ids if related_lookup and note_id in related_lookup],
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
         "favorite": bool(event.favorite),
@@ -869,18 +728,13 @@ def extra_search_text(extra: dict, topic: Topic | None) -> str:
 
 def derive_note_text_fields(
     *,
-    note_type: str,
     body_markdown: str,
-    body_json,
     items: list[dict],
     extra: dict,
     attachments: list[dict],
     topic: Topic | None,
 ) -> tuple[str, str]:
-    if note_type != DEFAULT_NOTE_TYPE:
-        plain_body = collect_structured_text(body_json)
-    else:
-        plain_body = markdown_plain_text(body_markdown or default_body_markdown(items))
+    plain_body = markdown_plain_text(body_markdown or default_body_markdown(items))
 
     preview_text = plain_body[:120].rstrip()
     search_parts = [
@@ -908,20 +762,14 @@ def derive_note_text_fields_for_note(
         attachments = deserialize_json_list(event.attachments_json)
         extra = deserialize_json_dict(event.extra_json)
         body_markdown = event.body_markdown or default_body_markdown(items)
-        body_json = deserialize_body_json(event.body_json)
-        note_type = normalize_note_type(event.note_type)
         topic = topic or event.topic
     else:
         items = data.get("items") or []
         attachments = data.get("attachments") or []
         extra = data.get("extra") or {}
         body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
-        body_json = data.get("bodyJson")
-        note_type = normalize_note_type(data.get("noteType"))
     return derive_note_text_fields(
-        note_type=note_type,
         body_markdown=str(body_markdown or ""),
-        body_json=body_json,
         items=items,
         extra=extra if isinstance(extra, dict) else {},
         attachments=attachments if isinstance(attachments, list) else [],
@@ -934,18 +782,14 @@ def build_search_payload(event: Note, data: dict | None = None, topic: Topic | N
         items = serialize_items(event)
         extra = deserialize_json_dict(event.extra_json)
         headline = (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or "")
-        note_type = normalize_note_type(event.note_type)
         body_markdown = event.body_markdown or default_body_markdown(items)
-        body_json = deserialize_body_json(event.body_json)
         era = event.era
         topic = topic or event.topic
     else:
         items = data.get("items") or []
         extra = data.get("extra") or {}
         headline = str(data.get("headline") or "").strip() or extract_headline_from_legacy_label(data.get("legacyYear") or "")
-        note_type = normalize_note_type(data.get("noteType"))
         body_markdown = data.get("bodyMarkdown") or default_body_markdown(items)
-        body_json = data.get("bodyJson")
         era = data.get("era")
 
     return {
@@ -955,7 +799,7 @@ def build_search_payload(event: Note, data: dict | None = None, topic: Topic | N
         "body": " ".join(
             part
             for part in [
-                collect_structured_text(body_json) if note_type != DEFAULT_NOTE_TYPE else markdown_plain_text(str(body_markdown or "")),
+                markdown_plain_text(str(body_markdown or "")),
                 *[str(item.get("text", "")) for item in items if isinstance(item, dict)],
             ]
             if part
@@ -1153,9 +997,7 @@ def note_index_search_text(event: Note, attachments: list[dict]) -> str:
     items = serialize_items(event)
     extra = deserialize_json_dict(event.extra_json)
     return derive_note_text_fields(
-        note_type=normalize_note_type(event.note_type),
         body_markdown=event.body_markdown or default_body_markdown(items),
-        body_json=deserialize_body_json(event.body_json),
         items=items,
         extra=extra,
         attachments=attachments,
@@ -1180,7 +1022,6 @@ def note_to_list_dict(event: Note) -> dict:
         "headline": headline,
         "legacyYear": event.year,
         "era": event.era,
-        "noteType": normalize_note_type(event.note_type),
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         "thumbUrl": (
@@ -1194,7 +1035,7 @@ def note_to_list_dict(event: Note) -> dict:
         "deletedAt": serialize_datetime(event.deleted_at),
         "createdAt": serialize_datetime(event.created_at),
         "updatedAt": serialize_datetime(event.updated_at),
-        # Authoritative columns (written on every create/update + one-time backfill),
+    # Authoritative columns written on every create/update,
         # so the paginated list path reads them directly and never lazy-loads items/topic.
         "preview": preview_text,
         "searchText": search_text,
@@ -1218,7 +1059,6 @@ def note_to_index_dict(event: Note) -> dict:
         **date_payload,
         "headline": headline,
         "era": event.era,
-        "noteType": normalize_note_type(event.note_type),
         "image": image_filename,
         "imageUrl": f"/images/{image_filename}" if image_filename else None,
         "thumbUrl": (
@@ -1238,348 +1078,8 @@ def note_to_index_dict(event: Note) -> dict:
     }
 
 
-def build_related_lookup(db: Session, event_rows: list[Note]) -> dict[int, dict]:
-    related_ids = set()
-    for event in event_rows:
-        for value in deserialize_json_list(event.related_note_ids_json):
-            try:
-                related_ids.add(int(value))
-            except (TypeError, ValueError):
-                continue
-
-    if not related_ids:
-        return {}
-
-    related_rows = (
-        db.query(Note)
-        .filter(Note.id.in_(related_ids))
-        .order_by(*note_order_clauses())
-        .all()
-    )
-    lookup = {}
-    for row in related_rows:
-        headline = (row.headline or "").strip() or extract_headline_from_legacy_label(row.year or "")
-        date_payload = note_date_payload(date_key=row.date_key, sort_key=row.sort_key, headline=headline)
-        lookup[row.id] = {
-            "id": row.id,
-            "headline": headline,
-            "displayLabel": date_payload["displayLabel"],
-        }
-    return lookup
-
-
-def serialize_note_rows(
-    db: Session, rows: list[Note], *, with_link_targets: bool = False
-) -> list[dict]:
-    related_lookup = build_related_lookup(db, rows)
-    payloads = [note_to_dict(event, related_lookup) for event in rows]
-    # linkTargets rides only single-note detail payloads (get_note_detail + create/update
-    # returns) so the CM6 editor can style [[<id>]] resolved vs dangling and refresh titles.
-    # The feed/list/export serializers pass with_link_targets=False → no per-row body parse.
-    if with_link_targets:
-        link_targets = build_link_targets(db, rows)
-        for event, payload in zip(rows, payloads):
-            payload["linkTargets"] = link_targets.get(event.id, {})
-    return payloads
-
-
-# ── W4 link system: [[wikilink]] parse / resolve / sync / backlinks ──────────────────
-# Body tokens are id-anchored — `[[<id>|<alias>]]` — so renaming/moving a target never
-# breaks the edge (docs/notes-app-pivot-design.md §6.1). A bare `[[title]]` (hand-typed,
-# no id) is resolved to a note by a unique live-headline match at write time; no match →
-# dangling (target_note_id NULL). The links table is a query-optimized projection of the
-# bodies, so backlinks are one indexed lookup instead of a full-text scan.
-# The title class excludes newline so `[[Foo\nBar]]` is not one cross-line link — keeps the
-# backend in lockstep with the CM6/read-renderer regex (which also excludes \n); otherwise the
-# backend would persist a backlink the editor never renders.
-WIKILINK_RE = re.compile(r"\[\[\s*(?:(\d+)\s*\|\s*)?([^\[\]|\n]+?)\s*\]\]")
-
-
-def parse_wikilinks(body_markdown: str) -> list[dict]:
-    """One dict per `[[…]]` occurrence: {id: int|None, title, position, context}."""
-    source = body_markdown or ""
-    links = []
-    for match in WIKILINK_RE.finditer(source):
-        raw_id, title = match.group(1), (match.group(2) or "").strip()
-        if not title:
-            continue
-        line_start = source.rfind("\n", 0, match.start()) + 1
-        line_end = source.find("\n", match.end())
-        if line_end == -1:
-            line_end = len(source)
-        links.append(
-            {
-                "id": int(raw_id) if raw_id else None,
-                "title": title,
-                "position": match.start(),
-                "context": source[line_start:line_end].strip()[:280],
-            }
-        )
-    return links
-
-
-def resolve_wikilink_target(db: Session, parsed: dict) -> int | None:
-    """Bind a parsed link to a target id. An id-anchored token is trusted as-is (the id
-    is the stable anchor); a bare title binds only on a unique live-headline match."""
-    if parsed.get("id"):
-        return parsed["id"]
-    title = parsed.get("title") or ""
-    if not title:
-        return None
-    matches = (
-        db.query(Note.id)
-        .filter(Note.headline == title, Note.deleted_at.is_(None))
-        .limit(2)
-        .all()
-    )
-    return matches[0][0] if len(matches) == 1 else None
-
-
-def sync_note_links(db: Session, event: Note) -> None:
-    """Re-derive a source note's `wikilink` rows from its body. Idempotent: clears this
-    source's wikilink rows and re-inserts the current set (a note has few links, so
-    delete-then-insert beats a per-row diff). `manual`/`embed` anchors belong to other
-    writers and are untouched. Call after the event is flushed (id present) with its
-    body_markdown written, before commit."""
-    db.query(NoteLink).filter(
-        NoteLink.source_note_id == event.id,
-        NoteLink.anchor_type == "wikilink",
-    ).delete(synchronize_session=False)
-    if event.deleted_at:
-        return
-    for parsed in parse_wikilinks(event.body_markdown or ""):
-        db.add(
-            NoteLink(
-                source_note_id=event.id,
-                target_note_id=resolve_wikilink_target(db, parsed),
-                target_title=parsed["title"][:255],
-                anchor_type="wikilink",
-                position=parsed["position"],
-                context_text=parsed["context"],
-            )
-        )
-
-
-def parse_snapshot_embeds(snapshot) -> list[dict]:
-    """Embed refs in an X6 canvas snapshot: one entry per embed card (data.kind == "embed"
-    with a numeric noteId). `title` = the card's cached headline (display fallback); `position`
-    = cell order (embeds have no body char-offset). Tolerates the tagged {_fmt, cells}
-    snapshot, a bare {cells}, or a raw cells list."""
-    cells = snapshot.get("cells") if isinstance(snapshot, dict) else snapshot
-    if not isinstance(cells, list):
-        return []
-    embeds: list[dict] = []
-    for index, cell in enumerate(cells):
-        if not isinstance(cell, dict):
-            continue
-        data = cell.get("data") if isinstance(cell.get("data"), dict) else {}
-        if data.get("kind") != "embed":
-            continue
-        try:
-            note_id = int(data.get("noteId"))
-        except (TypeError, ValueError):
-            continue
-        embeds.append(
-            {
-                "noteId": note_id,
-                "title": normalize_html_text(data.get("headline")) or "",
-                "position": index,
-                "context": "嵌入于画布",
-            }
-        )
-    return embeds
-
-
-def sync_note_embeds(db: Session, event: Note) -> None:
-    """Re-derive a note's `embed` rows from its X6 snapshot (canvas note-embed cards, §7.5).
-    Idempotent, mirroring sync_note_links: clears this source's embed rows and re-inserts one
-    per distinct embedded note. `wikilink`/`manual` anchors belong to other writers and are
-    untouched. A live target resolves the row (→ shows in the target's backlink panel as an
-    embed); a deleted/dangling target keeps target_note_id NULL — the tombstone case, same
-    treatment as a dangling wikilink. Call after flush (id present) with body_json written,
-    before commit."""
-    db.query(NoteLink).filter(
-        NoteLink.source_note_id == event.id,
-        NoteLink.anchor_type == "embed",
-    ).delete(synchronize_session=False)
-    if event.deleted_at:
-        return
-    # One canvas embedding the same note twice is ONE relationship (backlinks dedupe per source
-    # anyway) — keep the first card's position/title.
-    by_target: dict[int, dict] = {}
-    for parsed in parse_snapshot_embeds(deserialize_body_json(event.body_json)):
-        by_target.setdefault(parsed["noteId"], parsed)
-    if not by_target:
-        return
-    live_ids = {
-        row[0]
-        for row in db.query(Note.id)
-        .filter(Note.id.in_(list(by_target)), Note.deleted_at.is_(None))
-        .all()
-    }
-    for note_id, parsed in by_target.items():
-        db.add(
-            NoteLink(
-                source_note_id=event.id,
-                target_note_id=note_id if note_id in live_ids else None,
-                target_title=(parsed["title"] or "")[:255],
-                anchor_type="embed",
-                position=parsed["position"],
-                context_text=parsed["context"],
-            )
-        )
-
-
-def sync_note_manual_links(db: Session, event: Note) -> None:
-    """Re-derive a note's `manual` link rows from its legacy related_note_ids_json — the pre-
-    wikilink "关联事件" relationships, projected into the links table so they surface in the
-    target's backlink panel (§6.4). Idempotent, mirroring sync_note_embeds: clears this source's
-    manual rows and re-inserts one per distinct related id. `wikilink`/`embed` anchors belong to
-    other writers and are untouched. A live target resolves the row; a deleted/missing target
-    stays dangling (target_note_id NULL). Call after flush (id present), before commit."""
-    db.query(NoteLink).filter(
-        NoteLink.source_note_id == event.id,
-        NoteLink.anchor_type == "manual",
-    ).delete(synchronize_session=False)
-    if event.deleted_at:
-        return
-    related_ids: list[int] = []
-    seen: set[int] = set()
-    for value in deserialize_json_list(event.related_note_ids_json):
-        try:
-            rid = int(value)
-        except (TypeError, ValueError):
-            continue
-        # positive ids only (match normalize_related_note_ids, which the raw column / backfill
-        # bypass), no self-reference, dedupe repeats.
-        if rid <= 0 or rid == event.id or rid in seen:
-            continue
-        seen.add(rid)
-        related_ids.append(rid)
-    if not related_ids:
-        return
-    live = {
-        row[0]: (row[1] or "").strip()
-        for row in db.query(Note.id, Note.headline)
-        .filter(Note.id.in_(related_ids), Note.deleted_at.is_(None))
-        .all()
-    }
-    for index, rid in enumerate(related_ids):
-        db.add(
-            NoteLink(
-                source_note_id=event.id,
-                target_note_id=rid if rid in live else None,
-                target_title=(live.get(rid) or "")[:255],
-                anchor_type="manual",
-                position=index,
-                context_text="手动关联",
-            )
-        )
-
-
-def purge_note_links(db: Session, note_id: int) -> None:
-    """Drop every link row touching a note (as source or target) — for a permanent
-    delete, so no dangling FK rows survive the row's removal."""
-    db.query(NoteLink).filter(
-        (NoteLink.source_note_id == note_id) | (NoteLink.target_note_id == note_id)
-    ).delete(synchronize_session=False)
-
-
-def get_backlinks(db: Session, note_id: int, *, offset: int = 0, limit: int = 50) -> dict:
-    """Incoming links to a note: one entry per LIVE linking note (deduped — a source that
-    references this target several times is ONE backlink, not N; otherwise the panel emits
-    duplicate Vue keys on sourceId and inflates the count), newest-updated first. One indexed
-    lookup on (target_note_id) — the panel snippet rides context_text, no source rescans."""
-    base = (
-        db.query(NoteLink, Note, Topic)
-        .join(Note, Note.id == NoteLink.source_note_id)
-        .join(Topic, Topic.id == Note.topic_id)
-        .filter(NoteLink.target_note_id == note_id, Note.deleted_at.is_(None))
-        # Collapse multiple links from the same source to one row (SQLite keeps an arbitrary
-        # context_text/anchor_type per group — any single occurrence is a fine snippet).
-        .group_by(NoteLink.source_note_id)
-    )
-    total = (
-        db.query(func.count(func.distinct(NoteLink.source_note_id)))
-        .join(Note, Note.id == NoteLink.source_note_id)
-        .filter(NoteLink.target_note_id == note_id, Note.deleted_at.is_(None))
-        .scalar()
-    )
-    rows = (
-        base.order_by(Note.updated_at.desc(), NoteLink.source_note_id.desc())
-        .offset(max(0, offset))
-        .limit(max(1, min(limit, 200)))
-        .all()
-    )
-    items = [
-        {
-            "sourceId": source.id,
-            "topicId": source.topic_id,
-            "headline": (source.headline or "").strip() or extract_headline_from_legacy_label(source.year or ""),
-            "container": topic.title or topic.name,
-            "contextText": link.context_text or "",
-            "anchorType": link.anchor_type,
-        }
-        for link, source, topic in rows
-    ]
-    return {"items": items, "total": int(total or 0)}
-
-
-def batch_note_previews(db: Session, ids: list) -> list[dict]:
-    """Cheap {id, headline, container, preview} for a set of note ids in one query — seeds
-    the canvas embed-card LRU on open (W5 §7.4) so N cards cost O(1) round-trips."""
-    clean_ids = {int(v) for v in (ids or []) if str(v).strip().lstrip("-").isdigit()}
-    if not clean_ids:
-        return []
-    rows = (
-        db.query(Note, Topic)
-        .join(Topic, Topic.id == Note.topic_id)
-        .filter(Note.id.in_(clean_ids), Note.deleted_at.is_(None))
-        .all()
-    )
-    return [
-        {
-            "id": event.id,
-            "topicId": event.topic_id,
-            "headline": (event.headline or "").strip() or extract_headline_from_legacy_label(event.year or ""),
-            "container": topic.title or topic.name,
-            "noteType": normalize_note_type(event.note_type),
-            "preview": str(event.preview_text or "").strip(),
-        }
-        for event, topic in rows
-    ]
-
-
-def build_link_targets(db: Session, events: list[Note]) -> dict[int, dict[str, str]]:
-    """Per-event ``{str(target_id): current_headline}`` for every id-anchored ``[[<id>|…]]``
-    in the body whose target is still live. Drives the editor's resolved/dangling styling: an
-    id referenced by the body but absent from this map reads as dangling (target deleted). One
-    batched query for all ids across the given events, so attaching it to a single-note detail
-    payload stays O(1) per open — never wired into the feed/list serializers (§6.4)."""
-    wanted: dict[int, set[int]] = {}
-    all_ids: set[int] = set()
-    for event in events:
-        ids = {link["id"] for link in parse_wikilinks(event.body_markdown or "") if link["id"]}
-        if ids:
-            wanted[event.id] = ids
-            all_ids |= ids
-    if not all_ids:
-        return {}
-    rows = (
-        db.query(Note.id, Note.headline, Note.year)
-        .filter(Note.id.in_(all_ids), Note.deleted_at.is_(None))
-        .all()
-    )
-    title_by_id = {
-        row_id: (headline or "").strip() or extract_headline_from_legacy_label(year or "")
-        for row_id, headline, year in rows
-    }
-    result: dict[int, dict[str, str]] = {}
-    for note_id, ids in wanted.items():
-        targets = {str(tid): title_by_id[tid] for tid in ids if tid in title_by_id}
-        if targets:
-            result[note_id] = targets
-    return result
+def serialize_note_rows(db: Session, rows: list[Note]) -> list[dict]:
+    return [note_to_dict(event) for event in rows]
 
 
 def live_topic_min_date_subquery():
@@ -1656,9 +1156,9 @@ def rebuild_topic_era_stats_for_topic(db: Session, topic_id: int) -> None:
     # when rebuild runs twice in one session, e.g. batch/admin rebuilds).
     db.query(TopicEraStat).filter(TopicEraStat.topic_id == topic_id).delete(synchronize_session="fetch")
     # Group by the SAME normalized value we store, so distinct raw eras that
-    # normalize equal (e.g. "" from a mindmap and a typed "未分组", or whitespace
+    # normalize equal (e.g. "" and a typed "未分组", or whitespace
     # variants) collapse into one row instead of colliding on the (topic_id, era)
-    # primary key. Mirrors tools/import_outline_docx.py's normalized GROUP BY.
+    # primary key. The ordering matches the client-side collection sort.
     era_value = case(
         (func.trim(func.coalesce(Note.era, "")) == "", "未分组"),
         else_=func.trim(Note.era),
@@ -1705,55 +1205,6 @@ def ensure_topic_read_models(db: Session) -> None:
     era_count = db.query(func.count(TopicEraStat.topic_id)).scalar() or 0
     if topic_count != stat_count or (live_event_count > 0 and era_count == 0):
         rebuild_topic_read_models(db)
-
-
-TEXT_FIELDS_BACKFILL_KEY = "text_fields_backfilled_v1"
-
-
-def backfill_note_text_fields(db: Session) -> None:
-    # Run once (guarded by a marker), not every startup. Every write path and the
-    # docx importer already populate preview_text/search_text, so after this one-time
-    # backfill of pre-existing rows the columns are authoritative; re-scanning rows
-    # whose text legitimately derives to "" on every boot is wasted work.
-    if db.get(AppConfigEntry, TEXT_FIELDS_BACKFILL_KEY) is not None:
-        return
-    rows = (
-        db.query(Note)
-        .options(selectinload(Note.items), joinedload(Note.topic))
-        .filter(or_(Note.preview_text == "", Note.search_text == ""))
-        .all()
-    )
-    for event in rows:
-        preview_text, search_text = derive_note_text_fields_for_note(event)
-        event.preview_text = preview_text
-        event.search_text = search_text
-    db.add(AppConfigEntry(key=TEXT_FIELDS_BACKFILL_KEY, value="1"))
-    db.flush()
-
-
-MANUAL_LINKS_BACKFILL_KEY = "manual_links_backfilled_v1"
-
-
-def backfill_manual_links(db: Session) -> None:
-    # One-time projection of legacy related_note_ids_json → `manual` link rows so pre-existing
-    # "关联事件" relationships appear in backlink panels (§6.4). Guarded by a marker like
-    # backfill_note_text_fields; every create/update now runs sync_note_manual_links, so after
-    # this pass the manual rows are authoritative. Only rows with a non-empty related list are scanned.
-    if db.get(AppConfigEntry, MANUAL_LINKS_BACKFILL_KEY) is not None:
-        return
-    rows = (
-        db.query(Note)
-        .filter(
-            Note.related_note_ids_json.isnot(None),
-            Note.related_note_ids_json != "",
-            Note.related_note_ids_json != "[]",
-        )
-        .all()
-    )
-    for event in rows:
-        sync_note_manual_links(db, event)
-    db.add(AppConfigEntry(key=MANUAL_LINKS_BACKFILL_KEY, value="1"))
-    db.flush()
 
 
 def rebuild_topic_text_fields_and_search(db: Session, topic: Topic) -> None:
@@ -2101,7 +1552,7 @@ def list_topic_notes(db: Session, topic_id: int) -> list[dict]:
 
 
 def get_note_detail(db: Session, note_id: int) -> dict:
-    return serialize_note_rows(db, [get_note_or_404(db, note_id)], with_link_targets=True)[0]
+    return serialize_note_rows(db, [get_note_or_404(db, note_id)])[0]
 
 
 def build_timeline_index(db: Session) -> dict:
@@ -2256,7 +1707,11 @@ def summarize_topic_notes(
         func.count(Note.id).label("event_count"),
         func.min(Note.date_key).label("range_start_key"),
         func.max(Note.date_key).label("range_end_key"),
-    ).filter(Note.topic_id == topic_id)
+    ).filter(
+        Note.topic_id == topic_id,
+        Note.deleted_at.is_(None),
+        Note.date_key.is_not(None),
+    )
 
     if from_key is not None:
         query = query.filter(Note.date_key >= from_key)
@@ -2300,7 +1755,7 @@ def derive_items_from_markdown(body_markdown: str) -> list[dict]:
     return [{"tag": DEFAULT_ITEM_TAG, "text": chunk} for chunk in chunks]
 
 
-def normalize_note_items(payload: dict, body_markdown: str | None = None, *, note_type: str | None = None) -> list[dict]:
+def normalize_note_items(payload: dict, body_markdown: str | None = None) -> list[dict]:
     raw_items = payload.get("items")
     if raw_items is None:
         raw_items = payload.get("events")
@@ -2312,10 +1767,6 @@ def normalize_note_items(payload: dict, body_markdown: str | None = None, *, not
         derived = derive_items_from_markdown(body_markdown or "")
         if derived:
             return derived
-        # A mindmap's content lives in body_json (the tree), not markdown items —
-        # so an empty item list is valid for it. Entry notes still require body.
-        if note_type and note_type != DEFAULT_NOTE_TYPE:
-            return []
         raise HTTPException(status_code=400, detail="Event items are required")
 
     items = []
@@ -2335,22 +1786,16 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
         raise HTTPException(status_code=400, detail="Payload must be an object")
 
     image = payload.get("image")
-    note_type = normalize_note_type(payload.get("noteType"))
-    body_json = normalize_body_json(payload.get("bodyJson"), note_type)
     era = str(payload.get("era", "")).strip()
     # A note is "dated" only when a date part actually carries a value — a present-but-null
     # key counts as undated, matching the front end (a blank date field → undated note).
     has_date_parts = any(payload.get(key) is not None for key in {"dateYear", "dateMonth", "dateDay"})
     uses_structured_contract = bool({"headline", "dateYear", "dateMonth", "dateDay"} & set(payload.keys()))
-    # Era is the timeline's grouping spine for *dated* entries. An undated note — a
-    # mindmap on its own canvas, or a de-temporalized doc — carries no time bucket, so
-    # it may omit era (it sinks to the "未分组"/undated tail if a timeline view surfaces it).
-    if not era and note_type == DEFAULT_NOTE_TYPE and has_date_parts:
+    if not era and has_date_parts:
         raise HTTPException(status_code=400, detail="Era is required")
     body_markdown = str(payload.get("bodyMarkdown", "")).strip()
-    items = normalize_note_items(payload, body_markdown, note_type=note_type)
+    items = normalize_note_items(payload, body_markdown)
     attachments = normalize_attachments(payload)
-    related_event_ids = normalize_related_note_ids(payload)
     extra = normalize_extra(payload, topic)
     state = {}
     if "favorite" in payload:
@@ -2359,9 +1804,7 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
         state["deletedAt"] = parse_optional_datetime(payload.get("deletedAt"))
 
     headline = str(payload.get("headline", "")).strip()
-    # A note is dated only when it actually carries date parts — otherwise it's undated
-    # (dateKey=None), whatever its note type. This is what lets an entry/doc be
-    # de-temporalized: omit the date parts and it becomes a first-class undated note.
+    # A note without date parts stays in the undated tail of time-ordered views.
     if uses_structured_contract and has_date_parts:
         try:
             year = int(payload.get("dateYear"))
@@ -2383,20 +1826,16 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
             "headline": headline,
             "legacyYear": legacy_year,
             "era": era,
-            "noteType": note_type,
-            "bodyJson": body_json,
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "extra": extra,
             "attachments": attachments,
-            "relatedNoteIds": related_event_ids,
             "items": items,
             "image": image,
             **state,
         }
 
     if uses_structured_contract:
-        # No date parts → undated note (any type). dateKey stays None and sortKey 0.0,
-        # so it sinks to the undated tail of every time-ordered view.
+        # No date parts means the note stays in the undated tail of time-ordered views.
         if not headline:
             raise HTTPException(status_code=400, detail="Headline is required")
         return {
@@ -2408,12 +1847,9 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
             "headline": headline,
             "legacyYear": undated_display_label(),
             "era": era,
-            "noteType": note_type,
-            "bodyJson": body_json,
             "bodyMarkdown": body_markdown or default_body_markdown(items),
             "extra": extra,
             "attachments": attachments,
-            "relatedNoteIds": related_event_ids,
             "items": items,
             "image": image,
             **state,
@@ -2435,12 +1871,9 @@ def normalize_note_payload(payload: dict, *, topic: Topic | None = None) -> dict
         "headline": headline,
         "legacyYear": legacy_year or build_display_label(year, month, day, headline),
         "era": era,
-        "noteType": note_type,
-        "bodyJson": body_json,
         "bodyMarkdown": body_markdown or default_body_markdown(items),
         "extra": extra,
         "attachments": attachments,
-        "relatedNoteIds": related_event_ids,
         "items": items,
         "image": image,
         **state,
@@ -2457,14 +1890,11 @@ def write_note_model(event: Note, data: dict, image: ImageAsset | None, *, topic
     event.date_day = data["dateDay"]
     event.headline = data["headline"]
     event.era = data["era"]
-    event.note_type = data["noteType"]
     event.body_markdown = data["bodyMarkdown"]
     event.preview_text = preview_text
     event.search_text = search_text
-    event.body_json = json.dumps(data["bodyJson"], ensure_ascii=False) if data.get("bodyJson") is not None else None
     event.extra_json = json.dumps(data["extra"], ensure_ascii=False)
     event.attachments_json = json.dumps(data["attachments"], ensure_ascii=False)
-    event.related_note_ids_json = json.dumps(data["relatedNoteIds"], ensure_ascii=False)
     event.image = image
     next_favorite = bool(data.get("favorite", event.favorite))
     if next_favorite and not event.favorite:
@@ -2487,28 +1917,167 @@ def create_note(db: Session, topic_id: int, payload: dict) -> dict:
     for index, item in enumerate(data["items"]):
         db.add(NoteItem(note_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, topic)
-    sync_note_links(db, event)
-    sync_note_embeds(db, event)
-    sync_note_manual_links(db, event)
     rebuild_topic_read_models(db, [topic.id])
     db.commit()
     db.refresh(event)
-    return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
+    return serialize_note_rows(db, [get_note_or_404(db, event.id)])[0]
 
 
-def update_note(db: Session, note_id: int, payload: dict) -> dict:
+def _require_note_version(event: Note, expected_updated_at: str | None) -> None:
+    if expected_updated_at is None:
+        raise HTTPException(
+            status_code=428,
+            detail={
+                "code": "precondition_required",
+                "message": "笔记写入需要读取时的 updatedAt 版本。",
+                "nextAction": "读取笔记详情，并将 updatedAt 原样放入 If-Match 请求头。",
+                "details": {"resourceType": "note", "resourceId": event.id},
+            },
+        )
+    current_version = serialize_datetime(event.updated_at)
+    if expected_updated_at != current_version:
+        _raise_note_version_conflict(event, expected_updated_at)
+
+
+def _raise_note_version_conflict(event: Note, expected_updated_at: str) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "version_conflict",
+            "message": "笔记已在读取后发生变化，本次写入未应用。",
+            "nextAction": "重新读取笔记并协调差异；不要重放旧正文。",
+            "details": {
+                "resourceType": "note",
+                "resourceId": event.id,
+                "expectedVersion": expected_updated_at,
+                "currentVersion": serialize_datetime(event.updated_at),
+            },
+        },
+    )
+
+
+def _reserve_note_version(db: Session, event: Note, expected_updated_at: str) -> None:
+    _require_note_version(event, expected_updated_at)
+    current = event.updated_at
+    current_utc = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current.astimezone(timezone.utc)
+    next_version = datetime.now(timezone.utc)
+    if next_version <= current_utc:
+        next_version = current_utc + timedelta(microseconds=1)
+    try:
+        result = db.execute(
+            update(Note)
+            .where(Note.id == event.id, Note.updated_at == current)
+            .values(updated_at=next_version)
+            .execution_options(synchronize_session=False)
+        )
+    except OperationalError as exc:
+        db.rollback()
+        if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+            raise
+        current_event = get_note_or_404(db, event.id)
+        _raise_note_version_conflict(current_event, expected_updated_at)
+    if result.rowcount != 1:
+        db.rollback()
+        current_event = get_note_or_404(db, event.id)
+        _raise_note_version_conflict(current_event, expected_updated_at)
+    event.updated_at = next_version
+
+
+def _note_matches_write(event: Note, payload: dict) -> bool:
+    if payload and set(payload).issubset(EVENT_STATE_KEYS):
+        if event.deleted_at and not (set(payload) == {"deletedAt"} and payload.get("deletedAt") is None):
+            return False
+        favorite = bool(payload.get("favorite", event.favorite))
+        deleted_at = (
+            parse_optional_datetime(payload.get("deletedAt"))
+            if "deletedAt" in payload
+            else event.deleted_at
+        )
+        return favorite == bool(event.favorite) and serialize_datetime(deleted_at) == serialize_datetime(event.deleted_at)
+
+    data = normalize_note_payload(payload, topic=event.topic)
+    data["extra"] = merge_orphan_extra(
+        deserialize_json_dict(event.extra_json), data["extra"], event.topic
+    )
+    current_image = event.image.filename if event.image else None
+    expected_deleted_at = data.get("deletedAt", event.deleted_at)
+    expected_favorite = bool(data.get("favorite", event.favorite))
+    current = {
+        "dateYear": event.date_year,
+        "dateMonth": event.date_month,
+        "dateDay": event.date_day,
+        "headline": event.headline or "",
+        "legacyYear": event.year,
+        "era": event.era,
+        "bodyMarkdown": event.body_markdown or "",
+        "extra": deserialize_json_dict(event.extra_json),
+        "attachments": deserialize_json_list(event.attachments_json),
+        "items": serialize_items(event),
+        "image": current_image,
+    }
+    expected = {
+        "dateYear": data["dateYear"],
+        "dateMonth": data["dateMonth"],
+        "dateDay": data["dateDay"],
+        "headline": data["headline"],
+        "legacyYear": data["legacyYear"],
+        "era": data["era"],
+        "bodyMarkdown": data["bodyMarkdown"],
+        "extra": data["extra"],
+        "attachments": data["attachments"],
+        "items": data["items"],
+        "image": data["image"],
+    }
+    same_content = all(
+        json.dumps(current[key], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        == json.dumps(expected[key], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        for key in current
+    )
+    return (
+        same_content
+        and expected_favorite == bool(event.favorite)
+        and serialize_datetime(expected_deleted_at) == serialize_datetime(event.deleted_at)
+    )
+
+
+def update_note(
+    db: Session,
+    note_id: int,
+    payload: dict,
+    *,
+    expected_updated_at: str | None = None,
+    require_version: bool = False,
+) -> dict:
     event = get_note_or_404(db, note_id)
+    if require_version and expected_updated_at is None:
+        _require_note_version(event, None)
+    if expected_updated_at is not None:
+        current_version = serialize_datetime(event.updated_at)
+        if expected_updated_at != current_version:
+            if event.deleted_at and not (
+                set(payload or {}) == {"deletedAt"} and (payload or {}).get("deletedAt") is None
+            ):
+                _require_note_version(event, expected_updated_at)
+            if isinstance(payload, dict) and _note_matches_write(event, payload):
+                return serialize_note_rows(db, [event])[0]
+            _require_note_version(event, expected_updated_at)
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Payload must be an object")
+    if not payload:
+        raise HTTPException(status_code=400, detail="At least one note field is required")
 
     if payload and set(payload.keys()).issubset(EVENT_STATE_KEYS):
         if event.deleted_at and not (set(payload.keys()) == {"deletedAt"} and payload.get("deletedAt") is None):
             raise HTTPException(status_code=409, detail="Deleted events can only be restored")
+        if "deletedAt" in payload:
+            payload = {**payload, "deletedAt": parse_optional_datetime(payload.get("deletedAt"))}
+        if expected_updated_at is not None:
+            _reserve_note_version(db, event, expected_updated_at)
         apply_note_state(event, payload)
         upsert_search_index_row(db, event, topic=event.topic)
         rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
-        return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
+        return serialize_note_rows(db, [get_note_or_404(db, event.id)])[0]
 
     if event.deleted_at:
         raise HTTPException(status_code=409, detail="Deleted events cannot be edited")
@@ -2517,6 +2086,8 @@ def update_note(db: Session, note_id: int, payload: dict) -> dict:
     data = normalize_note_payload(payload, topic=event.topic)
     data["extra"] = merge_orphan_extra(deserialize_json_dict(event.extra_json), data["extra"], event.topic)
     image = resolve_image(db, data["image"])
+    if expected_updated_at is not None:
+        _reserve_note_version(db, event, expected_updated_at)
     write_note_model(event, data, image, topic=event.topic)
     for item in list(event.items):
         db.delete(item)
@@ -2524,28 +2095,39 @@ def update_note(db: Session, note_id: int, payload: dict) -> dict:
     for index, item in enumerate(data["items"]):
         db.add(NoteItem(note_id=event.id, tag=item["tag"], text=item["text"], sort_order=index))
     upsert_search_index_row(db, event, data, event.topic)
-    sync_note_links(db, event)
-    sync_note_embeds(db, event)
-    sync_note_manual_links(db, event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()
     if old_image_id and old_image_id != event.image_id:
         cleanup_orphan_images(db, {old_image_id})
-    return serialize_note_rows(db, [get_note_or_404(db, event.id)], with_link_targets=True)[0]
+    return serialize_note_rows(db, [get_note_or_404(db, event.id)])[0]
 
 
-def delete_note(db: Session, note_id: int, *, permanent: bool = False):
+def delete_note(
+    db: Session,
+    note_id: int,
+    *,
+    permanent: bool = False,
+    expected_updated_at: str | None = None,
+    require_version: bool = False,
+):
     event = get_note_or_404(db, note_id)
+    if require_version and expected_updated_at is None:
+        _require_note_version(event, None)
+    if expected_updated_at is not None:
+        _reserve_note_version(db, event, expected_updated_at)
     old_image_id = event.image_id
     if not permanent:
         event.deleted_at = datetime.now(timezone.utc)
         remove_search_index_row(db, event.id)
         rebuild_topic_read_models(db, [event.topic_id])
         db.commit()
-        return {"ok": True, "deletedAt": serialize_datetime(event.deleted_at)}
+        return {
+            "ok": True,
+            "deletedAt": serialize_datetime(event.deleted_at),
+            "updatedAt": serialize_datetime(event.updated_at),
+        }
 
     remove_search_index_row(db, event.id)
-    purge_note_links(db, event.id)
     db.delete(event)
     rebuild_topic_read_models(db, [event.topic_id])
     db.commit()

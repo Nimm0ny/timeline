@@ -4,7 +4,6 @@ import {
   buildNotePreview,
   compareNotes,
   mergeTopicNotePage,
-  mindmapPlainText,
   planTopicPageFetch,
 } from "../utils/noteUtils.js";
 import { plainTextFromMarkdown } from "../utils/markdownPreview.js";
@@ -44,7 +43,6 @@ function normalizeIndexNote(note = {}, fallbackTopicId = null) {
     dateKey,
     hasDate: note.hasDate !== false && dateKey != null,
     dateParts: note.dateParts || (dateKey != null ? datePartsFromKey(dateKey) : { year: null, month: null, day: null }),
-    noteType: note.noteType || "entry",
     extra: note.extra && typeof note.extra === "object" ? note.extra : {},
     favorite: Boolean(note.favorite),
     favoriteAt: note.favoriteAt ?? null,
@@ -65,10 +63,8 @@ function normalizeDetailNote(note = {}, fallbackTopicId = null) {
 function hasFullNoteDetail(note = {}) {
   return (
     "bodyMarkdown" in note ||
-    "bodyJson" in note ||
     "attachments" in note ||
-    "items" in note ||
-    "relatedNotes" in note
+    "items" in note
   );
 }
 
@@ -82,9 +78,6 @@ function detailToIndexNote(note = {}) {
     displayLabel: note.displayLabel,
     headline: note.headline,
     era: note.era,
-    // Keep the note kind so the feed still flags a mindmap (and routes its click to
-    // the canvas) after an edit round-trips through here.
-    noteType: note.noteType || "entry",
     hasDate: note.hasDate !== false && note.dateKey != null,
     // Keep the primary image so a gallery card doesn't lose its thumbnail after
     // the note is edited (this is the index note the gallery reads). The detail
@@ -118,7 +111,6 @@ function detailSearchText(note = {}) {
     note.displayLabel,
     note.legacyYear,
     note.era,
-    mindmapPlainText(note.bodyJson),
     plainTextFromMarkdown(note.bodyMarkdown || ""),
     ...(note.items || []).map((item) => item?.text || ""),
     ...flattenSearchValues(note.extra),

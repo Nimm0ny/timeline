@@ -24,7 +24,7 @@ def get_local_ip():
 
 if __name__ == "__main__":
     ip = get_local_ip()
-    print("\n  >> History Timeline Project")
+    print("\n  >> Chronicle")
     print("  >> Local:    http://localhost:8000")
     print(f"  >> Network:  http://{ip}:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)

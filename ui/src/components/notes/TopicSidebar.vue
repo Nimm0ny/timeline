@@ -118,8 +118,6 @@ const props = defineProps({
 const emit = defineEmits([
   "create-note",
   "create-note-in-topic",
-  "create-mindmap-in-topic",
-  "create-canvas-in-topic",
   "create-bookshelf",
   "create-topic",
   "rename-bookshelf",
@@ -370,11 +368,10 @@ function onPaneScroll() {
   if (editing.value) closePropertyPopover();
 }
 
-const CREATE_IN_TOPIC_EMIT = { mindmap: "create-mindmap-in-topic", canvas: "create-canvas-in-topic" };
-function createInTopic(topicId, noteType = "entry") {
+function createInTopic(topicId) {
   closeTopicMenu();
   closeCreateTopicMenu();
-  emit(CREATE_IN_TOPIC_EMIT[noteType] || "create-note-in-topic", topicId);
+  emit("create-note-in-topic", topicId);
 }
 
 // Inline rename reuses the borderless create-row field (one list-edit grammar):
@@ -1418,11 +1415,11 @@ watch(typeMenu, (value) => {
                   @click="openFavoriteNote(item.id)"
                 >
                   <span class="fav-recent-ic">
-                    <LucideIcon :name="item.noteType === 'mindmap' ? 'mindmap' : item.noteType === 'canvas' ? 'canvas' : 'note'" :stroke-width="1.5" />
+                    <LucideIcon name="note" :stroke-width="1.5" />
                   </span>
                   <span class="fav-recent-main">
                     <span class="fav-recent-title">{{ item.headline || item.displayLabel || "未命名笔记" }}</span>
-                    <span class="fav-recent-meta">{{ favoriteNoteTopicLabel(item.topicId) + (item.noteType === "mindmap" ? " · 思维导图" : item.noteType === "canvas" ? " · 画布" : "") }}</span>
+                    <span class="fav-recent-meta">{{ favoriteNoteTopicLabel(item.topicId) }}</span>
                   </span>
                   <LucideIcon name="arrowRight" :stroke-width="1.5" />
                 </button>
@@ -1792,17 +1789,9 @@ watch(typeMenu, (value) => {
 
     <div v-if="topicCreateMenu" class="ti-menu-backdrop" @click="closeCreateTopicMenu" @contextmenu.prevent="closeCreateTopicMenu">
       <div class="popover ti-menu" :style="{ left: topicCreateMenu.x + 'px', top: topicCreateMenu.y + 'px' }" @click.stop>
-        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'entry')">
+        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId)">
           <LucideIcon name="note" :stroke-width="1.5" class="pop-item-ic" />
-          <span class="lbl">条目</span>
-        </button>
-        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'mindmap')">
-          <LucideIcon name="mindmap" :stroke-width="1.5" class="pop-item-ic" />
-          <span class="lbl">思维导图</span>
-        </button>
-        <button type="button" class="pop-item" @click="createInTopic(topicCreateMenu.topicId, 'canvas')">
-          <LucideIcon name="canvas" :stroke-width="1.5" class="pop-item-ic" />
-          <span class="lbl">画布</span>
+          <span class="lbl">笔记</span>
         </button>
       </div>
     </div>

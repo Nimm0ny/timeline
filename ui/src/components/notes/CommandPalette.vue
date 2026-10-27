@@ -136,7 +136,8 @@ watch(
     if (!open) return;
     activeIndex.value = 0;
     nextTick(() => inputRef.value?.focus());
-  }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -166,6 +167,7 @@ watch(
           :value="props.query"
           type="search"
           placeholder="搜索事件、笔记本或命令"
+          aria-label="搜索事件、笔记本或命令"
           @input="updateQuery"
         />
         <span v-if="props.loading" class="command-search-state">搜索中</span>
@@ -186,7 +188,7 @@ watch(
             @mouseenter="activeIndex = itemIndex(item.key)"
             @click="activate(item)"
           >
-            <template v-if="item.type === 'event'">
+            <template v-if="item.type === 'note'">
               <span class="command-row-main">
                 <span class="command-row-title"><HighlightedText :text="item.value.headline" :query="props.query" /></span>
                 <span class="command-row-sub"><HighlightedText :text="item.value.snippet || '—'" :query="props.query" /></span>

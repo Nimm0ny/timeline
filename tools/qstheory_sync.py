@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Incrementally append qstheory crawl output to Chronicle.")
     parser.add_argument("--source", choices=tuple(SOURCE_CONFIG), required=True)
     parser.add_argument("--input-dir", required=True, help="Directory containing scraper manifest.json and topic JSON files.")
-    parser.add_argument("--base-url", default="http://127.0.0.1", help="Chronicle API base URL.")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Chronicle API base URL.")
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--dry-run", action="store_true", help="Plan changes without creating notebooks or notes.")
     parser.add_argument("--lock-file", help="Required for writes; prevents overlapping sync processes.")

@@ -151,7 +151,7 @@ const props = defineProps({
     default: "timeline",
   },
   // Ordered sort levels [{ field, dir }, …] for the center column, already clamped
-  // by the page to what the effective view can sort (docs/center-sort-design.md).
+  // by the page to what the effective view can sort.
   sort: {
     type: Array,
     default: () => [{ field: "time", dir: 1 }],
@@ -205,8 +205,6 @@ const props = defineProps({
 
 const emit = defineEmits([
   "create-note",
-  "create-mindmap",
-  "create-canvas",
   "select-note",
   "update:searchQuery",
   "locate-date",
@@ -332,7 +330,7 @@ function togglePopover(name) {
 // Display-style views (axis 1). The effective view is the persisted style
 // resolved against the live capability set (services/timeline.py is SSOT) so an
 // unimplemented/incapable style degrades to table instead of rendering blank.
-// All six views are mobile-capable (docs/mobile-web-design.md §7).
+// All six views are mobile-capable.
 function effectiveView() {
   // Cross-notebook favorites: flat list on desktop so it can sort by 收藏时间
   // without an era grouping to fight (docs §4); on mobile it keeps the
@@ -355,11 +353,9 @@ function pickView(view) {
   if (view.key !== effectiveView()) emit("change-view", view.key);
 }
 
-// 新建 = note-type picker (hard requirement): entry runs the current create flow,
-// mindmap / canvas create + open their own center surface. The page owns the handlers.
-function pickNoteType(type) {
+function createNote() {
   activePopover.value = "";
-  emit(type === "mindmap" ? "create-mindmap" : type === "canvas" ? "create-canvas" : "create-note");
+  emit("create-note");
 }
 
 function flatNotes() {
@@ -416,8 +412,6 @@ function buildProjectedNote(event, columns, { previewLength = 0 } = {}) {
     chipsByColumn,
     rowChips: aggregateOptionChips(event, props.columns, props.emptyColumnKeys),
     hasAttachment: Boolean(event.attachments?.length || event.attachmentCount),
-    isMindmap: event.noteType === "mindmap",
-    isCanvas: event.noteType === "canvas",
     thumbUrl: eventThumb(event),
   };
   perEvent.set(signature, projected);
@@ -506,7 +500,7 @@ function recordBoardCardHeight(bucketId, element) {
   boardCardHeights.value = { ...boardCardHeights.value, [bucketId]: measured };
 }
 
-// Sort control (docs/center-sort-design.md). The page owns the ordered sort levels
+// Sort control. The page owns the ordered sort levels
 // and clamps them per view; here we surface options and emit changes. Flat views
 // (table/list/gallery) re-sort the flattened set directly, bypassing the era
 // grouping; grouped views read props.groups (already ordered by the page).
@@ -794,7 +788,7 @@ const fullGridMinWidth = computed(() => {
 // to the minimal time+title projection (the phone shape — container-driven, so
 // a compact-desktop squeeze or a hand-dragged narrow pane behaves like mobile);
 // the table view instead keeps EVERY visible column and pans horizontally
-// (docs/mobile-web-design.md §7) — collapsing its columns would defeat the one
+// — collapsing its columns would defeat the one
 // view whose point is the columns.
 const feedCondensed = computed(() => props.mobile || feedWidth.value < fullGridMinWidth.value);
 const condensedLinear = computed(() => feedCondensed.value && effectiveView() !== "table");
@@ -1559,19 +1553,12 @@ defineExpose({
 
         <template v-else-if="activePopover === 'newtype'">
           <div class="pop-title">新建</div>
-          <button type="button" class="pop-item" @click="pickNoteType('entry')">
+          <button type="button" class="pop-item" @click="createNote">
             <LucideIcon class="pop-item-ic" name="note" :stroke-width="1.5" />
-            <span class="pop-item-label">条目</span>
-          </button>
-          <button type="button" class="pop-item" @click="pickNoteType('mindmap')">
-            <LucideIcon class="pop-item-ic" name="mindmap" :stroke-width="1.5" />
-            <span class="pop-item-label">思维导图</span>
-          </button>
-          <button type="button" class="pop-item" @click="pickNoteType('canvas')">
-            <LucideIcon class="pop-item-ic" name="canvas" :stroke-width="1.5" />
-            <span class="pop-item-label">画布</span>
+            <span class="pop-item-label">笔记</span>
           </button>
         </template>
+
       </div>
     </div>
 
@@ -1680,12 +1667,7 @@ defineExpose({
                 ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
                 <span v-else-if="column.key === 'title'" class="c-title">
                   <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
-                  <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-                    <LucideIcon name="mindmap" :stroke-width="1.5" />
-                  </span>
-                  <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-                    <LucideIcon name="canvas" :stroke-width="1.5" />
-                  </span>
+
                   <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
                     <LucideIcon name="paperclip" :stroke-width="1.5" />
                   </span>
@@ -1799,12 +1781,7 @@ defineExpose({
             ><HighlightedText :text="activeLinearRows[vRow.index].projected.resolvedColumnValues[column.key]" :query="props.searchQuery" /></span>
             <span v-else-if="column.key === 'title'" class="c-title">
               <b class="ev-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
-              <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-                <LucideIcon name="mindmap" :stroke-width="1.5" />
-              </span>
-              <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-                <LucideIcon name="canvas" :stroke-width="1.5" />
-              </span>
+
               <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
                 <LucideIcon name="paperclip" :stroke-width="1.5" />
               </span>
@@ -1925,12 +1902,6 @@ defineExpose({
               <span v-if="selectMode" class="gl-check tcheck" :class="{ on: isRowSelected(projected.event.id) }">
                 <LucideIcon v-if="isRowSelected(projected.event.id)" name="check" :stroke-width="2.4" />
               </span>
-              <span v-else-if="projected.isMindmap" class="gl-badge" title="思维导图">
-                <LucideIcon name="mindmap" :stroke-width="1.5" />
-              </span>
-              <span v-else-if="projected.isCanvas" class="gl-badge" title="画布">
-                <LucideIcon name="canvas" :stroke-width="1.5" />
-              </span>
             </span>
             <span class="gl-meta">
               <b class="gl-name"><HighlightedText :text="projected.titleText" :query="props.searchQuery" /></b>
@@ -2027,12 +1998,7 @@ defineExpose({
           </span>
           <span class="lv-lead">
             <b class="lv-name" :title="activeLinearRows[vRow.index].projected.titleText"><HighlightedText :text="activeLinearRows[vRow.index].projected.titleText" :query="props.searchQuery" /></b>
-            <span v-if="activeLinearRows[vRow.index].projected.isMindmap" class="ev-type" title="思维导图">
-              <LucideIcon name="mindmap" :stroke-width="1.5" />
-            </span>
-            <span v-else-if="activeLinearRows[vRow.index].projected.isCanvas" class="ev-type" title="画布">
-              <LucideIcon name="canvas" :stroke-width="1.5" />
-            </span>
+
             <span v-if="activeLinearRows[vRow.index].projected.hasAttachment" class="clip">
               <LucideIcon name="paperclip" :stroke-width="1.5" />
             </span>

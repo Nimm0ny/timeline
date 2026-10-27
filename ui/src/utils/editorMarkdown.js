@@ -8,10 +8,6 @@ function extensionFromAttachment(attachment = {}) {
   return extension || "";
 }
 
-function normalizeSearch(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function escapeMarkdownLabel(value) {
   return String(value || "attachment")
     .replace(/[\r\n]+/g, " ")
@@ -19,20 +15,6 @@ function escapeMarkdownLabel(value) {
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]")
     .trim() || "attachment";
-}
-
-function eventSearchText(event) {
-  return [
-    event?.headline,
-    event?.displayLabel,
-    event?.era,
-    event?.isoDate,
-    event?.dateRangeLabel,
-    ...(Array.isArray(event?.tags) ? event.tags : []),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
 }
 
 export function attachmentKind(attachment = {}) {
@@ -97,15 +79,6 @@ export function selectionTouchesRange(ranges, from, to) {
   return (Array.isArray(ranges) ? ranges : []).some(
     (range) => range && range.from <= hi && range.to >= lo
   );
-}
-
-export function filterRelatedNoteCandidates(events, { currentId = null, selectedIds = [], query = "", limit = 8 } = {}) {
-  const selected = new Set(selectedIds.map((id) => Number(id)));
-  const normalizedQuery = normalizeSearch(query);
-  return (Array.isArray(events) ? events : [])
-    .filter((event) => event?.id && event.id !== currentId && !event.deletedAt && !selected.has(Number(event.id)))
-    .filter((event) => !normalizedQuery || eventSearchText(event).includes(normalizedQuery))
-    .slice(0, limit);
 }
 
 const UNORDERED_LIST_ITEM_RE = /^(\s*)([-*+])(\s+)(\[[ xX]\]\s+)?(.*)$/;

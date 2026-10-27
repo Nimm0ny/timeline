@@ -105,7 +105,7 @@ button {
   grid-template-columns: var(--left-w) minmax(0, 1fr) 0;
 }
 
-/* Sidebar on the right outer edge (docs/layout-swap-design.md): the detail pane
+/* Sidebar on the right outer edge: the detail pane
    takes the left outer edge, the feed stays centered. Columns reorder via `order`
    (no DOM move → components keep their state); grid tracks and both resizers
    mirror. The detail-closed variant collapses the LEFT track so the pane still
@@ -131,7 +131,7 @@ button {
   order: 2;
 }
 
-/* Detail pane in the CENTER track (docs/layout-swap-design.md §7): the feed and the
+/* Detail pane in the CENTER track: the feed and the
    detail swap places — the detail keeps its dragged width (--right-w) next to the
    sidebar and the feed becomes the flexible outer column. Collapse still animates
    px↔px on the middle track; composes with .nav-right for the full 2×2. */
@@ -314,7 +314,7 @@ button {
   left: calc(100% - var(--left-w) - var(--right-w));
 }
 
-/* Pane-swap drag (docs/pane-swap-drag-design.md §2): grab the empty area of a
+/* Pane-swap drag: grab the empty area of a
    column's toolbar to move that column. The feed/detail spacers advertise the
    affordance only while the detail is open (there must be something to swap with);
    the sidebar's pane-head/title works whether or not the detail is open. */
@@ -405,7 +405,7 @@ button {
   border-right: 1px solid var(--border-soft);
 }
 
-/* nav-right: mirror the sidebar interior too (docs/layout-swap-design.md). The
+/* nav-right: mirror the sidebar interior too. The
    icon rail (ribbon) moves to the outer (right) edge and the pane sits toward the
    feed; both dividers flip from the right to the left (feed-facing) side. */
 .timeline-workspace.app.nav-right .sidebar {
@@ -489,7 +489,6 @@ button {
 
 /* Input standard — borderless, soft fill, 13px (spec §2.1). */
 .detail-inline-input,
-.detail-inline-search input,
 .detail-title-field input,
 .col-grid input,
 .col-grid select,
@@ -505,7 +504,6 @@ button {
 }
 
 .detail-inline-input:focus,
-.detail-inline-search input:focus,
 .col-grid input:focus,
 .col-grid select:focus,
 .pop-field input:focus,
@@ -2419,37 +2417,6 @@ button {
   text-decoration: underline;
 }
 
-/* W4 维基链接：阅读态 <a.timeline-wikilink> / <span.timeline-wikilink-unbound> 与编辑态
-   <span.cm-md-wikilink-*> 同一视觉。resolved=accent 可点；dangling=目标已删（虚线 muted，仅编辑态
-   知晓）；unbound=裸标题未绑 id（点线 muted）。下划线固定 1px、hover 加粗，避免读↔编辑位移。 */
-.markdown-body .timeline-wikilink,
-.markdown-live-editor .cm-md-wikilink-resolved {
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-.markdown-body .timeline-wikilink:hover,
-.markdown-live-editor .cm-md-wikilink-resolved:hover {
-  text-decoration-thickness: 2px;
-}
-.markdown-body .timeline-wikilink-unbound,
-.markdown-live-editor .cm-md-wikilink-unbound {
-  color: var(--text-muted);
-  cursor: default;
-  text-decoration: underline dotted;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-.markdown-live-editor .cm-md-wikilink-dangling {
-  color: var(--text-muted);
-  cursor: default;
-  text-decoration: underline dashed;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-
 .markdown-live-editor .cm-md-inline-code {
   background: var(--bg-surface-2);
   padding: 1px 6px;
@@ -2741,19 +2708,6 @@ button {
   gap: 6px;
 }
 
-/* 编辑态关联事件行尾的删除提示：克制的小图标（点整行即移除该关联）。 */
-.lrow-act {
-  flex: 0 0 auto;
-  display: inline-grid;
-  place-items: center;
-  color: var(--text-faint);
-}
-
-.lrow-act .timeline-lucide-icon {
-  width: var(--icon-bar);
-  height: var(--icon-bar);
-}
-
 /* Chip rows share ONE box so toggling read<->edit never moves a chip: read uses
    .pane-tags, edit uses .optpick-control. The geometry (display/gap/min-height/
    padding) is defined once here; each selector adds only its own extras below. */
@@ -2791,47 +2745,6 @@ button {
 .timeline-confirm-card p {
   color: var(--text-muted);
   font-size: 13px;
-}
-
-/* 关联事件编辑态：内联搜索框 + 候选结果网格（正向手动关联；hover 结果行走页面预览弹层）。 */
-.detail-inline-search {
-  position: relative;
-  display: block;
-  margin-bottom: 10px;
-}
-
-.detail-inline-search .timeline-lucide-icon {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  width: 16px;
-  height: 16px;
-  color: var(--text-faint);
-}
-
-.detail-inline-search input {
-  padding-left: 34px;
-}
-
-.related-results {
-  display: grid;
-  gap: 8px;
-}
-
-.related-result {
-  min-height: 42px;
-  display: grid;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  cursor: pointer;
-  text-align: left;
-}
-
-.related-result:hover {
-  background: var(--bg-hover);
 }
 
 .row-list {
@@ -2886,110 +2799,6 @@ button {
 .lrow-main span {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-/* W4 反向链接面板：折叠区复用 .pane-sec / .pane-sec-head / .lrow 骨架，只补
-   折叠头、计数徽标、容器 chip、单行摘要与「加载更多」的令牌化样式（无新造色）。 */
-.backlink-head {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.backlink-head:hover {
-  background: var(--bg-hover);
-}
-
-.backlink-chev {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  color: var(--text-faint);
-}
-
-.backlink-count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface-2);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.backlink-body {
-  display: grid;
-  gap: 8px;
-}
-
-.backlink-state {
-  padding: 8px 2px;
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.backlink-row {
-  cursor: pointer;
-  text-align: left;
-}
-
-.backlink-row:hover {
-  background: var(--bg-hover);
-}
-
-.backlink-snippet {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backlink-chip {
-  flex: none;
-  max-width: 42%;
-  height: 22px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface-2);
-  color: var(--text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.backlink-more {
-  justify-self: start;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.backlink-more:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.backlink-more:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 .detail-empty {
@@ -3092,124 +2901,6 @@ button {
   max-height: min(720px, 76vh);
   display: flex;
   flex-direction: column;
-}
-
-.related-preview-popover {
-  position: fixed;
-  z-index: 79;
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(260px, calc(100vh - 24px));
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--bg-detail);
-  box-shadow: var(--shadow-pop);
-}
-
-.related-preview-popover.pinned {
-  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--accent-line);
-}
-
-.related-preview-pointer {
-  position: absolute;
-  top: var(--related-anchor-y, 38px);
-  width: 14px;
-  height: 14px;
-  background: var(--bg-detail);
-  border-top: 1px solid var(--border-strong);
-  border-right: 1px solid var(--border-strong);
-}
-
-.related-preview-popover.place-left .related-preview-pointer {
-  right: -8px;
-  transform: translateY(-50%) rotate(45deg);
-}
-
-.related-preview-popover.place-right .related-preview-pointer {
-  left: -8px;
-  transform: translateY(-50%) rotate(225deg);
-}
-
-.related-preview-head {
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 10px 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.related-preview-title {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 3px;
-}
-
-.related-preview-kicker {
-  color: var(--text-faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.related-preview-title h3 {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-strong);
-  font-size: 16px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.related-preview-actions,
-.related-preview-meta,
-.related-preview-meta span {
-  display: flex;
-  align-items: center;
-}
-
-.related-preview-actions {
-  gap: 4px;
-}
-
-.related-preview-meta {
-  gap: 14px;
-  padding: 11px 18px 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-
-.related-preview-meta span {
-  min-width: 0;
-  gap: 7px;
-}
-
-.related-preview-meta .timeline-lucide-icon {
-  width: var(--icon-bar);
-  height: var(--icon-bar);
-  color: var(--text-faint);
-}
-
-.related-preview-text,
-.related-preview-state {
-  margin: 0;
-  padding: 14px 16px 18px;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.8;
-  overflow: auto;
-}
-
-.related-preview-state {
-  color: var(--text-muted);
-}
-
-.related-preview-state.error {
-  color: var(--t-war);
 }
 
 .command-search-field {
@@ -4995,7 +4686,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
-   Compact desktop 769–1024 (docs/mobile-web-design.md §8): three tracks can't
+   Compact desktop 769–1024: three tracks can't
    physically coexist (min sum 220+420+360 ≈ 1000px), so the detail leaves the
    grid and floats over the feed as a fixed overlay — the feed keeps its full
    width underneath (no condensed fallback while reading). Each variant's grid
@@ -5050,7 +4741,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
-   Mobile web shell (docs/mobile-web-design.md M1)
+   Mobile web shell
    ============================================================ */
 .mobile-topbar {
   display: none;
@@ -5255,7 +4946,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
-   Mobile touch + sheets (docs/mobile-web-design.md M2)
+   Mobile touch + sheets
    ============================================================ */
 @media (max-width: 768px) {
   .timeline-workspace.app.is-mobile {
@@ -5382,7 +5073,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
-   Mobile polish (docs/mobile-web-design.md M3)
+   Mobile polish
    ============================================================ */
 @media (max-width: 768px) {
   .is-mobile .feed-empty {
@@ -5483,7 +5174,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 }
 
 /* ============================================================
-   Six views on narrow feeds (docs/mobile-web-design.md §7 / M4).
+   Six views on narrow feeds.
    .is-condensed is container-driven (NoteFeed measures itself), so these
    apply on phones AND on a desktop feed squeezed under ~420px.
    ============================================================ */
@@ -5544,7 +5235,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 /* W2 display-style views: switcher popover items + table column sort + list view.
    Table rows reuse .row and every .c-* cell verbatim (same --rowgrid, zero new cell
    CSS) — only the era spine is dropped and headers become sort buttons. The list
-   view is a separate minimal layout. See docs/note-types-and-views-design.md. */
+   view is a separate minimal layout. */
 .tl-pop-views {
   width: min(220px, calc(100% - 24px));
 }
@@ -5708,7 +5399,7 @@ button.prop-row-type.open .timeline-lucide-icon {
 
 /* W3 display-style views: board (option-grouped kanban), gallery (image cards),
    outline (collapsible era tree). All reuse the entry data + .c-star reveal; tokens
-   only, fixed row heights, no transform:scale. See docs/note-types-and-views-design.md. */
+   only, fixed row heights, no transform:scale. */
 
 /* Board owns its own scroll (horizontal columns + vertical overflow), so opt out
    of the .scroll vertical-only container. */
@@ -5971,31 +5662,12 @@ button.prop-row-type.open .timeline-lucide-icon {
   opacity: 1;
 }
 
-/* Thumb overlays: a follow-theme mindmap badge or (in select mode) a checkbox at
-   top-left; both sit on a surface chip so they read over any photo. */
-.gl-badge,
+/* In selection mode, place the checkbox on a surface chip over each photo. */
 .gl-check {
   position: absolute;
   top: 7px;
   left: 7px;
   z-index: 1;
-}
-
-.gl-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow-pop);
-}
-
-.gl-badge .timeline-lucide-icon {
-  width: 14px;
-  height: 14px;
 }
 
 .gl-check {
@@ -6156,740 +5828,4 @@ button.prop-row-type.open .timeline-lucide-icon {
 .ol-row:hover .c-star,
 .ol-row.active .c-star {
   opacity: 1;
-}
-
-/* W4 mindmap (note_type=mindmap): simple-mind-map renders its own SVG canvas into
-   .mm-canvas, which must have a definite size — the host column gives .mm-editor
-   flex height. The library injects its own node styles; we only own the frame. */
-.mm-surface {
-  background: var(--bg-timeline);
-}
-
-.mm-surface.is-fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-}
-
-.mm-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 52px;
-  flex: none;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.mm-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  color: var(--text-muted);
-}
-
-.mm-head h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mm-status {
-  font-size: 12px;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.mm-editor {
-  position: relative;
-  flex: 1;
-  width: 100%;
-  min-height: 0;
-  background: var(--bg-surface);
-}
-
-.mm-canvas {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-/* Canvas (free-board) connect ports: magnetic handles on each card, revealed only when
-   the card is hovered so the board stays uncluttered. They keep pointer-events at rest,
-   so they're still grabbable the moment they appear. */
-.cv-canvas .x6-port circle {
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.cv-canvas .x6-node:hover .x6-port circle,
-.cv-canvas .x6-port:hover circle {
-  opacity: 1;
-}
-
-/* Canvas note-embed cards (W5): a real DOM node hosted in an X6 foreignObject via
-   @antv/x6-vue-shape, so it themes itself from CSS vars (no SVG repaint on light/dark switch).
-   Reads as a distinct object from a free text card — an accent spine + bold title over a muted
-   preview line + container chip. */
-/* x6-vue-shape wraps the card in a foreignObject <body>; drop its default margin so the card sits
-   flush at the node's top-left. The card's own width/height are set inline from the X6 node size
-   (EmbedCardNode.vue): a percentage height here resolves against the SVG *viewport* in Chrome (a
-   long-standing foreignObject quirk), which would balloon the card to the whole canvas height. */
-.cv-canvas foreignObject > body {
-  margin: 0;
-}
-.cv-embed-card {
-  box-sizing: border-box;
-  display: flex;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--bg-surface);
-  overflow: hidden;
-  cursor: move;
-  user-select: none;
-}
-.cv-embed-spine {
-  flex: 0 0 3px;
-  align-self: stretch;
-  background: var(--accent);
-}
-.cv-embed-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-}
-.cv-embed-headline {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--text);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.cv-embed-preview {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.cv-embed-container {
-  margin-top: auto;
-  padding-top: 2px;
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Tombstone: the embedded note was deleted — muted, dashed, spine drops its accent (§7.5). */
-.cv-embed-card.is-tombstone {
-  border-style: dashed;
-  opacity: 0.78;
-}
-.cv-embed-card.is-tombstone .cv-embed-spine {
-  background: var(--border-strong);
-}
-.cv-embed-card.is-tombstone .cv-embed-headline {
-  color: var(--text-muted);
-  font-style: italic;
-}
-/* W5b viewport culling (§7.3): an off-screen card paints nothing — display:none, but the Vue
-   node stays mounted (no unmount thrash on re-entry). The "shell" tier (on-screen but too
-   small) drops its preview line via v-if in EmbedCardNode; the box size is unchanged. */
-.cv-embed-card.is-hidden {
-  display: none;
-}
-/* W5b-2 T2 (§7.2): a zoomed-in card renders the note's full markdown in place of the preview.
-   The box stays a fixed size (growing the node would dirty the snapshot), so the body scrolls
-   within it — the card itself is physically enlarged by the graph zoom that promoted it. */
-.cv-embed-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text);
-}
-.cv-embed-body img {
-  max-width: 100%;
-  height: auto;
-}
-/* Tame the read-mode .markdown-body rhythm to the card's scale (mirror of the tombstone scope
-   reset): the first line hugs the top, headings and blocks stay compact instead of inheriting
-   the right rail's large margins/sizes. */
-.cv-embed-body.markdown-body > :first-child {
-  margin-top: 0;
-}
-.cv-embed-body.markdown-body h1,
-.cv-embed-body.markdown-body h2,
-.cv-embed-body.markdown-body h3,
-.cv-embed-body.markdown-body h4 {
-  margin: 6px 0 2px;
-  font-size: 13px;
-  line-height: 1.3;
-}
-.cv-embed-body.markdown-body p,
-.cv-embed-body.markdown-body ul,
-.cv-embed-body.markdown-body ol,
-.cv-embed-body.markdown-body pre,
-.cv-embed-body.markdown-body blockquote {
-  margin: 0 0 4px;
-}
-
-.mm-loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  pointer-events: none;
-}
-
-/* Inline text-edit overlay for X6 node rename (double-click). Hidden by default;
-   shown as an absolute textarea positioned over the active node. */
-.mm-edit-overlay {
-  position: absolute;
-  display: none;
-  box-sizing: border-box;
-  padding: 0 6px;
-  border: 2px solid var(--accent);
-  border-radius: 6px;
-  background: var(--bg-surface);
-  resize: none;
-  outline: none;
-  overflow: hidden;
-  text-align: center;
-  font-family: var(--tn-font);
-  line-height: 1;
-  z-index: 50;
-  align-items: center;
-  justify-content: center;
-}
-
-.mm-node-plus {
-  position: absolute;
-  z-index: 12;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow-pop);
-  transform: translate(-50%, -50%);
-  transition:
-    background var(--motion-base) var(--ease),
-    color var(--motion-base) var(--ease),
-    border-color var(--motion-base) var(--ease);
-}
-
-.mm-node-plus:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
-  color: var(--accent);
-}
-
-/* Collapse/expand knob at a parent node's branch origin. Persistent (unlike the
-   hover add-child control): a quiet "−" while expanded, an accent pill showing the
-   hidden-child count while collapsed, so a folded branch always advertises itself. */
-.mm-node-collapse {
-  position: absolute;
-  z-index: 13;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  font-family: var(--tn-font-num);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: var(--shadow-pop);
-  transform: translate(-50%, -50%);
-  cursor: pointer;
-  transition:
-    background var(--motion-base) var(--ease),
-    color var(--motion-base) var(--ease),
-    border-color var(--motion-base) var(--ease);
-}
-
-.mm-node-collapse:hover {
-  border-color: var(--accent-line);
-  color: var(--accent);
-}
-
-.mm-node-collapse.collapsed {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-
-.mm-node-collapse.collapsed:hover {
-  background: var(--accent-hover);
-}
-
-.mm-collapse-glyph {
-  font-size: 15px;
-  transform: translateY(-1px);
-}
-
-/* All-hits search highlight: a translucent highlighter over each match (10% accent
-   keeps node text legible) plus an accent ring held off the node by a thin
-   --bg-surface moat, so it reads even on the solid-accent root or a picked canvas
-   colour. The focused match gets a stronger fill + an outer soft halo. Below the
-   add/collapse controls (z 8) and pointer-transparent so it never blocks the node. */
-.mm-search-hl {
-  position: absolute;
-  z-index: 8;
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
-  pointer-events: none;
-  transition: box-shadow var(--motion-base) var(--ease);
-}
-
-.mm-search-hl.current {
-  background: var(--accent-soft-2);
-  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent), 0 0 0 7px var(--accent-soft);
-}
-
-/* W5 mindmap toolbar: font/background/direction controls over the canvas. The row
-   sits above the canvas (z 5) so its dropdowns clear the SVG; a full-bleed scrim
-   (z 3) covers the canvas for click-away while leaving the toolbar interactive. */
-.mm-tools {
-  position: relative;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  height: 44px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.mm-tools .iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-/* Node find bar: a search icon that expands an inline input + n/m counter + prev/next
-   at the right edge of the toolbar. Reuses the app's borderless soft-fill input look. */
-.mm-find {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.mm-find-bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding-left: 4px;
-}
-
-.mm-find-input {
-  width: 132px;
-  height: 26px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
-  color: var(--text);
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-.mm-find-input:focus {
-  outline: none;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1.5px var(--accent-line);
-}
-
-.mm-find-count {
-  min-width: 34px;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.mm-tools .iconbtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.mm-tools .timeline-lucide-icon {
-  width: var(--icon-bar);
-  height: var(--icon-bar);
-  flex: none;
-}
-
-.iconbtn.mm-layout-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  padding: 0 5px;
-  gap: 3px;
-}
-
-.mm-sep {
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  flex: none;
-  background: var(--border-soft);
-}
-
-.mm-ctl {
-  position: relative;
-  display: inline-flex;
-}
-
-.mm-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 6;
-  min-width: 150px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-pop);
-}
-
-.mm-menu-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 30px;
-  padding: 0 8px;
-  width: 100%;
-  text-align: left;
-  font-size: 13px;
-  color: var(--text);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.mm-menu-item:hover {
-  background: var(--bg-hover);
-}
-
-.mm-menu-item.on {
-  color: var(--accent);
-}
-
-.mm-menu.mm-swatches {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-  width: max-content;
-  max-width: 168px;
-}
-
-.mm-swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.mm-swatch.on {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* 跟随主题 swatch: a dashed ring marks it as "auto / follow the app theme". */
-.mm-swatch.is-follow {
-  border-style: dashed;
-  border-color: var(--border-strong);
-}
-
-.mm-hint {
-  margin-left: 6px;
-  font-size: 11.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-.mm-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 3;
-}
-
-/* Per-node metadata badges: a pointer-transparent row under each node holding an
-   optional marker glyph, a clickable hyperlink, a note (click to edit), and tag pills.
-   Only the link/note chips re-enable pointer events, so the row never blocks the
-   canvas. z 10 sits above the search highlight (z 8) but below the add/collapse
-   controls (z 12/13). */
-.mm-node-badges {
-  position: absolute;
-  z-index: 10;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 280px;
-  pointer-events: none;
-}
-
-.mm-node-badges .timeline-lucide-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.mm-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow-pop);
-}
-
-.mm-badge.is-icon {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.mm-badge.is-link,
-.mm-badge.is-note {
-  pointer-events: auto;
-  cursor: pointer;
-  transition:
-    background var(--motion-base) var(--ease),
-    color var(--motion-base) var(--ease),
-    border-color var(--motion-base) var(--ease);
-}
-
-.mm-badge.is-link:hover,
-.mm-badge.is-note:hover {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.mm-badge-tag {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 6px;
-  flex: none;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface-2);
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.mm-badge-more {
-  color: var(--text-faint);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-/* Node info panel: a wider dropdown (opens leftward so it never runs off the toolbar's
-   right edge) with hyperlink / note / tag / icon editors for the selected node. Reuses
-   the borderless soft-fill input look from .mm-find-input. */
-.mm-menu.mm-meta-panel {
-  left: auto;
-  right: 0;
-  width: 264px;
-  gap: 10px;
-  padding: 12px;
-}
-
-.mm-meta-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.mm-meta-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.mm-meta-label .timeline-lucide-icon {
-  width: 13px;
-  height: 13px;
-}
-
-.mm-meta-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
-  color: var(--text);
-  font-family: var(--tn-font);
-  font-size: 13px;
-  padding: 6px 8px;
-}
-
-.mm-meta-input:focus {
-  outline: none;
-  background: var(--bg-surface);
-  box-shadow: inset 0 0 0 1.5px var(--accent-line);
-}
-
-.mm-meta-textarea {
-  resize: vertical;
-  min-height: 56px;
-  line-height: 1.5;
-}
-
-.mm-meta-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
-}
-
-.mm-meta-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 22px;
-  padding: 0 4px 0 8px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.mm-meta-chip-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  border-radius: var(--radius-pill);
-  color: inherit;
-  cursor: pointer;
-}
-
-.mm-meta-chip-x:hover {
-  background: var(--accent-line);
-}
-
-.mm-meta-chip-x .timeline-lucide-icon {
-  width: 11px;
-  height: 11px;
-}
-
-.mm-meta-taginput {
-  flex: 1;
-  min-width: 72px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--tn-font);
-  font-size: 12px;
-  padding: 3px 2px;
-}
-
-.mm-meta-taginput:focus {
-  outline: none;
-}
-
-.mm-meta-icons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.mm-meta-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background var(--motion-base) var(--ease),
-    color var(--motion-base) var(--ease),
-    border-color var(--motion-base) var(--ease);
-}
-
-.mm-meta-icon:hover {
-  border-color: var(--accent-line);
-  color: var(--accent);
-}
-
-.mm-meta-icon.on {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-
-.mm-meta-icon .timeline-lucide-icon {
-  width: 15px;
-  height: 15px;
-}
-
-/* Feed-row note-type badge: a mindmap note shows a small glyph after its title so
-   a mixed notebook reads at a glance (matches .clip's faint inline treatment). */
-.ev-type {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  color: var(--text-faint);
-}
-
-.ev-type .timeline-lucide-icon {
-  width: 13px;
-  height: 13px;
 }

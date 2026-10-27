@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one locked, backed-up qstheory crawl and sync cycle.")
     parser.add_argument("--source", choices=tuple(SOURCE_CRAWL_ARGS), required=True)
     parser.add_argument("--app-dir", default=str(Path(__file__).resolve().parents[1]))
-    parser.add_argument("--base-url", default="http://127.0.0.1")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--state-dir", help="Override data/qstheory-sync for isolated verification.")
     parser.add_argument("--backup-dir", default=str(Path.home() / "timeline_backups"))
     parser.add_argument("--keep-backups", type=positive_int, default=16)
@@ -124,13 +124,14 @@ def wait_for_api(
 
 def run_cycle(args: argparse.Namespace) -> dict:
     app_dir = Path(args.app_dir).resolve()
+    data_dir = Path(os.environ.get("CHRONICLE_DATA_DIR", app_dir / ".chronicle-data")).expanduser().resolve()
     state_dir = Path(args.state_dir).resolve() if args.state_dir else app_dir / "data" / "qstheory-sync"
     run_root = state_dir / "runs" / args.source
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output_dir = run_root / stamp
     lock_path = state_dir / f"{args.source}.lock"
     backup_dir = Path(args.backup_dir).expanduser().resolve()
-    database_path = app_dir / "data" / "timeline.db"
+    database_path = data_dir / "timeline.db"
 
     with exclusive_lock(lock_path):
         output_dir.mkdir(parents=True, exist_ok=False)

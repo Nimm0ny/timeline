@@ -1,7 +1,7 @@
 // Appearance/theme baseline. Presets carry a COMPLETE :root token set so a pure
 // preset reproduces the hand-tuned values exactly (no derivation drift); custom
 // knobs (accent/background/foreground/contrast/fonts) overlay recomputed groups
-// on top of the chosen base. See docs/appearance-system-design.md.
+// on top of the chosen base.
 
 // Light = the exact current notes.css :root values (zero-drift default).
 export const LIGHT_TOKENS = {

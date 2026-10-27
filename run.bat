@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul 2>&1
-title TimeLine Project
+title Chronicle
 
 echo.
 echo   ====================================
-echo     TimeLine Project
+echo     Chronicle
 echo   ====================================
 echo.
 
@@ -21,8 +21,7 @@ npm run build
 
 echo   [4/4] 启动服务器...
 echo.
-echo   时间轴页面:  http://localhost:8000
-echo   数据编辑器:  http://localhost:8000/editor
+echo   编年笔记:    http://localhost:8000
 echo.
 
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:8000"

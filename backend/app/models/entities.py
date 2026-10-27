@@ -37,11 +37,11 @@ class Topic(Base):
     # timeline/table/board/gallery/list/outline (see note-types-and-views-design.md).
     display_style: Mapped[str] = mapped_column(String(32), default="timeline", nullable=False)
     # Container type ("数字图书馆" axis-0): notebook/book/album. Presets the offered
-    # view set + default view (see docs/notes-app-pivot-design.md §4).
+    # view set + default view.
     container_type: Mapped[str] = mapped_column(String(32), default="notebook", nullable=False)
     # Center-column sort levels ([{field,dir},…]) and the timeline grouping
     # dimension (era/year/month), persisted per notebook for cross-device sync
-    # (see docs/center-sort-design.md §12).
+    # across devices.
     sort_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     group_by: Mapped[str] = mapped_column(String(32), default="era", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -105,16 +105,11 @@ class Note(Base):
     date_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     headline: Mapped[str | None] = mapped_column(String(255), nullable=True)
     era: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Note kind: "entry" (markdown body, default) or "mindmap" (tree in body_json).
-    note_type: Mapped[str] = mapped_column(String(32), default="entry", nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
     preview_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     search_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    # Structured body interpreted per note_type; only "mindmap" uses it (tree JSON).
-    body_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     attachments_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    related_note_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -174,32 +169,6 @@ class TopicEraStat(Base):
     )
 
     topic: Mapped[Topic] = relationship("Topic", back_populates="era_stats")
-
-
-class NoteLink(Base):
-    """A `[[wikilink]]` edge from one note's body to another (W4 link system).
-
-    The link graph is keyed by note id, not title, so renaming/moving a target never
-    breaks the edge (see docs/notes-app-pivot-design.md §6.1). `target_note_id` is NULL
-    for a dangling link (`[[title]]` that resolves to no note yet). `context_text` is the
-    surrounding line, precomputed at write time so the backlink panel never rescans source
-    bodies. `anchor_type`: 'wikilink' (from body) | 'manual' (backfilled related ids) |
-    'embed' (a canvas embedding the target — W5)."""
-
-    __tablename__ = "note_links"
-    __table_args__ = (
-        Index("ix_note_links_target_source", "target_note_id", "source_note_id"),
-        Index("ix_note_links_source", "source_note_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_note_id: Mapped[int] = mapped_column(ForeignKey("notes.id"), nullable=False, index=True)
-    target_note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id"), nullable=True, index=True)
-    target_title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
-    anchor_type: Mapped[str] = mapped_column(String(16), default="wikilink", nullable=False)
-    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    context_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class AppConfigEntry(Base):

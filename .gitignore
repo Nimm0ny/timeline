@@ -17,11 +17,14 @@ htmlcov/
 .agents/*
 !.agents/skills/
 .agents/skills/*
+!.agents/skills/test-audit/
+!.agents/skills/test-audit/**
 !.agents/skills/chronicle-political-ingestion/
 !.agents/skills/chronicle-political-ingestion/**
 .playwright-cli/
 
 # Runtime data and secrets
+.chronicle-data/
 data/timeline.db
 data/*.db
 data/*.sqlite

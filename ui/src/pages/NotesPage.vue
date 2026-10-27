@@ -3,7 +3,6 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { useRoute, useRouter } from "vue-router";
 import NoteDetailPane from "@/components/notes/NoteDetailPane.vue";
 import MobileTopBar from "@/components/notes/MobileTopBar.vue";
-import RelatedNotePreviewPopover from "@/components/notes/RelatedNotePreviewPopover.vue";
 import NoteFeed from "@/components/notes/NoteFeed.vue";
 import LucideIcon from "@/components/notes/LucideIcon.vue";
 import TopicSidebar from "@/components/notes/TopicSidebar.vue";
@@ -12,10 +11,6 @@ import { pushToast } from "@/composables/useToast";
 import { useNotesStore } from "@/composables/useNotesStore";
 import { usePaneSwapDrag } from "@/composables/usePaneSwapDrag";
 import { useViewport } from "@/composables/useViewport";
-import {
-  buildX6SeedSnapshot,
-} from "@/utils/mindmapX6.js";
-import { buildCanvasSeedSnapshot } from "@/utils/canvasX6.js";
 import {
   buildFavoriteFacetRows,
   buildOptionId,
@@ -30,7 +25,6 @@ import {
   groupNotes,
   matchesNoteSearch,
   matchesPropertyFilter,
-  mindmapRootData,
   normalizeTopicBookshelf,
   resolveCreateTopicRequest,
   normalizeSortLevels,
@@ -42,16 +36,12 @@ import {
 } from "@/utils/noteUtils";
 
 const CommandPalette = defineAsyncComponent(() => import("@/components/notes/CommandPalette.vue"));
-const MindmapSurface = defineAsyncComponent(() => import("@/components/notes/MindmapSurface.vue"));
-const CanvasSurface = defineAsyncComponent(() => import("@/components/notes/CanvasSurface.vue"));
 const SettingsModal = defineAsyncComponent(() => import("@/components/settings/SettingsModal.vue"));
 
 const route = useRoute();
 const router = useRouter();
 const detailPaneRef = ref(null);
 const feedPaneRef = ref(null);
-const mindmapSurfaceRef = ref(null);
-const canvasSurfaceRef = ref(null);
 const mobileFeedScrollTop = ref(0);
 const notesStore = useNotesStore();
 const { isMobile, isCompactDesktop, width: viewportWidth } = useViewport();
@@ -116,7 +106,7 @@ function normalizeNavPosition(value) {
 }
 
 // Same two-value coercion for the detail pane slot ("edge" = outer edge, "center" =
-// swapped with the feed into the middle track) — docs/layout-swap-design.md §7.
+// swapped with the feed into the middle track).
 function normalizeDetailPosition(value) {
   return value === "center" ? "center" : "edge";
 }
@@ -211,10 +201,6 @@ const state = reactive({
   confirmDeleteTopics: null,
   confirmPurgeIds: null,
   rightOpen: false,
-  // The mindmap note (note_type=mindmap) whose canvas is open in the center column
-  // (D-2: 中栏内嵌). Null → the feed list shows. mindmapSaving drives the bar status.
-  mindmapOpenId: null,
-  mindmapSaving: false,
   mobileSidebarOpen: false,
   mobileSearchOpen: false,
   leftWidth: Number.parseInt(readStorage(LEFT_WIDTH_KEY, "268"), 10) || 268,
@@ -228,18 +214,11 @@ const state = reactive({
   commandResults: [],
   commandLoading: false,
   commandError: "",
-  relatedPreviewOpen: false,
-  relatedPreviewNoteId: null,
-  relatedPreviewLoading: false,
-  relatedPreviewError: "",
-  relatedPreviewPinned: false,
-  relatedPreviewPlacement: "left",
-  relatedPreviewStyle: {},
   topicCreateRequestKey: 0,
   editPreview: null,
   // Center-column sort (ordered { field, dir } levels) + timeline grouping
   // dimension; reloaded from the backend per notebook (Topic meta) or, for the
-  // cross-notebook favorites view, from app config (docs/center-sort-design.md §12).
+  // cross-notebook favorites view, from app config.
   sort: normalizeSortLevels(DEFAULT_SORT),
   groupBy: "era",
 });
@@ -250,14 +229,13 @@ let topicNotesRequestSeq = 0;
 let workspaceSelectionRequestSeq = 0;
 let commandSearchTimer = null;
 let commandRequestSeq = 0;
-let relatedPreviewRequestSeq = 0;
 let detailAbortController = null;
 let detailPrefetchHandle = null;
 let columnSaveChain = Promise.resolve();
 const latestColumnSaveRevisionByTopic = new Map();
 let columnSaveInFlight = 0;
 // Serializes PUT /api/config for the cross-notebook favorites sort so rapid
-// reorders can't land out of order (docs/center-sort-design.md §12).
+// reorders can't land out of order.
 let configSaveChain = Promise.resolve();
 
 function normalizeMediaConfig(media = {}) {
@@ -292,7 +270,7 @@ function paintedRightWidth() {
 }
 
 // Drag-to-swap the feed and detail panes from either toolbar's empty area — the
-// third entry point for detailPosition (docs/pane-swap-drag-design.md). Commits
+// third entry point for detailPosition. Commits
 // through the same updateDetailPosition() as the settings control and ⋮ menu.
 const paneDragGhostEl = ref(null);
 const PANE_GHOST = {
@@ -508,7 +486,7 @@ const topicColumns = computed(() => normalizeTopicColumns(state.activeTopicMeta?
 const feedColumns = computed(() => (isGlobalFavoritesMode.value ? [] : topicColumns.value));
 // Display-style view (axis 1): start from the persisted style, then derive the live
 // capability set from the local notebook snapshot so note creates/deletes (including
-// undated mindmaps) update the switcher immediately, before a fresh /meta round-trip.
+// undated notes update the switcher immediately, before a fresh /meta round-trip.
 const feedDisplayStyle = computed(() => state.activeTopicMeta?.displayStyle || "timeline");
 const feedCapabilities = computed(() => {
   if (isGlobalFavoritesMode.value) return [];
@@ -528,15 +506,14 @@ const feedCapabilities = computed(() => {
 const showViewSwitcher = computed(
   () => !isGlobalFavoritesMode.value && Boolean(state.activeTopicId)
 );
-// Sort (docs/center-sort-design.md): direction is universal, fields are clamped to
+// Sort: direction is universal, fields are clamped to
 // what the effective view can sort. Cross-notebook favorites renders as a flat list
 // (own owner key + 收藏时间 field); otherwise the effective view mirrors the feed's
 // effectiveView() (resolveDisplayStyle + mobile→timeline) so both agree on the clamp.
 const effectiveDisplayStyle = computed(() => {
   // Favorites keeps its split behavior (flat desktop list, era timeline on
   // mobile — see favoritesSortContext below). Regular notebooks resolve the
-  // persisted style on every breakpoint: the six views are mobile-capable
-  // (docs/mobile-web-design.md §7).
+  // persisted style on every breakpoint: the six views are mobile-capable.
   if (isGlobalFavoritesMode.value) return isMobile.value ? "timeline" : "list";
   return resolveDisplayStyle(feedDisplayStyle.value, feedCapabilities.value);
 });
@@ -681,15 +658,6 @@ const selectedNoteIndex = computed(
     null
 );
 const selectedNote = computed(() => selectedNoteDetail.value || selectedNoteIndex.value);
-const relatedPreviewDetail = computed(() => notesStore.detailById(state.relatedPreviewNoteId));
-const relatedPreviewIndex = computed(
-  () => notesStore.state.notesIndex.find((event) => event.id === Number(state.relatedPreviewNoteId)) || null
-);
-const relatedPreviewNote = computed(() => relatedPreviewDetail.value || relatedPreviewIndex.value);
-const relatedPreviewTopicTitle = computed(() => {
-  const topicId = relatedPreviewNote.value?.topicId;
-  return (topicId && notesStore.topicById(topicId)?.title) || activeTopicTitle.value;
-});
 const detailRequiresFullNote = computed(() => Boolean(state.rightOpen && state.selectedNoteId && state.detailMode !== "create"));
 const detailPaneNote = computed(() => {
   if (state.detailMode === "create") return null;
@@ -697,27 +665,6 @@ const detailPaneNote = computed(() => {
   return selectedNote.value;
 });
 const detailPaneLoading = computed(() => Boolean(!state.detailError && (state.detailLoading || (detailRequiresFullNote.value && !selectedNoteDetail.value))));
-// The mindmap note whose canvas occupies the center column. Reads the full detail
-// (with bodyJson) from the cache; openMindmap ensures it is loaded first. The
-// topic+selection guard auto-hides a stale canvas after any context change (switch
-// notebook / filter / select another note) so the center can't get stuck showing an
-// old mindmap over the new feed — no per-navigation closeMindmap() needed.
-// mindmapOpenId is the single "structured note open in the center column" id — it
-// drives BOTH the mindmap and the canvas surface (they only differ in how the snapshot
-// renders). The two computeds discriminate by note_type so the right surface mounts.
-const mindmapNote = computed(() => {
-  if (!state.mindmapOpenId) return null;
-  const note = notesStore.detailById(state.mindmapOpenId);
-  if (!note || note.topicId !== state.activeTopicId || state.selectedNoteId !== state.mindmapOpenId) return null;
-  return note.noteType === "mindmap" ? note : null;
-});
-const canvasNote = computed(() => {
-  if (!state.mindmapOpenId) return null;
-  const note = notesStore.detailById(state.mindmapOpenId);
-  if (!note || note.topicId !== state.activeTopicId || state.selectedNoteId !== state.mindmapOpenId) return null;
-  return note.noteType === "canvas" ? note : null;
-});
-
 function eventCreatedDate(event) {
   const raw = event?.createdAt || event?.updatedAt;
   const date = raw ? new Date(raw) : null;
@@ -901,25 +848,17 @@ function setDefaultSelection(preferredNoteId = null) {
   state.selectedNoteId = items[0]?.id ?? null;
 }
 
-// mindmap and canvas notes both open their own center-column surface (never the
-// markdown detail pane); everything else uses the detail pane.
-function opensInCenterColumn(event) {
-  return event?.noteType === "mindmap" || event?.noteType === "canvas";
-}
-
 function buildRouteSelectionSpec() {
   const eventId = parseRouteNumber("event");
   const routeTopicId = parseRouteNumber("topic");
   const mode = parseRouteMode();
   const event = eventId ? notesStore.noteById(eventId) || null : null;
   const topicId = event?.topicId || routeTopicId || null;
-  const openMindmap = opensInCenterColumn(event);
   return {
     event,
     eventId,
     mode,
-    openDetail: openMindmap ? false : mode !== "view" || eventId !== null,
-    openMindmap,
+    openDetail: mode !== "view" || eventId !== null,
     topicId,
   };
 }
@@ -934,14 +873,9 @@ function routeSelectionMatchesState(spec) {
   const topicMatches = spec.topicId ? state.activeTopicId === spec.topicId : true;
   const eventMatches = spec.eventId ? state.selectedNoteId === spec.eventId : true;
 
-  if (spec.openMindmap) {
-    return topicMatches && eventMatches && state.mindmapOpenId === spec.eventId && !state.rightOpen && state.detailMode === "view";
-  }
-
   return (
     topicMatches &&
     eventMatches &&
-    state.mindmapOpenId == null &&
     state.detailMode === expectedMode &&
     state.rightOpen === Boolean(spec.openDetail && (spec.eventId || expectedMode === "create"))
   );
@@ -1073,17 +1007,6 @@ async function applyRouteSelectionFromQuery() {
     openDetail: spec.openDetail,
   });
 
-  if (spec.openMindmap && spec.eventId) {
-    state.selectedNoteId = spec.eventId;
-    state.detailMode = "view";
-    state.detailError = "";
-    state.rightOpen = false;
-    state.mindmapOpenId = spec.eventId;
-    await notesStore.ensureNoteDetail(spec.eventId);
-    return;
-  }
-
-  closeMindmap();
 }
 
 function syncActiveTopicFromStore() {
@@ -1211,7 +1134,6 @@ function openGlobalFavorites() {
     const ready = await ensureGlobalIndexReady();
     if (!ready) return;
     state.collectionMode = "favorites";
-    closeMindmap();
     state.favoriteScope = { kind: "all" };
     state.sidebarFilter = "all";
     state.propertyFilter = { key: "", value: "" };
@@ -1343,12 +1265,6 @@ function selectCommandNote(result) {
       return;
     }
     closeMobileSidebar();
-    // A mindmap or canvas opens its own center surface, never the markdown detail pane.
-    if (opensInCenterColumn(event)) {
-      await openMindmap(eventId);
-      return;
-    }
-    closeMindmap();
     state.detailError = "";
     state.rightOpen = true;
     await syncRouteState({
@@ -1441,27 +1357,6 @@ async function applyNoteSelection(eventId) {
       return;
     }
   }
-  // A mindmap or canvas opens its own center surface (D-2), never the markdown detail
-  // pane. Bring its notebook to the front first if it lives in another one.
-  if (opensInCenterColumn(event)) {
-    if (event.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
-      exitGlobalFavoritesMode({ reselect: false });
-      state.sidebarFilter = "all";
-      state.propertyFilter = { key: "", value: "" };
-      state.activeEra = "";
-      state.locateDate = "";
-      state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithNotes({
-        preferredTopicId: event.topicId,
-        preferredNoteId: id,
-        preferredMode: "view",
-        openDetail: false,
-      });
-      if (!ready) return;
-    }
-    await openMindmap(id);
-    return;
-  }
   if (event?.topicId && (isGlobalFavoritesMode.value || event.topicId !== state.activeTopicId)) {
     state.collectionMode = "";
     state.sidebarFilter = "all";
@@ -1502,306 +1397,6 @@ function selectNote(eventId) {
   runOrConfirm(() => applyNoteSelection(eventId));
 }
 
-// Open a structured note's surface in the center column (no markdown detail pane).
-// Type-agnostic: drives both mindmap and canvas (mindmapNote/canvasNote discriminate
-// which surface mounts). Context (notebook switch) is handled by the caller; here we
-// just load the full detail (for bodyJson) and flip the center surface.
-async function openMindmap(eventId) {
-  const id = Number(eventId);
-  state.selectedNoteId = id;
-  state.detailMode = "view";
-  state.detailError = "";
-  state.rightOpen = false;
-  state.mindmapOpenId = id;
-  await notesStore.ensureNoteDetail(id);
-  await syncRouteState({ eventId: id, mode: "view" });
-}
-
-function closeMindmap() {
-  state.mindmapOpenId = null;
-}
-
-// Create a mindmap note seeded with one X6 root snapshot, then open its canvas.
-// Mindmaps are undated by default so they can live as free-form canvases; dated
-// legacy maps still round-trip because persistMindmapTree forwards an existing date.
-function createMindmapNote(topicId = state.activeTopicId) {
-  const targetTopicId = Number(topicId || state.activeTopicId);
-  if (!targetTopicId) {
-    pushToast("请先选择一个笔记本", "error");
-    return;
-  }
-  runOrConfirm(async () => {
-    exitGlobalFavoritesMode({ reselect: false });
-    if (targetTopicId !== state.activeTopicId) {
-      state.propertyFilter = { key: "", value: "" };
-      state.activeEra = "";
-      state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithNotes({
-        preferredTopicId: targetTopicId,
-        preferredNoteId: null,
-        preferredMode: "view",
-        openDetail: false,
-      });
-      if (!ready) return;
-    }
-    closeMobileSidebar();
-    try {
-      const result = await api.createTopicNote(targetTopicId, {
-        headline: "未命名导图",
-        noteType: "mindmap",
-        bodyJson: buildX6SeedSnapshot("中心主题"),
-      });
-      notesStore.upsertNote(result);
-      syncActiveTopicFromStore();
-      await openMindmap(result.id);
-      pushToast("已创建思维导图");
-    } catch (error) {
-      pushToast(`创建失败：${error.message}`, "error");
-    }
-  });
-}
-
-// Create a canvas note seeded with one starter card, then open its board. Canvases are
-// undated free-form boards; persistCanvasSnapshot autosaves the X6 snapshot.
-function createCanvasNote(topicId = state.activeTopicId) {
-  const targetTopicId = Number(topicId || state.activeTopicId);
-  if (!targetTopicId) {
-    pushToast("请先选择一个笔记本", "error");
-    return;
-  }
-  runOrConfirm(async () => {
-    exitGlobalFavoritesMode({ reselect: false });
-    if (targetTopicId !== state.activeTopicId) {
-      state.propertyFilter = { key: "", value: "" };
-      state.activeEra = "";
-      state.searchQuery = "";
-      const ready = await applyWorkspaceSelectionWithNotes({
-        preferredTopicId: targetTopicId,
-        preferredNoteId: null,
-        preferredMode: "view",
-        openDetail: false,
-      });
-      if (!ready) return;
-    }
-    closeMobileSidebar();
-    try {
-      const result = await api.createTopicNote(targetTopicId, {
-        headline: "未命名画布",
-        noteType: "canvas",
-        bodyJson: buildCanvasSeedSnapshot(),
-      });
-      notesStore.upsertNote(result);
-      syncActiveTopicFromStore();
-      await openMindmap(result.id);
-      pushToast("已创建画布");
-    } catch (error) {
-      pushToast(`创建失败：${error.message}`, "error");
-    }
-  });
-}
-
-// Legacy snapshots may store rich-text HTML in node text; the note headline stays
-// plain text, so decode tags + entities before tracking the root label.
-function htmlToPlainText(html) {
-  const raw = String(html || "");
-  if (typeof document === "undefined") return raw.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-  const tmp = document.createElement("div");
-  tmp.innerHTML = raw;
-  return (tmp.textContent || "").replace(/\s+/g, " ").trim();
-}
-
-// Saves are serialized through a chain so the editor's debounced data_change bursts
-// can't land out of order. The save carries the bound note id (the editor is keyed
-// per note) so a flush during a note switch — or after the canvas closed — writes to
-// the right note, never the newly-opened one. The headline tracks the root node text.
-let mindmapSaveChain = Promise.resolve();
-function saveMindmapTree(payload) {
-  mindmapSaveChain = mindmapSaveChain.then(() => persistMindmapTree(payload));
-  return mindmapSaveChain;
-}
-
-async function persistMindmapTree({ id, tree } = {}) {
-  const note = id ? notesStore.detailById(id) : null;
-  if (!note || note.deletedAt) return;
-  state.mindmapSaving = true;
-  try {
-    // tree may be a legacy tree/snapshot or the new X6 snapshot; mindmapRootData
-    // normalizes all supported shapes so headline sync stays stable through migration.
-    const rootText = htmlToPlainText(mindmapRootData(tree)?.data?.text) || note.headline || "未命名导图";
-    const payload = {
-      headline: rootText,
-      era: note.era || "",
-      noteType: "mindmap",
-      bodyJson: tree,
-      extra: note.extra || {},
-      // updateNote is a full replace — forward the note's existing attachments and
-      // related links so a tree autosave can't blank them.
-      attachments: note.attachments || [],
-      relatedNoteIds: note.relatedNoteIds || [],
-    };
-    if (note.hasDate && note.dateParts?.year != null) {
-      payload.dateYear = note.dateParts.year;
-      payload.dateMonth = note.dateParts.month;
-      payload.dateDay = note.dateParts.day;
-    }
-    const result = await api.updateNote(id, payload);
-    notesStore.upsertNote(result);
-    syncActiveTopicFromStore();
-  } catch (error) {
-    pushToast(`保存失败：${error.message}`, "error");
-  } finally {
-    state.mindmapSaving = false;
-  }
-}
-
-// Canvas autosave, mirroring the mindmap save chain (serialized so debounced snapshot
-// bursts can't land out of order; the bound note id keeps a late flush on the right
-// note). The headline tracks the first card so the note's title reflects its board.
-let canvasSaveChain = Promise.resolve();
-function saveCanvasSnapshot(payload) {
-  canvasSaveChain = canvasSaveChain.then(() => persistCanvasSnapshot(payload));
-  return canvasSaveChain;
-}
-
-async function persistCanvasSnapshot({ id, tree } = {}) {
-  const note = id ? notesStore.detailById(id) : null;
-  if (!note || note.deletedAt) return;
-  state.mindmapSaving = true;
-  try {
-    const firstCard = (tree?.cells || []).find((cell) => cell && cell.shape !== "edge");
-    const headline = htmlToPlainText(firstCard?.data?.text) || note.headline || "未命名画布";
-    const payload = {
-      headline,
-      era: note.era || "",
-      noteType: "canvas",
-      bodyJson: tree,
-      extra: note.extra || {},
-      // updateNote is a full replace — forward existing attachments/links so a board
-      // autosave can't blank them.
-      attachments: note.attachments || [],
-      relatedNoteIds: note.relatedNoteIds || [],
-    };
-    if (note.hasDate && note.dateParts?.year != null) {
-      payload.dateYear = note.dateParts.year;
-      payload.dateMonth = note.dateParts.month;
-      payload.dateDay = note.dateParts.day;
-    }
-    const result = await api.updateNote(id, payload);
-    notesStore.upsertNote(result);
-    syncActiveTopicFromStore();
-  } catch (error) {
-    pushToast(`保存失败：${error.message}`, "error");
-  } finally {
-    state.mindmapSaving = false;
-  }
-}
-
-function relatedPreviewPosition(anchor) {
-  if (typeof window === "undefined") {
-    return { placement: "left", style: {} };
-  }
-  const width = 360;
-  const estimatedHeight = 268;
-  const gap = 14;
-  const margin = 12;
-  const viewportWidth = window.innerWidth || 1920;
-  const viewportHeight = window.innerHeight || 1080;
-  // Fallback anchor = the detail pane's horizontal span, which depends on which of
-  // the four nav/detail layout combos is active (docs/layout-swap-design.md §7).
-  const navRight = state.config.navPosition === "right";
-  const detailCenter = state.config.detailPosition === "center";
-  const paintedLeft = isCompactDesktop.value ? clamp(state.leftWidth, 220, 240) : state.leftWidth;
-  let detailLeft;
-  if (detailCenter) {
-    detailLeft = navRight ? viewportWidth - paintedLeft - state.rightWidth : paintedLeft;
-  } else {
-    detailLeft = navRight ? 0 : viewportWidth - state.rightWidth;
-  }
-  const target = anchor || {
-    top: viewportHeight * 0.35,
-    bottom: viewportHeight * 0.35 + 40,
-    left: detailLeft,
-    right: detailLeft + state.rightWidth - margin,
-    height: 40,
-  };
-  const canPlaceLeft = target.left - width - gap >= margin;
-  const placement = canPlaceLeft ? "left" : "right";
-  const rawLeft = placement === "left" ? target.left - width - gap : target.right + gap;
-  const left = clamp(rawLeft, margin, Math.max(margin, viewportWidth - width - margin));
-  const top = clamp(target.top - 8, margin, Math.max(margin, viewportHeight - estimatedHeight - margin));
-  const anchorY = clamp(target.top + target.height / 2 - top, 22, estimatedHeight - 22);
-  return {
-    placement,
-    style: {
-      left: `${Math.round(left)}px`,
-      top: `${Math.round(top)}px`,
-      "--related-anchor-y": `${Math.round(anchorY)}px`,
-    },
-  };
-}
-
-async function openRelatedPreview(payload, { pinned = false } = {}) {
-  if (state.relatedPreviewPinned && !pinned) return;
-  const id = Number(payload?.id ?? payload);
-  if (!id) return;
-  const seq = ++relatedPreviewRequestSeq;
-  const position = relatedPreviewPosition(payload?.anchor);
-  state.relatedPreviewNoteId = id;
-  state.relatedPreviewOpen = true;
-  state.relatedPreviewPinned = Boolean(pinned);
-  state.relatedPreviewPlacement = position.placement;
-  state.relatedPreviewStyle = position.style;
-  state.relatedPreviewError = "";
-
-  if (notesStore.detailById(id)) {
-    state.relatedPreviewLoading = false;
-    return;
-  }
-
-  state.relatedPreviewLoading = true;
-  try {
-    await notesStore.ensureNoteDetail(id);
-    if (seq === relatedPreviewRequestSeq) syncActiveTopicFromStore();
-  } catch (error) {
-    if (seq === relatedPreviewRequestSeq) {
-      state.relatedPreviewError = error.message || "关联事件加载失败";
-    }
-  } finally {
-    if (seq === relatedPreviewRequestSeq) state.relatedPreviewLoading = false;
-  }
-}
-
-function previewRelatedNote(payload) {
-  openRelatedPreview(payload, { pinned: false });
-}
-
-function pinRelatedNote(payload) {
-  openRelatedPreview(payload, { pinned: true });
-}
-
-function hideRelatedPreview(eventId) {
-  if (state.relatedPreviewPinned) return;
-  if (eventId && Number(eventId) !== Number(state.relatedPreviewNoteId)) return;
-  closeRelatedPreview();
-}
-
-function closeRelatedPreview() {
-  relatedPreviewRequestSeq += 1;
-  state.relatedPreviewOpen = false;
-  state.relatedPreviewNoteId = null;
-  state.relatedPreviewLoading = false;
-  state.relatedPreviewError = "";
-  state.relatedPreviewPinned = false;
-  state.relatedPreviewStyle = {};
-}
-
-function openRelatedPreviewFull() {
-  const id = Number(state.relatedPreviewNoteId);
-  if (!id) return;
-  closeRelatedPreview();
-  runOrConfirm(() => applyNoteSelection(id));
-}
-
 function closeDetailPane() {
   runOrConfirm(async () => {
     state.rightOpen = false;
@@ -1824,6 +1419,15 @@ function startCreateNote() {
     state.rightOpen = true;
     await syncRouteState({ eventId: state.selectedNoteId, mode: "create" });
   });
+}
+
+function focusFeedSearch() {
+  if (isMobile.value) {
+    state.mobileSearchOpen = true;
+    closeMobileSidebar();
+    return;
+  }
+  openCommandPalette();
 }
 
 // Row "⊕" affordance: create a note inside a specific notebook, switching to it
@@ -1912,7 +1516,6 @@ async function saveNote(payload) {
 async function selectTopic(topicId) {
   if (topicId === state.activeTopicId && !isGlobalFavoritesMode.value) return;
   runOrConfirm(async () => {
-    closeMindmap();
     exitGlobalFavoritesMode({ reselect: false });
     state.propertyFilter = { key: "", value: "" };
     state.activeEra = "";
@@ -2151,52 +1754,6 @@ async function permanentlyDeleteNote(event) {
   }
 }
 
-// The center surface open right now (mindmap or canvas — never both). Its trash/restore
-// flow is identical, so both surfaces share these handlers.
-function activeCenterSurface() {
-  return mindmapSurfaceRef.value || canvasSurfaceRef.value || null;
-}
-async function settleCenterSaves() {
-  await mindmapSaveChain.catch(() => null);
-  await canvasSaveChain.catch(() => null);
-}
-
-async function trashMindmapNote(event) {
-  activeCenterSurface()?.flushAutosave?.();
-  activeCenterSurface()?.pauseAutosave?.();
-  await settleCenterSaves();
-  const ok = await moveNoteToTrash(event);
-  if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    closeMindmap();
-    setDefaultSelection();
-  }
-  if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    activeCenterSurface()?.resumeAutosave?.();
-  }
-}
-
-async function restoreMindmapNote(event) {
-  await restoreNote(event);
-  if (Number(event?.id) === Number(state.mindmapOpenId)) {
-    closeMindmap();
-    setDefaultSelection();
-  }
-}
-
-async function permanentlyDeleteMindmapNote(event) {
-  activeCenterSurface()?.flushAutosave?.();
-  activeCenterSurface()?.pauseAutosave?.();
-  await settleCenterSaves();
-  const ok = await permanentlyDeleteNote(event);
-  if (ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    closeMindmap();
-    setDefaultSelection();
-  }
-  if (!ok && Number(event?.id) === Number(state.mindmapOpenId)) {
-    activeCenterSurface()?.resumeAutosave?.();
-  }
-}
-
 function togglePreview() {
   state.showPreview = !state.showPreview;
   writeStorage(PREVIEW_KEY, state.showPreview ? "on" : "off");
@@ -2272,15 +1829,6 @@ async function confirmBatchPurgeNow() {
       "已永久删除"
     );
   }
-}
-
-function focusFeedSearch() {
-  if (isMobile.value) {
-    state.mobileSearchOpen = true;
-    closeMobileSidebar();
-    return;
-  }
-  openCommandPalette();
 }
 
 // A brand-new option created in the picker is folded into its property and
@@ -2592,7 +2140,7 @@ async function updateNavPosition(position) {
 }
 
 // Which grid track the detail pane occupies ("edge" | "center"), i.e. the 中栏/右栏
-// swap (docs/layout-swap-design.md §7). Same optimistic + rollback + localStorage
+// swap. Same optimistic + rollback + localStorage
 // first-frame mirror path as navPosition.
 async function updateDetailPosition(position) {
   const next = normalizeDetailPosition(position);
@@ -2633,8 +2181,7 @@ async function updateSidebarSort(value) {
 function startResize(side, event) {
   // When the sidebar is on the right, both handles mirror: the sidebar boundary is
   // measured from the right edge and the detail boundary from the left. With the
-  // detail pane in the center track its boundary is offset by the sidebar width
-  // (docs/layout-swap-design.md §7).
+  // detail pane in the center track its boundary is offset by the sidebar width.
   const navRight = state.config.navPosition === "right";
   const detailCenter = state.config.detailPosition === "center";
   // Width the sidebar actually paints at (workspaceStyle clamps it on compact desktops).
@@ -2883,8 +2430,6 @@ watch(
       :search-open="state.mobileSearchOpen"
       @open-drawer="openMobileSidebar"
       @create-note="startCreateNote"
-      @create-mindmap="createMindmapNote"
-      @create-canvas="createCanvasNote"
       @update:searchQuery="updateSearchQuery"
       @update:search-open="state.mobileSearchOpen = $event"
     />
@@ -2915,8 +2460,6 @@ watch(
       @create-bookshelf="createBookshelf"
       @create-note="startCreateNote"
       @create-note-in-topic="createNoteInTopic"
-      @create-mindmap-in-topic="createMindmapNote"
-      @create-canvas-in-topic="createCanvasNote"
       @create-topic="createTopic"
       @rename-bookshelf="renameBookshelf"
       @rename-topic="renameTopic"
@@ -2940,34 +2483,6 @@ watch(
       @pane-drag-start="paneSwap.onPaneDragStart"
     />
 
-    <MindmapSurface
-      v-if="mindmapNote"
-      ref="mindmapSurfaceRef"
-      :note="mindmapNote"
-      :saving="state.mindmapSaving"
-      @back="closeMindmap"
-      @save="saveMindmapTree"
-      @toggle-favorite="toggleFavorite"
-      @move-to-trash="trashMindmapNote"
-      @restore="restoreMindmapNote"
-      @permanent-delete="permanentlyDeleteMindmapNote"
-    />
-
-    <CanvasSurface
-      v-else-if="canvasNote"
-      ref="canvasSurfaceRef"
-      :note="canvasNote"
-      :saving="state.mindmapSaving"
-      :resolve-detail="notesStore.ensureNoteDetail"
-      @back="closeMindmap"
-      @save="saveCanvasSnapshot"
-      @toggle-favorite="toggleFavorite"
-      @move-to-trash="trashMindmapNote"
-      @restore="restoreMindmapNote"
-      @permanent-delete="permanentlyDeleteMindmapNote"
-      @open-embed="pinRelatedNote"
-    />
-
     <!-- Remount the feed per display view (don't remove this key). NoteFeed's six view
          branches (timeline/table/board/gallery/outline/list) all share ref="feedRef",
          so Vue's incremental patch corrupts on an in-place view swap (Cannot set
@@ -2977,7 +2492,6 @@ watch(
          view does NOT change this key, so it still patches in place. -->
     <NoteFeed
       ref="feedPaneRef"
-      v-else
       :key="`feed-view:${effectiveDisplayStyle}`"
       :loading="state.loading || state.eventsLoading"
       :error="state.error"
@@ -3037,8 +2551,6 @@ watch(
       @batch-permanent-delete="requestBatchPurge"
       @open-command-palette="openCommandPalette"
       @clear-context-filter="clearFavoriteScope"
-      @create-mindmap="createMindmapNote"
-      @create-canvas="createCanvasNote"
       @load-more="loadMoreActiveTopicNotes($event || { auto: false })"
       @pane-drag-start="paneSwap.onPaneDragStart"
     />
@@ -3047,7 +2559,6 @@ watch(
       v-show="!isMobile || state.rightOpen"
       ref="detailPaneRef"
       :event="detailPaneNote"
-      :candidate-notes="state.events"
       :topic-title="activeTopicTitle"
       :topic-columns="topicColumns"
       :loading="detailPaneLoading"
@@ -3063,9 +2574,6 @@ watch(
       @edit="startEditSelectedNote"
       @open-menu="openNoteMenu"
       @move-to-trash="moveNoteToTrash"
-      @preview-related="previewRelatedNote"
-      @hide-related-preview="hideRelatedPreview"
-      @pin-related="pinRelatedNote"
       @save="saveNote"
       @toggle-favorite="toggleFavorite"
       @create-option="addPropertyOption"
@@ -3073,25 +2581,12 @@ watch(
       @preview-change="state.editPreview = $event"
     />
 
-    <RelatedNotePreviewPopover
-      :open="state.relatedPreviewOpen"
-      :event="relatedPreviewNote"
-      :topic-title="relatedPreviewTopicTitle"
-      :loading="state.relatedPreviewLoading"
-      :error="state.relatedPreviewError"
-      :pinned="state.relatedPreviewPinned"
-      :placement="state.relatedPreviewPlacement"
-      :style-vars="state.relatedPreviewStyle"
-      @close="closeRelatedPreview"
-      @open-full="openRelatedPreviewFull"
-    />
-
     <div v-if="!isMobile" id="rzLeft" class="resizer" @mousedown="startResize('left', $event)"></div>
     <!-- Compact desktop renders the detail as a fixed overlay (not a grid track),
          so there is no seam to drag. -->
     <div v-if="!isMobile && !isCompactDesktop && state.rightOpen" id="rzRight" class="resizer" @mousedown="startResize('right', $event)"></div>
 
-    <!-- Pane-swap drag overlays (docs/pane-swap-drag-design.md §2). The target
+    <!-- Pane-swap drag overlays. The target
          highlight marks where the dragged pane lands once past the midline; the
          ghost trails the pointer. Both are fixed, pointer-events:none leaf nodes so
          the drag stays compositor-only. The ghost stays mounted (hidden via CSS

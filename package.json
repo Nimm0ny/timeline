@@ -7,18 +7,12 @@
     "dev": "vite --config ui/vite.config.js",
     "build": "vite build --config ui/vite.config.js",
     "preview": "vite preview --config ui/vite.config.js",
-    "test:ui": "node --test \"ui/tests/*.test.js\"",
     "agent:check": "node tools/qa/agent-guard.mjs",
     "qa:visual-fixture": "node tools/qa/visual-fixture.mjs",
     "qa:visual-server": "node tools/qa/visual-server.mjs"
   },
   "dependencies": {
-    "@antv/x6": "^2.19.2",
-    "@antv/x6-plugin-history": "^2.2.4",
-    "@antv/x6-plugin-selection": "^2.2.2",
-    "@antv/x6-vue-shape": "^2.1.2",
     "@chenglou/pretext": "^0.0.8",
-    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language": "^6.12.4",
@@ -30,6 +24,7 @@
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "vite": "^7.1.5"
   }

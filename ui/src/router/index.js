@@ -6,12 +6,8 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      name: "timeline",
+      name: "notes",
       component: NotesPage,
-    },
-    {
-      path: "/editor",
-      redirect: "/",
     },
   ],
 });

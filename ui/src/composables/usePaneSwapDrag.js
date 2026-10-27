@@ -2,7 +2,7 @@ import { getCurrentInstance, onBeforeUnmount, ref } from "vue";
 
 // Mouse-only drag to rearrange the three columns by grabbing the empty area of a
 // column's toolbar, then releasing past a threshold. Each column maps to one layout
-// knob (docs/pane-swap-drag-design.md):
+// knob:
 //   - sidebar → toggles navPosition (moves the function bar to the opposite edge)
 //   - feed / detail → toggles detailPosition (swaps the list and the detail pane)
 // The composable owns no persisted state; it commits through the page's
@@ -17,7 +17,7 @@ export const COMMIT_PENETRATION = 200;
 
 // Horizontal [lo, hi] span each column paints at, for the active nav/detail combo.
 // Mirrors the grid-template-columns + `order` rules in notes.css and the
-// resizer math (docs/layout-swap-design.md §1/§7). W = viewport width, L = painted
+// resizer math. W = viewport width, L = painted
 // sidebar width, R = painted detail width; a closed detail collapses to zero width.
 export function paneSpans({ W, L, R, navRight, detailCenter, rightOpen = true }) {
   const Rd = rightOpen ? R : 0;

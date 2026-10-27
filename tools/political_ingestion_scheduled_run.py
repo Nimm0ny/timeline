@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import time
@@ -104,8 +105,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one locked political document crawl and sync cycle.")
     parser.add_argument("--set", dest="set_name", default="weekly")
     parser.add_argument("--registry", default=str(cli.DEFAULT_REGISTRY))
-    parser.add_argument("--base-url", default="http://127.0.0.1")
-    parser.add_argument("--database", default=str(root / "data" / "timeline.db"))
+    data_dir = Path(os.environ.get("CHRONICLE_DATA_DIR", root / ".chronicle-data")).expanduser().resolve()
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--database", default=str(data_dir / "timeline.db"))
     parser.add_argument("--state-dir", default=str(root / "data" / "political-ingestion"))
     parser.add_argument("--backup-dir", default=str(Path.home() / "timeline_backups"))
     parser.add_argument("--timeout", type=positive_float, default=20.0)

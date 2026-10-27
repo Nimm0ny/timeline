@@ -5,8 +5,6 @@ import { fileURLToPath, URL } from "node:url";
 function manualChunks(id) {
   if (!id.includes("node_modules")) return undefined;
   if (id.includes("@codemirror/")) return "markdown-vendor";
-  if (id.includes("@antv/x6")) return "mindmap-vendor";
-  if (id.includes("@antv/x6-plugin-history") || id.includes("@antv/x6-plugin-selection")) return "mindmap-vendor";
   if (id.includes("@lucide/vue")) return "icons-vendor";
   if (id.includes("vue-router")) return "vue-vendor";
   if (id.includes("/vue/")) return "vue-vendor";
@@ -17,10 +15,10 @@ const OPTIONAL_PRELOAD_CHUNKS = [
   "CommandPalette-",
   "SettingsModal-",
   "MarkdownLiveEditor-",
-  "MindmapSurface-",
   "markdown-vendor-",
-  "mindmap-vendor-",
 ];
+
+const apiTarget = process.env.CHRONICLE_API_TARGET || "http://127.0.0.1:8000";
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
@@ -34,9 +32,9 @@ export default defineConfig({
     host: "0.0.0.0",
     port: Number(process.env.PORT) || 5173,
     proxy: {
-      "/api": "http://localhost:8000",
-      "/theme": "http://localhost:8000",
-      "/images": "http://localhost:8000",
+      "/api": apiTarget,
+      "/theme": apiTarget,
+      "/images": apiTarget,
     },
   },
   build: {

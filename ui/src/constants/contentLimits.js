@@ -5,7 +5,6 @@ export const CONTENT_LIMITS = {
   eraLabel: 24,
   eventItemText: 140,
   bodyMarkdown: 12000,
-  relatedNotesVisible: 5,
   attachmentsVisible: 5,
   tagsVisible: 5,
 };

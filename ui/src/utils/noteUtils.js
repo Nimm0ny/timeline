@@ -1,7 +1,5 @@
 import { CONTENT_LIMITS } from "../constants/contentLimits.js";
 import { plainTextFromMarkdown } from "./markdownPreview.js";
-import { x6SnapshotToTree } from "./mindmapX6.js";
-import { canvasSnapshotText, isX6CanvasSnapshot } from "./canvasX6.js";
 
 // Unified property model: every column is a property. Only the two structural
 // columns (date + headline) are reserved; type/tags are ordinary, deletable
@@ -124,21 +122,6 @@ function extractYearLabel(isoDate) {
 
 function padTwo(value) {
   return String(value || 0).padStart(2, "0");
-}
-
-function htmlToPlainText(source) {
-  const raw = String(source || "");
-  if (!raw) return "";
-  if (typeof document === "undefined") {
-    return raw
-      .replace(/<[^>]*>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  const el = document.createElement("div");
-  el.innerHTML = raw;
-  return (el.textContent || "").replace(/\s+/g, " ").trim();
 }
 
 function clampNumber(value, min, max) {
@@ -285,7 +268,6 @@ export function buildNotePreview(event, maxLength = CONTENT_LIMITS.previewText) 
   if (cacheKey && EVENT_PREVIEW_CACHE.has(cacheKey)) return EVENT_PREVIEW_CACHE.get(cacheKey);
   const text =
     String(event?.preview || "").trim() ||
-    mindmapPlainText(event?.bodyJson) ||
     plainTextFromMarkdown(event?.bodyMarkdown) ||
     (event?.items || [])
       .map((item) => String(item?.text || "").trim())
@@ -426,7 +408,7 @@ export function timelineHasTrailingSpacer(columns, hiddenKeys = null, titleWidth
 // views are enabled (services/timeline.py `topic_capabilities` sends the live
 // `capabilities` set in the topic meta) — these maps only add presentation
 // metadata (icon/label) and the implemented-view gate, never re-derive capability
-// from a per-event scan. See docs/note-types-and-views-design.md.
+// from a per-event scan.
 export const DEFAULT_DISPLAY_STYLE = "timeline";
 export const DISPLAY_VIEW_META = {
   timeline: { label: "时间线", icon: "timeline", requires: "需要带日期的笔记" },
@@ -485,66 +467,11 @@ export function buildBoardGroups(events, column, sort = null) {
   return ordered;
 }
 
-// --- Mindmap (note_type=mindmap) ------------------------------------------
-// body_json is backward-compatible across three shapes:
-// 1. legacy bare tree ({ data, children })
-// 2. simple-mind-map snapshot ({ root, layout, theme, view })
-// 3. X6 snapshot ({ _fmt:"x6-mindmap-v1", cells, background, view, layout })
-// Return a normalized root tree ({ data, children }) from any supported shape.
-export function mindmapRootData(value) {
-  if (!value || typeof value !== "object") return null;
-  const x6Tree = x6SnapshotToTree(value);
-  if (x6Tree) return x6Tree;
-  const root = value.root && typeof value.root === "object" ? value.root : value;
-  if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") return null;
-  return root;
-}
-
-export function mindmapPlainText(value) {
-  // A canvas is a flat card graph, not a tree — pull its card text directly. Both
-  // structured note types (mindmap + canvas) flow through here for the feed preview and
-  // client-side search, so a canvas keeps its text after an in-session upsert (else the
-  // optimistic index row would blank it until the next backend reload).
-  if (isX6CanvasSnapshot(value)) return canvasSnapshotText(value);
-  const root = mindmapRootData(value);
-  if (!root) return "";
-  const parts = [];
-  const visit = (node) => {
-    if (!node || typeof node !== "object") return;
-    const data = node.data && typeof node.data === "object" ? node.data : {};
-    const tags = Array.isArray(data.tag) ? data.tag.map((item) => String(item || "").trim()).filter(Boolean).join(" ") : "";
-    [data.text, data.note, data.hyperlink, tags]
-      .map((item) => htmlToPlainText(item))
-      .filter(Boolean)
-      .forEach((item) => parts.push(item));
-    (Array.isArray(node.children) ? node.children : []).forEach(visit);
-  };
-  visit(root);
-  return parts.join(" ").replace(/\s+/g, " ").trim();
-}
-
 export function noteHasDate(event) {
   if (event?.hasDate === false) return false;
   if (event?.dateKey != null) return true;
   return Number.isInteger(event?.dateParts?.year);
 }
-
-// Count nodes in a normalized mindmap tree (root + descendants).
-export function countMindmapNodes(rootNode) {
-  if (!rootNode || typeof rootNode !== "object") return 0;
-  const children = Array.isArray(rootNode.children) ? rootNode.children : [];
-  return children.reduce((sum, child) => sum + countMindmapNodes(child), 1);
-}
-
-// Layout presets surfaced in the X6 mindmap toolbar. "free" keeps manual
-// coordinates untouched; the others reflow the existing tree into a preset.
-export const DEFAULT_MINDMAP_LAYOUT = "free";
-export const MINDMAP_LAYOUTS = [
-  { key: "free", label: "自由布局" },
-  { key: "logicalStructure", label: "逻辑结构（右）" },
-  { key: "logicalStructureLeft", label: "逻辑结构（左）" },
-  { key: "organizationStructure", label: "组织结构" },
-];
 
 // Container types (axis 0, "数字图书馆"): each presets an ORDERED view set (first =
 // default) and a left-tree icon. Mirrors backend CONTAINER_TYPE_VIEWS
@@ -599,7 +526,7 @@ export function resolveDisplayStyle(style, capabilities) {
   return IMPLEMENTED_DISPLAY_STYLES.find(usable) || DEFAULT_DISPLAY_STYLE;
 }
 
-// --- Center-column sort (docs/center-sort-design.md) -----------------------
+// --- Center-column sort ----------------------------------------------------
 // Sort is an ORDERED LIST of { field, dir } levels: the first is primary, the rest
 // are tiebreakers (multi-level sort). Direction is universal, fields are clamped
 // per view. Default = a single time-asc level = today's behavior (zero change).
@@ -1100,20 +1027,8 @@ function hasReadableAttachment(attachment = {}) {
   );
 }
 
-function hasReadableRelatedNote(event = {}) {
-  return Boolean(
-    event.id &&
-      (String(event.headline || "").trim() ||
-        String(event.displayLabel || "").trim() ||
-        String(event.isoDate || "").trim())
-  );
-}
-
 export function buildReadableDetailGroups(event) {
-  return {
-    attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment),
-    relatedNotes: (Array.isArray(event?.relatedNotes) ? event.relatedNotes : []).filter(hasReadableRelatedNote),
-  };
+  return { attachments: (Array.isArray(event?.attachments) ? event.attachments : []).filter(hasReadableAttachment) };
 }
 
 export function matchesNoteSearch(event, query, columns = []) {
@@ -1138,7 +1053,6 @@ export function matchesNoteSearch(event, query, columns = []) {
     event?.displayLabel,
     event?.era,
     event?.legacyYear,
-    mindmapPlainText(event?.bodyJson),
     event?.bodyMarkdown,
     event?.preview,
     event?.searchText,
@@ -1276,8 +1190,6 @@ export function buildEditorDraft(event, columns = []) {
     image: event?.image || "",
     imageUrl: event?.imageUrl || "",
     attachments: Array.isArray(event?.attachments) ? event.attachments.map((item) => ({ ...item })) : [],
-    relatedNoteIds: Array.isArray(event?.relatedNoteIds) ? [...event.relatedNoteIds] : [],
-    relatedNotes: Array.isArray(event?.relatedNotes) ? event.relatedNotes.map((item) => ({ ...item })) : [],
     favorite: Boolean(event?.favorite),
     deletedAt: event?.deletedAt || null,
     items: (event?.items || [{ tag: "note", text: bodyMarkdown || "" }]).map((item) => ({
@@ -1509,7 +1421,7 @@ export function shouldAutoLoadMoreForFilteredNotes({
   );
 }
 
-// --- Pagination core (pure helpers, unit-tested in ui/tests/noteUtils.test.js) ---
+// --- Pagination core (pure helpers) ----------------------------------------
 
 // Merge a freshly-fetched page into a topic's already-loaded events. On append,
 // de-dupes by id (a cursor page can re-include a boundary row) so paging never
